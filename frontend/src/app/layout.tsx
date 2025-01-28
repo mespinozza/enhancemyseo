@@ -1,14 +1,14 @@
-'use client';
-
+import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import { AuthProvider } from '@/contexts/AuthContext';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from 'react-hot-toast';
+import { Providers } from './providers';
 
 const inter = Inter({ subsets: ['latin'] });
 
-const queryClient = new QueryClient();
+export const metadata: Metadata = {
+  title: 'EnhanceMySEO',
+  description: 'AI-powered SEO and blog content generation',
+};
 
 export default function RootLayout({
   children,
@@ -16,14 +16,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full bg-gray-50">
-      <body className={`${inter.className} h-full`}>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            {children}
-            <Toaster position="top-right" />
-          </AuthProvider>
-        </QueryClientProvider>
+    <html lang="en">
+      <body className={inter.className}>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

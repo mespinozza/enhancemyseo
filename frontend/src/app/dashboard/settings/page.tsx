@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import DashboardLayout from '@/components/layouts/DashboardLayout';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 
 const settingsSchema = z.object({
   shopify_url: z.string().url('Invalid Shopify URL').optional(),
@@ -90,6 +91,20 @@ export default function SettingsPage() {
               Settings
             </h2>
           </div>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          <Link
+            href="/dashboard/brands"
+            className="block p-6 bg-white rounded-lg shadow-sm border border-gray-200 hover:border-blue-500 transition-colors"
+          >
+            <h2 className="text-lg font-medium text-gray-900 mb-2">Brand Profiles</h2>
+            <p className="text-sm text-gray-600">
+              Manage your brand profiles and Shopify integrations
+            </p>
+          </Link>
+
+          {/* Add more settings cards here */}
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-8">
