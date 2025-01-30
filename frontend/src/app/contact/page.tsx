@@ -14,6 +14,7 @@ interface FormData {
   businessName: string;
   organizationType: 'agency' | 'business';
   message: string;
+  seoImages: FileList | null;
 }
 
 let inquiryCounter = Math.floor(Math.random() * 900) + 100; // Start with a random 3-digit number
@@ -34,6 +35,7 @@ export default function Contact() {
     businessName: '',
     organizationType: 'business',
     message: '',
+    seoImages: null
   });
 
   // Initialize EmailJS
@@ -48,6 +50,14 @@ export default function Contact() {
     try {
       // Format the inquiry number
       const inquiryNumber = `${inquiryCounter.toString().padStart(3, '0')}`;
+      
+      // Create FormData for file upload
+      const emailFormData = new FormData();
+      if (formData.seoImages) {
+        Array.from(formData.seoImages).forEach((file, index) => {
+          emailFormData.append(`seo_image_${index}`, file);
+        });
+      }
       
       // Prepare template parameters
       const templateParams = {
@@ -89,12 +99,20 @@ export default function Contact() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    setFormData(prev => ({
+      ...prev,
+      seoImages: files
+    }));
+  };
+
   return (
     <>
       <Header />
-      <div className="h-screen pt-24 bg-gradient-to-b from-white via-white to-blue-50/50">
-        <div className="max-w-2xl mx-auto px-4 h-[calc(100vh-6rem)] flex flex-col">
-          <div className="text-center mb-6">
+      <div className="min-h-screen pt-24 bg-gradient-to-b from-white via-white to-blue-50/50">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl mb-2">
               Let's talk about your needs
             </h1>
@@ -103,131 +121,161 @@ export default function Contact() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
-                  First Name
-                </label>
-                <input
-                  type="text"
-                  name="firstName"
-                  id="firstName"
-                  required
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
+          <form onSubmit={handleSubmit} className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 space-y-6 mb-8">
+            {/* Personal Information */}
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                    First Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="firstName"
+                    id="firstName"
+                    required
+                    value={formData.firstName}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
+                    Last Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="lastName"
+                    id="lastName"
+                    required
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  name="lastName"
-                  id="lastName"
-                  required
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    id="email"
+                    required
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    id="phone"
+                    required
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  name="email"
-                  id="email"
-                  required
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
+            {/* Business Information */}
+            <div className="space-y-6 pt-2">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="businessName" className="block text-sm font-medium text-gray-700 mb-1">
+                    Business Name
+                  </label>
+                  <input
+                    type="text"
+                    name="businessName"
+                    id="businessName"
+                    value={formData.businessName}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="businessType" className="block text-sm font-medium text-gray-700 mb-1">
+                    Business Type
+                  </label>
+                  <input
+                    type="text"
+                    name="businessType"
+                    id="businessType"
+                    value={formData.businessType}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
               </div>
+
               <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                  Phone Number
+                <label htmlFor="organizationType" className="block text-sm font-medium text-gray-700 mb-1">
+                  Organization Type
                 </label>
-                <input
-                  type="tel"
-                  name="phone"
-                  id="phone"
-                  required
-                  value={formData.phone}
+                <select
+                  name="organizationType"
+                  id="organizationType"
+                  value={formData.organizationType}
                   onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                />
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="business">Business</option>
+                  <option value="agency">Agency</option>
+                </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* SEO Information */}
+            <div className="space-y-6 pt-2">
               <div>
-                <label htmlFor="businessName" className="block text-sm font-medium text-gray-700">
-                  Business Name
+                <label htmlFor="seoImages" className="block text-sm font-medium text-gray-700 mb-1">
+                  Upload your business current SEO levels
                 </label>
                 <input
-                  type="text"
-                  name="businessName"
-                  id="businessName"
-                  required
-                  value={formData.businessName}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  type="file"
+                  name="seoImages"
+                  id="seoImages"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileChange}
+                  className="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-medium
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100
+                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 />
+                <p className="mt-2 text-sm text-gray-500">
+                  Upload screenshots of your current SEO metrics (optional)
+                </p>
               </div>
+
               <div>
-                <label htmlFor="businessType" className="block text-sm font-medium text-gray-700">
-                  Business Type
+                <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1">
+                  Message <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  name="businessType"
-                  id="businessType"
+                <textarea
+                  name="message"
+                  id="message"
+                  rows={4}
                   required
-                  value={formData.businessType}
+                  value={formData.message}
                   onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Tell us about your needs..."
                 />
               </div>
-            </div>
-
-            <div>
-              <label htmlFor="organizationType" className="block text-sm font-medium text-gray-700">
-                Organization Type
-              </label>
-              <select
-                name="organizationType"
-                id="organizationType"
-                required
-                value={formData.organizationType}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              >
-                <option value="business">Business</option>
-                <option value="agency">Agency</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="message" className="block text-sm font-medium text-gray-700">
-                Message
-              </label>
-              <textarea
-                name="message"
-                id="message"
-                rows={3}
-                required
-                value={formData.message}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                placeholder="Tell us about your needs..."
-              />
             </div>
 
             <button
