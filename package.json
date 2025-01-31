@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
+    "@emailjs/browser": "^4.4.1",
     "firebase-admin": "^13.0.2"
   }
 }

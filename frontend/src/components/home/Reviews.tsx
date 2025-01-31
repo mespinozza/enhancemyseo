@@ -5,59 +5,59 @@ import { Star, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Review {
   id: number;
-  name: string;
+  firstName: string;
+  lastName: string;
   rating: number;
   text: string;
   storeType: string;
   revenueRange: string;
-  profileImage?: string;
 }
 
 const reviews: Review[] = [
   {
     id: 1,
-    name: "Sarah Thompson",
+    firstName: "Sarah",
+    lastName: "Thompson",
     rating: 5,
     text: "This AI tool has completely transformed how I create content for my store. The keyword research is spot-on and the articles are engaging and SEO-optimized. It's like having a full content team at my fingertips!",
     storeType: "Fashion & Accessories",
-    revenueRange: "6-figure",
-    profileImage: "/images/reviews/sarah.jpg"
+    revenueRange: "6-figure"
   },
   {
     id: 2,
-    name: "Michael Chen",
+    firstName: "Michael",
+    lastName: "Chen",
     rating: 4.5,
     text: "The automated content generation has saved me countless hours. The articles are well-researched and perfectly aligned with my brand voice. My organic traffic has increased by 150% since I started using this tool.",
     storeType: "Health & Wellness",
-    revenueRange: "5-figure",
-    profileImage: "/images/reviews/michael.jpg"
+    revenueRange: "5-figure"
   },
   {
     id: 3,
-    name: "Jessica Martinez",
-    rating: 5,
-    text: "I was skeptical about AI-generated content at first, but this tool exceeded all my expectations. The keyword research is incredibly accurate, and the content quality is outstanding. A game-changer for my business!",
-    storeType: "Home & Garden",
-    revenueRange: "4-figure",
-    profileImage: "/images/reviews/jessica.jpg"
-  },
-  {
-    id: 4,
-    name: "David Wilson",
+    firstName: "David",
+    lastName: "Wilson",
     rating: 4.8,
     text: "Finally, a content solution that understands e-commerce! The articles are engaging, informative, and drive real results. My conversion rate has improved significantly since implementing the content strategy.",
     storeType: "Electronics",
-    revenueRange: "6-figure",
-    profileImage: "/images/reviews/david.jpg"
+    revenueRange: "6-figure"
   },
   {
-    id: 5,
-    name: "Emma Rodriguez",
+    id: 4,
+    firstName: "Emma",
+    lastName: "Rodriguez",
     rating: 4.9,
     text: "The AI-generated content has helped me scale my store's organic reach tremendously. The articles are not just SEO-friendly but also genuinely helpful to my customers. This tool pays for itself many times over!",
     storeType: "Beauty & Cosmetics",
-    revenueRange: "5-figure",
-    profileImage: "/images/reviews/emma.jpg"
+    revenueRange: "5-figure"
+  },
+  {
+    id: 5,
+    firstName: "James",
+    lastName: "Anderson",
+    rating: 5,
+    text: "I was skeptical about AI-generated content at first, but this tool exceeded all my expectations. The keyword research is incredibly accurate, and the content quality is outstanding. A game-changer for my business!",
+    storeType: "Home & Garden",
+    revenueRange: "4-figure"
   }
 ];
 
@@ -101,6 +101,10 @@ export default function Reviews() {
     ));
   };
 
+  const getBlurredLastName = (lastName: string) => {
+    return lastName.charAt(0) + '•'.repeat(lastName.length - 1);
+  };
+
   return (
     <section className="py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -129,24 +133,14 @@ export default function Reviews() {
                   <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 mx-auto max-w-3xl">
                     <div className="flex items-center mb-6">
                       <div className="flex-shrink-0">
-                        {review.profileImage ? (
-                          <img
-                            src={review.profileImage}
-                            alt={review.name}
-                            className="w-16 h-16 rounded-full object-cover"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              target.nextElementSibling?.classList.remove('hidden');
-                            }}
-                          />
-                        ) : null}
-                        <div className={`w-16 h-16 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 flex items-center justify-center text-white text-2xl font-bold ${review.profileImage ? 'hidden' : ''}`}>
-                          {review.name.charAt(0)}
+                        <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 flex items-center justify-center text-white text-2xl font-bold">
+                          {review.firstName.charAt(0)}
                         </div>
                       </div>
                       <div className="ml-4">
-                        <h3 className="text-lg font-semibold text-gray-900">{review.name}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {review.firstName} {getBlurredLastName(review.lastName)}
+                        </h3>
                         <div className="flex items-center mt-1">
                           <div className="flex mr-2">
                             {renderStars(review.rating)}

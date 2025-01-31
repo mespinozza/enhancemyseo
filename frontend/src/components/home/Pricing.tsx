@@ -19,7 +19,7 @@ interface PricingTier {
 export default function Pricing() {
   const router = useRouter();
   const { user } = useAuth();
-  const [isAnnual, setIsAnnual] = useState(false);
+  const [isAnnual, setIsAnnual] = useState(true);
 
   const getPrice = (monthlyPrice: number, isAnnual: boolean) => {
     if (isAnnual) {
@@ -108,7 +108,7 @@ export default function Pricing() {
   };
 
   return (
-    <section className="py-8">
+    <section className="py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Pricing Header */}
         <div className="text-center mb-12">
@@ -146,7 +146,7 @@ export default function Pricing() {
         </div>
 
         {/* Pricing Tiers */}
-        <div className="grid md:grid-cols-3 gap-8 mb-16">
+        <div className="grid md:grid-cols-3 gap-8 mb-12">
           {pricingTiers.map((tier) => (
             <div
               key={tier.name}
@@ -163,9 +163,16 @@ export default function Pricing() {
               )}
               <div className="mb-6">
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{tier.name}</h3>
-                <div className="flex items-baseline mb-2">
-                  <span className="text-4xl font-bold text-gray-900">${tier.price}</span>
-                  <span className="text-gray-600 ml-2">/month</span>
+                <div className="flex flex-col mb-2">
+                  <div className="flex items-baseline">
+                    <span className="text-4xl font-bold text-gray-900">${tier.price}</span>
+                    <span className="text-gray-600 ml-2">/month</span>
+                  </div>
+                  {isAnnual && tier.price !== "0" && (
+                    <span className="text-sm text-blue-600 mt-1">
+                      (Billed at ${(Number(tier.price) * 12).toFixed(0)} per year)
+                    </span>
+                  )}
                 </div>
                 <p className="text-gray-600">{tier.description}</p>
               </div>
@@ -192,7 +199,7 @@ export default function Pricing() {
         </div>
 
         {/* Enterprise Section */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-2xl shadow-xl p-8 text-white relative overflow-hidden mb-16">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-2xl shadow-xl p-8 text-white relative overflow-hidden mb-12">
           <div className="md:flex items-center justify-between">
             <div className="mb-6 md:mb-0">
               <h3 className="text-2xl font-bold mb-2">Agency / Enterprise</h3>
@@ -222,7 +229,7 @@ export default function Pricing() {
         </div>
 
         {/* Feature Showcase Section */}
-        <div id="features" className="mb-16 bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl p-12">
+        <div id="features" className="mb-12 bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl p-12">
           <div className="max-w-7xl mx-auto">
             {/* Header */}
             <div className="mb-16 text-center">
@@ -313,7 +320,7 @@ export default function Pricing() {
         </div>
 
         {/* Statistics Showcase Section */}
-        <div className="mb-16 bg-gray-900 rounded-3xl shadow-xl p-12 text-white overflow-hidden relative">
+        <div className="mb-12 bg-gray-900 rounded-3xl shadow-xl p-12 text-white overflow-hidden relative">
           {/* Add fade effect to border */}
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white via-transparent to-transparent opacity-5"></div>
           

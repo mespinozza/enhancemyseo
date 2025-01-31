@@ -20,7 +20,9 @@ interface BlogPost {
 export default function DashboardHome() {
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold mb-6">Welcome to EnhanceMySEO</h1>
+      <h1 className="text-2xl font-bold mb-6">
+        Welcome to <span className="bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">EnhanceMySEO</span>
+      </h1>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Article Generation Card */}

@@ -2,10 +2,9 @@
 
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useRouter } from 'next/navigation';
-import Header from '@/components/layout/Header';
 import Hero from '@/components/home/Hero';
-import Reviews from '@/components/home/Reviews';
 import Features from '@/components/home/Features';
+import Reviews from '@/components/home/Reviews';
 import Pricing from '@/components/home/Pricing';
 
 export default function Home() {
@@ -15,17 +14,16 @@ export default function Home() {
   // Removed the automatic redirect to allow users to view the homepage
 
   return (
-    <>
-      <Header />
-      <main className="min-h-screen space-y-8">
+    <div className="space-y-12">
+      <main className="space-y-6">
         <Hero />
-        <Reviews />
         <Features />
+        <Reviews />
         <Pricing />
-        <div id="features" className="py-20">
+        <div id="features" className="py-4">
           {/* Features section will be added here */}
         </div>
       </main>
-    </>
+    </div>
   );
 }

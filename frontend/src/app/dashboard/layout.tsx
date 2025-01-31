@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { FileText, Key, LogOut, History, ChevronRight, ExternalLink } from 'lucide-react';
+import { FileText, Key, LogOut, History, ChevronRight, ExternalLink, Package, LayoutGrid } from 'lucide-react';
 import { historyOperations, HistoryItem } from '@/lib/firebase/firestore';
 
 export default function DashboardLayout({
@@ -79,17 +79,30 @@ export default function DashboardLayout({
           {/* Navigation */}
           <nav className="flex-1 p-4 bg-white">
             <div className="space-y-3">
-              {/* Generate Article */}
+              {/* Optimize Products */}
               <Link
-                href="/dashboard/articles"
+                href="/dashboard/products"
                 className={`flex items-center px-4 py-2 rounded-md transition-colors ${
-                  pathname === '/dashboard/articles'
+                  pathname === '/dashboard/products'
                     ? 'bg-blue-50 text-blue-700'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                <FileText className="w-5 h-5 mr-3" />
-                Generate Article
+                <Package className="w-5 h-5 mr-3" />
+                Optimize Products
+              </Link>
+
+              {/* Optimize Collections */}
+              <Link
+                href="/dashboard/collections"
+                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+                  pathname === '/dashboard/collections'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <LayoutGrid className="w-5 h-5 mr-3" />
+                Optimize Collections
               </Link>
 
               {/* Generate Keywords */}
@@ -103,6 +116,19 @@ export default function DashboardLayout({
               >
                 <Key className="w-5 h-5 mr-3" />
                 Generate Keywords
+              </Link>
+
+              {/* Generate Article */}
+              <Link
+                href="/dashboard/articles"
+                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+                  pathname === '/dashboard/articles'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <FileText className="w-5 h-5 mr-3" />
+                Generate Article
               </Link>
             </div>
 
