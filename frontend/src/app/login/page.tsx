@@ -17,7 +17,7 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const { signIn, signUp, signInWithGoogle, user } = useAuth();
+  const { login, register: registerUser, signInWithGoogle, user } = useAuth();
   const [error, setError] = useState('');
   const [isLogin, setIsLogin] = useState(true);
   const router = useRouter();
@@ -41,10 +41,10 @@ export default function LoginPage() {
     try {
       setError('');
       if (isLogin) {
-        await signIn(data.email, data.password);
+        await login(data.email, data.password);
         router.push('/dashboard');
       } else {
-        await signUp(data.email, data.password);
+        await registerUser(data.email, data.password);
         router.push('/dashboard');
       }
     } catch (err: any) {

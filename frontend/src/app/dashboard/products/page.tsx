@@ -37,7 +37,7 @@ export default function ProductsPage() {
     async function loadBrandProfiles() {
       if (!user) return;
       try {
-        const profiles = await brandProfileOperations.getBrandProfiles(user.uid);
+        const profiles = await brandProfileOperations.getAll(user.uid);
         setBrandProfiles(profiles);
       } catch (error) {
         console.error('Error loading brand profiles:', error);

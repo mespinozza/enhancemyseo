@@ -33,7 +33,7 @@ export default function KeywordsPage() {
   const loadBrandProfiles = async () => {
     if (!user) return;
     try {
-      const profiles = await brandProfileOperations.getBrandProfiles(user.uid);
+      const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
     } catch (error) {
       console.error('Error loading brand profiles:', error);
@@ -41,32 +41,41 @@ export default function KeywordsPage() {
   };
 
   const handleGenerateKeywords = async () => {
-    if (!selectedBrandId || !baseKeyword) return;
+    if (!selectedBrandId || !baseKeyword || !user) return;
 
     setIsGenerating(true);
     try {
-      // This is where you'll integrate with your keyword generation API
-      // For now, we'll use dummy data
-      const dummyKeywords: Keyword[] = [
-        {
-          keyword: baseKeyword + " guide",
-          relevance: "High relevance due to informational intent",
-          searchVolume: "1.2K",
-          difficulty: "Medium"
-        },
-        {
-          keyword: "best " + baseKeyword,
-          relevance: "High commercial intent, good for product pages",
-          searchVolume: "2.5K",
-          difficulty: "High"
-        },
-        // Add more dummy keywords as needed
-      ];
+      // Get the selected brand profile
+      const selectedProfile = brandProfiles.find(profile => profile.id === selectedBrandId);
+      if (!selectedProfile) {
+        throw new Error('Selected brand profile not found');
+      }
 
-      setGeneratedKeywords(dummyKeywords);
+      // Call the keyword generation API
+      const response = await fetch('/api/generate-keywords', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          baseKeyword,
+          brandName: selectedProfile.brandName,
+          businessType: selectedProfile.businessType,
+          brandGuidelines: selectedProfile.brandGuidelines || '',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate keywords');
+      }
+
+      const data = await response.json();
+      setGeneratedKeywords(data.keywords);
       setCurrentKeywordIndex(0);
     } catch (error) {
       console.error('Failed to generate keywords:', error);
+      alert('Failed to generate keywords. Please try again.');
     } finally {
       setIsGenerating(false);
     }
@@ -223,33 +232,101 @@ export default function KeywordsPage() {
 
         {/* Right Panel - Keywords Preview */}
         <div className="w-1/2 p-6 bg-white overflow-y-auto min-h-full">
-          <div className="max-w-2xl mx-auto h-full flex items-center justify-center">
+          <div className="max-w-2xl mx-auto">
             {isGenerating ? (
               <div className="flex flex-col items-center justify-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
                 <p className="text-gray-600">Generating keywords...</p>
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center text-center w-full max-w-md">
-                <div className="flex flex-col items-center justify-center w-full">
-                  <svg
-                    className="w-24 h-24 text-gray-300 mb-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Keywords Generated Yet</h3>
-                  <p className="text-gray-500 text-center max-w-sm">
-                    Select a brand profile and enter a base keyword to get started.
-                  </p>
+            ) : generatedKeywords.length > 0 ? (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Generated Keywords</h2>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={handlePrevious}
+                      disabled={currentKeywordIndex === 0}
+                      className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowLeft className="w-5 h-5" />
+                    </button>
+                    <span className="text-sm text-gray-500">
+                      {currentKeywordIndex + 1} of {generatedKeywords.length}
+                    </span>
+                    <button
+                      onClick={handleNext}
+                      disabled={currentKeywordIndex === generatedKeywords.length - 1}
+                      className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
+
+                {currentKeyword && (
+                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h3 className="text-lg font-semibold mb-4">{currentKeyword.keyword}</h3>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-500 mb-1">Relevance</h4>
+                        <p className="text-gray-700">{currentKeyword.relevance}</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 mb-1">Search Volume</h4>
+                          <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            currentKeyword.searchVolume === 'High' ? 'bg-green-100 text-green-800' :
+                            currentKeyword.searchVolume === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {currentKeyword.searchVolume}
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 mb-1">Difficulty</h4>
+                          <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            currentKeyword.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
+                            currentKeyword.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {currentKeyword.difficulty}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleSendToArticle}
+                      className="mt-6 w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      Use for Article
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center">
+                <svg
+                  className="w-24 h-24 text-gray-300 mb-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Keywords Generated Yet</h3>
+                <p className="text-gray-500 text-center max-w-sm">
+                  Select a brand profile and enter a base keyword to get started.
+                </p>
               </div>
             )}
           </div>

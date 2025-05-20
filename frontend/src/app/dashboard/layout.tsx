@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { FileText, Key, LogOut, History, ChevronRight, ExternalLink, Package, LayoutGrid } from 'lucide-react';
 import { historyOperations, HistoryItem } from '@/lib/firebase/firestore';
@@ -12,7 +12,8 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [recentHistory, setRecentHistory] = useState<HistoryItem[]>([]);
@@ -25,8 +26,9 @@ export default function DashboardLayout({
       if (!user) return;
       try {
         setIsLoadingHistory(true);
-        const items = await historyOperations.getRecentHistory(user.uid);
-        setRecentHistory(items);
+        const items = await historyOperations.getAll(user.uid);
+        // Take only the 5 most recent items
+        setRecentHistory(items.slice(0, 5));
       } catch (error) {
         console.error('Error loading recent history:', error);
       } finally {
@@ -53,7 +55,8 @@ export default function DashboardLayout({
 
   const handleSignOut = async () => {
     try {
-      await signOut();
+      await logout();
+      router.push('/login');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -167,7 +170,7 @@ export default function DashboardLayout({
                       <div className="flex-1 min-w-0">
                         <p className="truncate">{item.title}</p>
                         <p className="text-xs text-gray-500">
-                          {item.date.toLocaleDateString()}
+                          {item.createdAt?.toDate().toLocaleDateString()}
                         </p>
                       </div>
                     </Link>
@@ -215,6 +218,16 @@ export default function DashboardLayout({
             {/* Dropdown Menu */}
             {showUserMenu && (
               <div className="absolute bottom-full left-0 w-full mb-2 bg-white rounded-md shadow-lg border border-gray-200 py-1">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 mr-3">
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  Settings
+                </Link>
                 <button
                   onClick={handleSignOut}
                   className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"

@@ -45,12 +45,12 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
 
       let savedProfile;
       if (existingProfile?.id) {
-        savedProfile = await brandProfileOperations.updateBrandProfile(
+        savedProfile = await brandProfileOperations.update(
           existingProfile.id,
           profileData
         );
       } else {
-        savedProfile = await brandProfileOperations.createBrandProfile(profileData);
+        savedProfile = await brandProfileOperations.create(profileData);
       }
 
       onSave?.(savedProfile);

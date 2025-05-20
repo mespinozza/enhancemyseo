@@ -1,34 +1,26 @@
 import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const { priceId, userId } = await req.json();
+    const body = await request.json();
+    const { priceId } = body;
 
-    // Create Checkout Sessions from body params.
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/pricing`,
-      client_reference_id: userId,
+    if (!priceId) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // In a real implementation, this would create an actual Stripe checkout session
+    // For development, return a mock checkout URL
+    return NextResponse.json({
+      checkoutUrl: 'https://checkout.stripe.com/mock-session?price=' + priceId,
     });
-
-    return NextResponse.json({ sessionId: session.id });
-  } catch (err) {
-    console.error('Error in create-checkout-session:', err);
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
     return NextResponse.json(
-      { error: 'Error creating checkout session' },
+      { error: 'Failed to create checkout session' },
       { status: 500 }
     );
   }

@@ -5,12 +5,12 @@ export default function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { signIn, signInWithGoogle } = useAuth();
+  const { login, signInWithGoogle } = useAuth();
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await signIn(email, password);
+      await login(email, password);
     } catch (err) {
       setError('Failed to sign in. Please check your credentials.');
       console.error(err);

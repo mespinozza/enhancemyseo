@@ -1,10 +1,11 @@
 import os
+import sys
 
-# Set environment variables directly
+# Manually set environment variables
 os.environ['DATABASE_URL'] = 'sqlite:///app.db'
 os.environ['JWT_SECRET_KEY'] = 'dev-secret-key'
 
-# Import app after setting environment variables
+# Import and run the Flask app
 from app import create_app
 from flask_migrate import upgrade
 

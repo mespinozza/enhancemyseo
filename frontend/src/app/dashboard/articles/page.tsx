@@ -7,10 +7,14 @@ import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import { blogOperations, Blog } from '@/lib/firebase/firestore';
+import BrandProfileForm from '@/components/brand/BrandProfileForm';
+import { toast } from 'react-hot-toast';
+import { Download, Copy, Eye, Code, Info, ShoppingBag, Wrench } from 'lucide-react';
 
 interface BlogPost {
   id: string;
   title: string;
+  content: string;
   createdAt: Date;
   status: 'draft' | 'published';
 }
@@ -21,6 +25,7 @@ export default function ArticlesPage() {
   const [topic, setTopic] = useState('');
   const [keywords, setKeywords] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
   const [showBrandForm, setShowBrandForm] = useState(false);
@@ -29,6 +34,8 @@ export default function ArticlesPage() {
   const [instructions, setInstructions] = useState('');
   const [toneOfVoice, setToneOfVoice] = useState('');
   const [contentType, setContentType] = useState('');
+  const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
+  const [articleMode, setArticleMode] = useState<'store' | 'service' | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -38,11 +45,19 @@ export default function ArticlesPage() {
 
   const loadBrandProfiles = async () => {
     if (!user) return;
+    setIsLoadingProfiles(true);
     try {
-      const profiles = await brandProfileOperations.getBrandProfiles(user.uid);
+      const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
+      
+      // If there's only one profile, select it automatically
+      if (profiles.length === 1) {
+        setSelectedBrandId(profiles[0].id || '');
+      }
     } catch (error) {
       console.error('Error loading brand profiles:', error);
+    } finally {
+      setIsLoadingProfiles(false);
     }
   };
 
@@ -59,20 +74,17 @@ export default function ArticlesPage() {
         throw new Error('Selected brand profile not found');
       }
 
-      // Get the current user's ID token
-      const idToken = await user.getIdToken();
-
       // Create the blog post in draft status
       const blogData: Omit<Blog, 'id' | 'createdAt' | 'updatedAt'> = {
-        title: `${keyword} - ${contentType}`, // We'll update this with the actual title after generation
-        content: '', // Will be populated after generation
-        keyword,
+        title: `${keyword} - ${contentType}`,
+        content: '',
         userId: user.uid,
         brandId: selectedBrandId,
         status: 'draft',
+        keyword,
         contentType,
-        toneOfVoice: toneOfVoice || undefined,
-        instructions: instructions || undefined,
+        toneOfVoice,
+        instructions,
         generationSettings: {
           usePerplexity: false,
           articleFraming: contentType,
@@ -80,14 +92,14 @@ export default function ArticlesPage() {
       };
 
       // Create the initial blog post
-      const blog = await blogOperations.createBlog(blogData);
+      const blog = await blogOperations.create(blogData);
 
       // Call your article generation API endpoint
       const response = await fetch('/api/generate-article', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
+          'Authorization': `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({
           blogId: blog.id,
@@ -98,32 +110,50 @@ export default function ArticlesPage() {
           toneOfVoice,
           instructions,
           brandGuidelines: selectedProfile.brandGuidelines || '',
+          articleMode,
+          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
+          shopifyAccessToken: selectedProfile.shopifyAccessToken,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate article');
+        const responseText = await response.text();
+        console.error('Article generation API responded with error:', response.status, responseText);
+        let errorDetail = 'Failed to generate article. Status: ' + response.status;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorDetail = errorData.error || errorDetail;
+        } catch (e) {
+          // If responseText is not JSON or doesn't have an .error property, use the raw text if it's short
+          if (responseText.length < 100) { // Avoid overly long toast messages
+            errorDetail = responseText || errorDetail;
+          }
+        }
+        throw new Error(errorDetail);
       }
 
       const generatedContent = await response.json();
 
       // Update the blog post with the generated content
-      await blogOperations.updateBlog(blog.id, {
-        content: generatedContent.content,
-        title: generatedContent.title || blogData.title,
-      });
+      if (blog.id) {
+        await blogOperations.update(blog.id, {
+          content: generatedContent.content || '',
+          title: generatedContent.title || blogData.title,
+        });
 
-      // Select the newly created post
-      setSelectedPost({
-        id: blog.id,
-        title: generatedContent.title || blogData.title,
-        createdAt: new Date(),
-        status: 'draft'
-      });
+        // Select the newly created post
+        setSelectedPost({
+          id: blog.id,
+          title: generatedContent.title || blogData.title,
+          content: generatedContent.content || '',
+          createdAt: new Date(),
+          status: 'draft'
+        });
+      }
 
     } catch (error) {
       console.error('Failed to generate blog:', error);
-      alert('Failed to generate article. Please try again.');
+      toast.error(`Article generation failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsGenerating(false);
     }
@@ -138,10 +168,64 @@ export default function ArticlesPage() {
     }
   }, []);
 
+  const handleBrandSave = async (profile: BrandProfile) => {
+    await loadBrandProfiles();
+    setShowBrandForm(false);
+  };
+
+  const handleDownloadHTML = () => {
+    if (!selectedPost) return;
+
+    const blob = new Blob([selectedPost.content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedPost.title} - generated by enhancemyseo.txt`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    toast.success('Article content downloaded successfully!');
+  };
+
+  const handleCopyHTML = async () => {
+    if (!selectedPost) return;
+    
+    try {
+      await navigator.clipboard.writeText(selectedPost.content);
+      toast.success('Article HTML copied to clipboard!');
+    } catch (error) {
+      toast.error('Failed to copy HTML to clipboard');
+    }
+  };
+
   return (
-    <div className="flex-1 flex">
+    <div className="flex-1 flex min-h-screen h-screen bg-white">
+      {/* Brand Profile Form Modal */}
+      {showBrandForm && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Create Brand Profile</h2>
+              <button
+                onClick={() => setShowBrandForm(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <BrandProfileForm
+              onSave={handleBrandSave}
+              onCancel={() => setShowBrandForm(false)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Left Panel - Article Generation Form */}
-      <div className="w-1/2 p-6 border-r border-gray-200 overflow-y-auto">
+      <div className="w-full md:w-1/2 p-4 md:p-6 border-r border-gray-200 overflow-y-auto h-full flex-shrink-0">
         <div className="max-w-xl mx-auto">
           <h2 className="text-2xl font-bold mb-6">Generate New Article</h2>
 
@@ -161,28 +245,33 @@ export default function ArticlesPage() {
             </div>
 
             <div className={`grid gap-4 ${!selectedBrandId ? 'border-2 border-red-200 rounded-lg p-4' : ''}`}>
-              {brandProfiles.map((profile) => (
-                <button
-                  key={profile.id}
-                  onClick={() => setSelectedBrandId(profile.id || '')}
-                  className={`p-4 border rounded-lg text-left transition-colors ${
-                    selectedBrandId === profile.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className="w-4 h-4 rounded-full"
-                      style={{ backgroundColor: profile.brandColor }}
-                    />
-                    <span className="font-medium">{profile.brandName}</span>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">{profile.businessType}</p>
-                </button>
-              ))}
-
-              {brandProfiles.length === 0 && (
+              {isLoadingProfiles ? (
+                <div className="text-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                  <p className="mt-2 text-sm text-gray-500">Loading brand profiles...</p>
+                </div>
+              ) : brandProfiles.length > 0 ? (
+                brandProfiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    onClick={() => setSelectedBrandId(profile.id || '')}
+                    className={`p-4 border rounded-lg text-left transition-colors ${
+                      selectedBrandId === profile.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div
+                        className="w-4 h-4 rounded-full"
+                        style={{ backgroundColor: profile.brandColor }}
+                      />
+                      <span className="font-medium">{profile.brandName}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-500">{profile.businessType}</p>
+                  </button>
+                ))
+              ) : (
                 <div className={`text-center py-8 bg-gray-50 rounded-lg border-2 ${!selectedBrandId ? 'border-red-200' : 'border-dashed border-gray-300'}`}>
                   <p className={`mb-2 ${!selectedBrandId ? 'text-red-600' : 'text-gray-500'}`}>
                     No brand profiles yet
@@ -196,9 +285,9 @@ export default function ArticlesPage() {
                 </div>
               )}
               
-              {!selectedBrandId && (
+              {!selectedBrandId && !isLoadingProfiles && brandProfiles.length > 0 && (
                 <div className="text-sm text-red-600 mt-2">
-                  Please select or create a brand profile before generating content
+                  Please select a brand profile before generating content
                 </div>
               )}
             </div>
@@ -333,6 +422,49 @@ export default function ArticlesPage() {
               )}
             </div>
 
+            <div className="flex gap-4 mb-4">
+              <div className="relative group">
+                <button
+                  type="button"
+                  className={`flex items-center px-4 py-2 rounded-md border transition-colors duration-200 font-semibold text-base ${
+                    articleMode === 'store'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-50'
+                  }`}
+                  onClick={() => setArticleMode(articleMode === 'store' ? null : 'store')}
+                >
+                  <ShoppingBag size={18} className="mr-2" />
+                  Store
+                  <span className="ml-2">
+                    <Info size={16} className="text-gray-400 group-hover:text-blue-600" />
+                  </span>
+                </button>
+                <div className="absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded shadow-lg p-2 text-xs text-gray-700 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto z-10 transition-opacity duration-200">
+                  Select this option if you would like for the article to include products & collections you may have available that align with this article's topic.
+                </div>
+              </div>
+              <div className="relative group">
+                <button
+                  type="button"
+                  className={`flex items-center px-4 py-2 rounded-md border transition-colors duration-200 font-semibold text-base ${
+                    articleMode === 'service'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-50'
+                  }`}
+                  onClick={() => setArticleMode(articleMode === 'service' ? null : 'service')}
+                >
+                  <Wrench size={18} className="mr-2" />
+                  Service
+                  <span className="ml-2">
+                    <Info size={16} className="text-gray-400 group-hover:text-blue-600" />
+                  </span>
+                </button>
+                <div className="absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded shadow-lg p-2 text-xs text-gray-700 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto z-10 transition-opacity duration-200">
+                  Select this option if you would like for the article to focus on any service pages you may have available that align with this article's topic.
+                </div>
+              </div>
+            </div>
+
             <button
               onClick={handleGenerateBlog}
               disabled={isGenerating || !keyword || !selectedBrandId || !contentType}
@@ -368,40 +500,63 @@ export default function ArticlesPage() {
       </div>
 
       {/* Right Panel - Article Preview */}
-      <div className="w-1/2 p-6 bg-white overflow-y-auto">
-        <div className="max-w-2xl mx-auto h-full flex items-center justify-center">
+      <div className="w-full md:w-1/2 p-4 md:p-6 bg-white overflow-hidden flex flex-col h-full">
+        <div className="max-w-2xl mx-auto w-full flex flex-col h-full">
           {isGenerating ? (
-            <div className="flex flex-col items-center justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Generating your article...</p>
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             </div>
           ) : selectedPost ? (
-            <div className="w-full">
-              <h2 className="text-2xl font-bold mb-4">{selectedPost.title}</h2>
-              <div className="prose max-w-none">
-                {/* Article content will be displayed here */}
-                <p className="text-gray-600">Article content will be shown here...</p>
+            <>
+              {/* Article Title */}
+              <h1 className="text-2xl font-bold mb-4 break-words">{selectedPost.title}</h1>
+
+              {/* Button Row */}
+              <div className="flex items-center mb-4">
+                <button
+                  onClick={() => setViewMode(viewMode === 'preview' ? 'raw' : 'preview')}
+                  className={`px-4 py-2 font-semibold rounded-l-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-300 flex items-center space-x-2 ${
+                    viewMode === 'preview'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-black hover:bg-blue-50'
+                  }`}
+                  style={{ minWidth: 120 }}
+                >
+                  {viewMode === 'preview' ? <Eye size={18} className="mr-2" /> : <Code size={18} className="mr-2" />}
+                  <span>Preview</span>
+                </button>
+                <div className="flex-1" />
+                <button
+                  onClick={handleDownloadHTML}
+                  className="px-3 py-2 text-black font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-100 ml-2"
+                >
+                  Download
+                </button>
+                <button
+                  onClick={handleCopyHTML}
+                  className="px-3 py-2 text-black font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-100 ml-2"
+                >
+                  Copy HTML
+                </button>
               </div>
-            </div>
+
+              {/* Content Area */}
+              <div className="bg-gray-100 rounded-lg p-4 flex-1 min-h-[300px] max-h-full overflow-auto">
+                {viewMode === 'preview' ? (
+                  <div
+                    className="prose prose-lg max-w-none"
+                    dangerouslySetInnerHTML={{ __html: selectedPost.content }}
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words text-sm text-black">
+                    {selectedPost.content}
+                  </pre>
+                )}
+              </div>
+            </>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center max-w-md mx-auto">
-              <svg
-                className="w-24 h-24 text-gray-300 mb-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Article Generated Yet</h3>
-              <p className="text-gray-500">
-                Select a brand profile and fill in the article details to generate an SEO-optimized article.
-              </p>
+            <div className="text-center text-gray-500 py-12">
+              Generate an article to see the preview here
             </div>
           )}
         </div>

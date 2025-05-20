@@ -197,6 +197,19 @@ export default function DashboardLayout({
                     <Menu.Items className="absolute right-0 z-10 mt-2.5 w-32 origin-top-right rounded-md bg-white py-2 shadow-lg ring-1 ring-gray-900/5 focus:outline-none">
                       <Menu.Item>
                         {({ active }) => (
+                          <Link
+                            href="/dashboard/settings"
+                            className={`
+                              block px-3 py-1 text-sm leading-6 w-full text-left
+                              ${active ? 'bg-gray-50' : ''}
+                            `}
+                          >
+                            Settings
+                          </Link>
+                        )}
+                      </Menu.Item>
+                      <Menu.Item>
+                        {({ active }) => (
                           <button
                             onClick={logout}
                             className={`

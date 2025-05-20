@@ -6,7 +6,7 @@ export default function SignUpForm() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const { signUp, signInWithGoogle } = useAuth();
+  const { register, signInWithGoogle } = useAuth();
 
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,7 +15,7 @@ export default function SignUpForm() {
       return;
     }
     try {
-      await signUp(email, password);
+      await register(email, password);
     } catch (err) {
       setError('Failed to create account. Please try again.');
       console.error(err);

@@ -2,11 +2,12 @@
 
 import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { LogOut } from 'lucide-react';
 
 export default function Header() {
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
 
   // Don't show header on dashboard pages
@@ -16,7 +17,8 @@ export default function Header() {
 
   const handleSignOut = async () => {
     try {
-      await signOut();
+      await logout();
+      router.push('/login');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -34,7 +36,7 @@ export default function Header() {
           </Link>
 
           {/* Navigation */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center space-x-4">
             {!user ? (
               <Link
                 href="/login"

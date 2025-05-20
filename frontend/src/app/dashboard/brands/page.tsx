@@ -22,7 +22,7 @@ export default function BrandsPage() {
     if (!user) return;
     
     try {
-      const profiles = await brandProfileOperations.getBrandProfiles(user.uid);
+      const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
     } catch (error) {
       console.error('Error loading brand profiles:', error);
@@ -41,7 +41,7 @@ export default function BrandsPage() {
     if (!confirm('Are you sure you want to delete this brand profile?')) return;
     
     try {
-      await brandProfileOperations.deleteBrandProfile(profileId);
+      await brandProfileOperations.delete(profileId);
       await loadBrandProfiles();
     } catch (error) {
       console.error('Error deleting brand profile:', error);

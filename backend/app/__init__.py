@@ -5,10 +5,10 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Skip dotenv loading, manually set the environment variables
+# from dotenv import load_dotenv
+# load_dotenv() # Commenting out to avoid encoding errors
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -19,9 +19,9 @@ def create_app():
     app = Flask(__name__)
     
     # Configure the Flask application
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///app.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
+    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'dev-secret-key')
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
     
     # Initialize CORS
