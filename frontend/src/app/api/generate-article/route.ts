@@ -61,16 +61,95 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Function to extract key terms from topic breakdown
-async function extractKeyTerms(text: string, keyword: string): Promise<string[]> {
+async function extractKeyTerms(text: string, keyword: string, availableVendors: string[] = []): Promise<{ searchTerms: string[], primaryVendor: string | null }> {
   try {
     console.log('Extracting key terms from topic breakdown');
-    // Extract the brand name (assuming it's the first word in the keyword)
-    const brandName = keyword.split(' ')[0];
     
+    // First, identify any vendors in the keyword
+    let primaryVendor: string | null = null;
+    const keywordLower = keyword.toLowerCase();
+    const keywordWords = keywordLower.split(' ');
+    
+    // Check if we have vendors to match against
+    if (availableVendors.length > 0) {
+      console.log(`Checking keyword against ${availableVendors.length} available vendors...`);
+      
+      // First check if any vendor matches the keyword exactly (rare but possible)
+      if (availableVendors.includes(keywordLower)) {
+        primaryVendor = keywordLower;
+        console.log(`Found exact vendor match: "${primaryVendor}" is the entire keyword`);
+      }
+      
+      // If not, do more thorough checks
+      if (!primaryVendor) {
+        // 1. First check for multi-word vendors that appear as phrases in the keyword
+        for (const vendor of availableVendors) {
+          if (vendor.includes(' ') && keywordLower.includes(vendor)) {
+            primaryVendor = vendor;
+            console.log(`Found multi-word vendor match: "${primaryVendor}" in keyword`);
+            break;
+          }
+        }
+        
+        // 2. Then check for single-word vendors that match exact words in the keyword
+        if (!primaryVendor) {
+          for (const word of keywordWords) {
+            // Skip very short words and common words that wouldn't be vendors
+            if (word.length <= 2 || ["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word)) {
+              continue;
+            }
+            
+            // Check for exact vendor match
+            if (availableVendors.includes(word)) {
+              primaryVendor = word;
+              console.log(`Found exact vendor match: "${primaryVendor}"`);
+              break;
+            }
+          }
+        }
+        
+        // 3. Finally, check for partial vendor matches
+        if (!primaryVendor) {
+          // Find vendors that might be contained in the keyword
+          const partialMatches = availableVendors.filter(vendor => 
+            keywordLower.includes(vendor)
+          );
+          
+          if (partialMatches.length > 0) {
+            // Sort by length (descending) to prioritize longer vendor names
+            partialMatches.sort((a, b) => b.length - a.length);
+            primaryVendor = partialMatches[0];
+            console.log(`Found partial vendor match: "${primaryVendor}" in keyword`);
+          }
+        }
+      }
+    }
+    
+    // If we still couldn't find a vendor match, ONLY THEN fall back to using the first meaningful word
+    if (!primaryVendor) {
+      console.log(`No vendor match found in available vendors list. Attempting to identify potential brand from keyword.`);
+      
+      // Find the first word that could be a brand (not a common word, not too short)
+      for (const word of keywordWords) {
+        if (word.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset", "find", "install", "remove", "repair", "help"].includes(word)) {
+          primaryVendor = word;
+          console.log(`Using word as potential brand: "${primaryVendor}"`);
+          break;
+        }
+      }
+      
+      // If still no vendor, use first word as last resort
+      if (!primaryVendor) {
+        primaryVendor = keywordWords[0];
+        console.log(`No meaningful brand words found. Using first word as fallback: "${primaryVendor}"`);
+      }
+    }
+    
+    // Now extract component terms using the identified brand/vendor
     const extractionPrompt = `
       For the topic "${keyword}", extract:
-      1. The brand name: ${brandName}
-      2. 5-8 basic component/part terms that would typically be found in product names for ${brandName} ${keyword.split(' ').slice(1).join(' ')}
+      1. The brand name: ${primaryVendor || 'Unknown'}
+      2. 5-8 basic component/part terms that would typically be found in product names for ${primaryVendor || ''} ${keyword.split(' ').filter(w => w.toLowerCase() !== primaryVendor?.toLowerCase()).join(' ')}
       
       Focus on:
       - Simple, single-word component terms (e.g., "hose", "gasket", "valve", "switch", "pump") 
@@ -106,41 +185,55 @@ async function extractKeyTerms(text: string, keyword: string): Promise<string[]>
     // Create some basic two-word combinations that include the brand
     const brandComponentTerms: string[] = [];
     
-    // Combine brand with each component term
-    componentTerms.forEach(term => {
-      brandComponentTerms.push(`${brandName} ${term}`);
-    });
-    
-    // Also add basic combinations from the keyword
-    keywordParts.forEach((part, i) => {
-      if (i > 0 && part.length > 3) { // Skip first word (brand) and very short words
-        brandComponentTerms.push(`${brandName} ${part}`);
-      }
-    });
+    // Only create brand combinations if we have a brand
+    if (primaryVendor) {
+      // Combine brand with each component term
+      componentTerms.forEach(term => {
+        brandComponentTerms.push(`${primaryVendor} ${term}`);
+      });
+      
+      // Also add basic combinations from the keyword - but skip common words
+      keywordParts.forEach((part, i) => {
+        if (part.length > 3 && 
+           !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
+           part.toLowerCase() !== primaryVendor.toLowerCase()) {
+          brandComponentTerms.push(`${primaryVendor} ${part}`);
+        }
+      });
+    }
     
     // Create other meaningful combinations from the keyword
     const otherCombinations: string[] = [];
     // Create pairs from adjacent words in the keyword
     for (let i = 0; i < keywordParts.length - 1; i++) {
-      if (i !== 0 || keywordParts.length <= 2) { // Avoid duplicating brand component terms
-        otherCombinations.push(`${keywordParts[i]} ${keywordParts[i+1]}`);
+      // Skip common words and ensure we're not duplicating brand component terms
+      if ((primaryVendor && keywordParts[i].toLowerCase() !== primaryVendor.toLowerCase()) || keywordParts.length <= 2) {
+        // Skip pairs with common words at the start
+        if (!["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(keywordParts[i].toLowerCase())) {
+          otherCombinations.push(`${keywordParts[i]} ${keywordParts[i+1]}`);
+        }
       }
     }
     
     // Final terms in priority order:
     // 1. Full keyword
-    // 2. Brand name
+    // 2. Brand/vendor name (if found)
     // 3. Brand + component combinations
-    // 4. Component terms by themselves (critical for vendor-specific search)
+    // 4. Component terms by themselves
     // 5. Other meaningful combinations
-    // 6. Keyword parts (except very short ones)
+    // 6. Keyword parts (except very short or common ones)
     
-    const finalTerms: string[] = [keyword, brandName];
+    const finalTerms: string[] = [keyword];
+    
+    // Add brand/vendor if we found one
+    if (primaryVendor) {
+      finalTerms.push(primaryVendor);
+    }
     
     // Add brand-component combinations
     finalTerms.push(...brandComponentTerms);
     
-    // Add component terms by themselves (critical addition for vendor-specific search)
+    // Add component terms by themselves
     finalTerms.push(...componentTerms);
     
     // Add other combinations
@@ -148,7 +241,9 @@ async function extractKeyTerms(text: string, keyword: string): Promise<string[]>
     
     // Add individual keyword parts if they're meaningful
     keywordParts.forEach(part => {
-      if (part.length > 3 && part !== brandName) {
+      if (part.length > 3 && 
+         !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
+         (!primaryVendor || part.toLowerCase() !== primaryVendor.toLowerCase())) {
         finalTerms.push(part);
       }
     });
@@ -158,18 +253,66 @@ async function extractKeyTerms(text: string, keyword: string): Promise<string[]>
       .map(term => term);
     
     console.log('Extracted search terms:', uniqueTerms);
-    return uniqueTerms;
+    return { searchTerms: uniqueTerms, primaryVendor };
   } catch (error) {
     console.error('Error extracting key terms:', error);
     // Fallback to simpler extraction if AI fails
     const keywordParts = keyword.split(' ');
-    const brandName = keywordParts[0];
-    const fallbackTerms = [keyword, brandName];
+    
+    // Try to identify a potential vendor from the keyword parts
+    let primaryVendor: string | null = null;
+    
+    // Check each word against the vendor list
+    if (availableVendors.length > 0) {
+      // First check for multi-word vendors
+      for (const vendor of availableVendors) {
+        if (vendor.includes(' ') && keyword.toLowerCase().includes(vendor)) {
+          primaryVendor = vendor;
+          console.log(`Fallback found multi-word vendor: "${primaryVendor}"`);
+          break;
+        }
+      }
+      
+      // If no multi-word vendor found, check individual words
+      if (!primaryVendor) {
+        for (const word of keywordParts) {
+          // Skip common words
+          if (["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word.toLowerCase())) {
+            continue;
+          }
+          
+          if (availableVendors.includes(word.toLowerCase())) {
+            primaryVendor = word;
+            console.log(`Fallback found vendor: "${primaryVendor}"`);
+            break;
+          }
+        }
+      }
+    }
+    
+    // If no vendor found, default to first non-common word
+    if (!primaryVendor) {
+      for (const part of keywordParts) {
+        if (part.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset"].includes(part.toLowerCase())) {
+          primaryVendor = part;
+          console.log(`Fallback using non-common word as potential brand: "${primaryVendor}"`);
+          break;
+        }
+      }
+      
+      // If still no vendor, use first word as last resort
+      if (!primaryVendor) {
+        primaryVendor = keywordParts[0];
+        console.log(`Fallback to first word: "${primaryVendor}"`);
+      }
+    }
+    
+    const fallbackTerms = [keyword, primaryVendor];
     
     // Add brand + remaining keyword parts combinations
-    for (let i = 1; i < keywordParts.length; i++) {
-      if (keywordParts[i].length > 3) {
-        fallbackTerms.push(`${brandName} ${keywordParts[i]}`);
+    for (let i = 0; i < keywordParts.length; i++) {
+      if (keywordParts[i].length > 3 && keywordParts[i].toLowerCase() !== primaryVendor.toLowerCase()) {
+        fallbackTerms.push(`${primaryVendor} ${keywordParts[i]}`);
         // Also add the component term by itself
         fallbackTerms.push(keywordParts[i]);
       }
@@ -177,7 +320,10 @@ async function extractKeyTerms(text: string, keyword: string): Promise<string[]>
     
     // Add adjacent pairs 
     for (let i = 0; i < keywordParts.length - 1; i++) {
-      fallbackTerms.push(`${keywordParts[i]} ${keywordParts[i+1]}`);
+      // Skip pairs with common words
+      if (!["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(keywordParts[i].toLowerCase())) {
+        fallbackTerms.push(`${keywordParts[i]} ${keywordParts[i+1]}`);
+      }
     }
     
     // Add some common component terms as a last resort
@@ -186,101 +332,418 @@ async function extractKeyTerms(text: string, keyword: string): Promise<string[]>
       fallbackTerms.push(...commonComponents);
     }
     
-    console.log('Fallback search terms:', fallbackTerms);
-    return fallbackTerms;
+    // Remove duplicates
+    const uniqueTerms = Array.from(new Set(fallbackTerms.map(term => term.toLowerCase())))
+      .map(term => term);
+    
+    console.log('Fallback search terms:', uniqueTerms);
+    return { searchTerms: uniqueTerms, primaryVendor };
   }
 }
 
+// Function to fetch all available vendors from a Shopify store
+async function fetchShopifyVendors(shopDomain: string, token: string): Promise<string[]> {
+  console.log('Fetching all available vendors from Shopify store using GraphQL...');
+  const vendors: string[] = [];
+  
+  try {
+    // GraphQL query to fetch unique vendors
+    const graphqlQuery = `
+      query {
+        shop {
+          productVendors(first: 250) {
+            edges {
+              node
+            }
+          }
+        }
+      }
+    `;
+    
+    const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: graphqlQuery }),
+    });
+    
+    console.log(`Vendor fetch response status:`, response.status);
+    
+    if (!response.ok) {
+      if (response.status === 429) {
+        // Handle rate limiting
+        const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
+        console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
+        await sleep(retryAfter * 1000);
+        // Retry this request
+        return fetchShopifyVendors(shopDomain, token);
+      }
+      
+      // If GraphQL fails, fall back to the original REST approach with optimizations
+      console.log('GraphQL vendor fetch failed, falling back to REST approach...');
+      return fetchShopifyVendorsWithREST(shopDomain, token);
+    }
+    
+    const data = await response.json();
+    
+    if (data.data?.shop?.productVendors?.edges) {
+      // Extract vendors from GraphQL response
+      data.data.shop.productVendors.edges.forEach((edge: any) => {
+        if (edge.node && typeof edge.node === 'string' && edge.node.trim()) {
+          vendors.push(edge.node.toLowerCase().trim());
+        }
+      });
+      
+      console.log(`Completed vendor fetch with GraphQL. Found ${vendors.length} unique vendors.`);
+    } else {
+      console.log('GraphQL vendor response missing expected data, falling back to REST approach...');
+      return fetchShopifyVendorsWithREST(shopDomain, token);
+    }
+    
+    return vendors;
+  } catch (error) {
+    console.error('Error fetching vendors with GraphQL:', error);
+    console.log('Falling back to REST approach...');
+    return fetchShopifyVendorsWithREST(shopDomain, token);
+  }
+}
+
+// Fallback function using REST API but with optimizations
+async function fetchShopifyVendorsWithREST(shopDomain: string, token: string): Promise<string[]> {
+  console.log('Fetching all available vendors from Shopify store using REST API...');
+  const vendorSet = new Set<string>();
+  
+  try {
+    // Use larger page size and fetch fewer fields to improve efficiency
+    let hasNextPage = true;
+    let nextPageUrl: string | null = `https://${shopDomain}/admin/api/2023-01/products.json?fields=vendor&limit=250`;
+    let pageCount = 1;
+    const MAX_PAGES = 20; // Limit pages to avoid excessive API calls
+    
+    while (hasNextPage && nextPageUrl && pageCount <= MAX_PAGES) {
+      console.log(`Fetching vendors page ${pageCount}...`);
+      
+      // Add rate limiting
+      await sleep(500);
+      
+      const response = await fetch(nextPageUrl, {
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      console.log(`Vendor fetch response status (page ${pageCount}):`, response.status);
+      
+      if (!response.ok) {
+        if (response.status === 429) {
+          // Handle rate limiting
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
+          console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
+          await sleep(retryAfter * 1000);
+          pageCount--; // Retry this page
+          continue;
+        }
+        throw new Error(`Shopify API returned ${response.status}`);
+      }
+      
+      // Check for Link header which contains pagination info
+      const linkHeader: string | null = response.headers.get('Link');
+      nextPageUrl = null;
+      
+      if (linkHeader) {
+        // Parse Link header to get next page URL
+        const links: string[] = linkHeader.split(',');
+        for (const link of links) {
+          const match: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
+          if (match && match[2] === 'next') {
+            nextPageUrl = match[1];
+            break;
+          }
+        }
+      }
+      
+      hasNextPage = !!nextPageUrl;
+      
+      const data = await response.json();
+      
+      if (data.products && data.products.length > 0) {
+        // Extract vendors and add to set
+        data.products.forEach((product: any) => {
+          if (product.vendor && product.vendor.trim()) {
+            vendorSet.add(product.vendor.toLowerCase().trim());
+          }
+        });
+        
+        console.log(`Found ${vendorSet.size} unique vendors so far`);
+      }
+      
+      pageCount++;
+      
+      // If we have a good number of vendors, we can exit early
+      if (vendorSet.size >= 50) {
+        console.log('Found sufficient number of vendors, stopping pagination');
+        break;
+      }
+    }
+    
+    // Convert set to array
+    const vendors = Array.from(vendorSet);
+    console.log(`Completed vendor fetch with REST. Found ${vendors.length} unique vendors.`);
+    
+    return vendors;
+  } catch (error) {
+    console.error('Error fetching vendors with REST:', error);
+    return Array.from(vendorSet); // Return whatever we've collected so far
+  }
+}
+
+// Function to identify potential vendor from all words in a keyword
+async function identifyVendorFromKeyword(shopDomain: string, token: string, keyword: string, availableVendors: string[] = []): Promise<string | null> {
+  // Use provided vendors list or fetch if not provided
+  let vendorsList = availableVendors;
+  
+  if (vendorsList.length === 0) {
+    console.log('No vendors list provided, fetching vendors from store...');
+    vendorsList = await fetchShopifyVendors(shopDomain, token);
+  }
+  
+  if (vendorsList.length === 0) {
+    console.log('No vendors found in store, falling back to first-word approach');
+    // Find the first meaningful word in the keyword
+    const words = keyword.toLowerCase().split(' ');
+    for (const word of words) {
+      if (word.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset", "find", "install"].includes(word)) {
+        return word;
+      }
+    }
+    return keyword.split(' ')[0]; // Fallback to first word
+  }
+  
+  const keywordLower = keyword.toLowerCase();
+  console.log(`Checking if any part of "${keyword}" matches a vendor in the store`);
+  
+  // First check for exact match of the entire keyword
+  if (vendorsList.includes(keywordLower)) {
+    console.log(`Found exact vendor match: "${keywordLower}" is the entire keyword`);
+    return keywordLower;
+  }
+  
+  // Then check for multi-word vendors appearing in the keyword
+  for (const vendor of vendorsList) {
+    if (vendor.includes(' ') && keywordLower.includes(vendor)) {
+      console.log(`Found multi-word vendor match: "${vendor}" in keyword`);
+      return vendor;
+    }
+  }
+  
+  // Extract all words from the keyword
+  const words = keywordLower.split(' ');
+  
+  // Check each word against the vendor list for exact matches
+  for (const word of words) {
+    // Skip very short words and common words that wouldn't be vendors
+    if (word.length <= 2 || ["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word)) {
+      continue;
+    }
+    
+    // Check if this word exactly matches a vendor
+    if (vendorsList.includes(word)) {
+      console.log(`Found exact vendor match: "${word}"`);
+      return word;
+    }
+  }
+  
+  // Check for partial matches - vendor names that appear within the keyword
+  const partialMatches = vendorsList.filter(vendor => 
+    keywordLower.includes(vendor)
+  );
+  
+  if (partialMatches.length > 0) {
+    // Sort by length (descending) to prioritize longer vendor names
+    partialMatches.sort((a, b) => b.length - a.length);
+    console.log(`Found partial vendor match: "${partialMatches[0]}" in keyword`);
+    return partialMatches[0];
+  }
+  
+  // Check for vendors that contain words from the keyword
+  for (const word of words) {
+    // Skip very short words and common words
+    if (word.length <= 2 || ["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word)) {
+      continue;
+    }
+    
+    const vendorContainsWord = vendorsList.filter(vendor => 
+      vendor.includes(word)
+    );
+    
+    if (vendorContainsWord.length > 0) {
+      console.log(`Found vendor containing keyword word: "${vendorContainsWord[0]}" contains "${word}"`);
+      return vendorContainsWord[0];
+    }
+  }
+  
+  // If no vendor match found, look for a meaningful word that could be a brand
+  for (const word of words) {
+    if (word.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset", "find", "install", "remove", "repair", "help"].includes(word)) {
+      console.log(`No vendor matches found. Using word as potential brand: "${word}"`);
+      return word;
+    }
+  }
+  
+  console.log(`No vendor or brand matches found for "${keyword}"`);
+  return null;
+}
+
 // Function to search Shopify products with vendor-first approach
-async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[]): Promise<any[]> {
-  // Extract potential vendor name - typically the first word in the keyword
-  const keywordParts = searchTerms[0].toLowerCase().split(' '); // First term is always the full keyword
-  const potentialVendor = keywordParts[0]; // Assume first word is the brand/vendor
+async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
+  // Extract the original keyword from search terms
+  const originalKeyword = searchTerms[0];
   
-  console.log(`Using vendor-first approach with potential vendor: "${potentialVendor}"`);
+  // Use the vendor identification function with available vendors
+  const potentialVendor = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
   
-  // Check if this vendor exists in the store
-  const vendorExists = await checkVendorExists(shopDomain, token, potentialVendor);
+  console.log(`Identified potential vendor: "${potentialVendor || 'None found'}"`);
   
-  if (vendorExists) {
-    // If vendor exists, use optimized vendor-specific search
-    console.log(`Vendor "${potentialVendor}" exists in store - using targeted search`);
-    return searchVendorProducts(shopDomain, token, potentialVendor, searchTerms);
+  if (potentialVendor) {
+    // Check if this vendor exists in the store
+    const vendorExists = await checkVendorExists(shopDomain, token, potentialVendor);
+    
+    if (vendorExists) {
+      // If vendor exists, use optimized vendor-specific search
+      console.log(`Vendor "${potentialVendor}" exists in store - using targeted search`);
+      return searchVendorProducts(shopDomain, token, potentialVendor, searchTerms);
+    } else {
+      // Fallback to searching all products
+      console.log(`No products found for vendor "${potentialVendor}" - falling back to full catalog search`);
+      return searchAllProducts(shopDomain, token, searchTerms);
+    }
   } else {
-    // Fallback to searching all products
-    console.log(`No products found for vendor "${potentialVendor}" - falling back to full catalog search`);
+    // No vendor identified, use regular search
+    console.log('No vendor identified from keyword - using full catalog search');
     return searchAllProducts(shopDomain, token, searchTerms);
   }
 }
 
 // Function to search Shopify collections with vendor-first approach
-async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[]): Promise<any[]> {
-  // Extract potential vendor name - typically the first word in the keyword
-  const keywordParts = searchTerms[0].toLowerCase().split(' '); // First term is always the full keyword
-  const potentialVendor = keywordParts[0]; // Assume first word is the brand/vendor
+async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
+  // Extract the original keyword from search terms
+  const originalKeyword = searchTerms[0];
   
-  console.log(`Using vendor-first approach for collections with potential vendor: "${potentialVendor}"`);
+  // Use the vendor identification function with available vendors
+  const potentialVendor = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
   
-  // Check if this vendor exists in the store by checking products
-  // We reuse the same vendor check as for products
-  const vendorExists = await checkVendorExists(shopDomain, token, potentialVendor);
+  console.log(`Identified potential vendor for collections: "${potentialVendor || 'None found'}"`);
   
-  if (vendorExists) {
-    // If vendor exists, try to find collections that match the vendor name first
-    console.log(`Vendor "${potentialVendor}" exists in store - prioritizing collections with this vendor name`);
+  if (potentialVendor) {
+    // Check if this vendor exists in the store
+    const vendorExists = await checkVendorExists(shopDomain, token, potentialVendor);
     
-    // For collections, we'll modify our search approach to prioritize the vendor name
-    // but still use the existing search mechanism, as collections aren't associated with vendors in Shopify API
-    
-    // Create a prioritized list of search terms with vendor name first
-    const prioritizedTerms = [
-      potentialVendor, // Just the vendor name
-      ...searchTerms.filter(term => term.toLowerCase() !== potentialVendor.toLowerCase()) // All other terms
-    ];
-    
-    // Filter out vague terms more aggressively
-    const validSearchTerms = prioritizedTerms.filter(term => {
-      // Expanded list of vague terms to filter out
-      const vague = [
-        'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
-        'group', 'equipment', 'commercial', 'head', 'professional',
-        'accessory', 'accessories', 'component', 'components'
+    if (vendorExists) {
+      // If vendor exists, try to find collections that match the vendor name first
+      console.log(`Vendor "${potentialVendor}" exists in store - prioritizing collections with this vendor name`);
+      
+      // For collections, we'll modify our search approach to prioritize the vendor name
+      // but still use the existing search mechanism, as collections aren't associated with vendors in Shopify API
+      
+      // Create a prioritized list of search terms with vendor name first
+      const prioritizedTerms = [
+        potentialVendor, // Just the vendor name
+        ...searchTerms.filter(term => term.toLowerCase() !== potentialVendor.toLowerCase()) // All other terms
       ];
       
-      // Remove very short terms (except the vendor name)
-      if (term.length < 4 && term.toLowerCase() !== potentialVendor.toLowerCase()) {
-        console.log(`Filtering out short term: "${term}"`);
-        return false;
+      // Filter out vague terms more aggressively
+      const validSearchTerms = prioritizedTerms.filter(term => {
+        // Expanded list of vague terms to filter out
+        const vague = [
+          'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
+          'group', 'equipment', 'commercial', 'head', 'professional',
+          'accessory', 'accessories', 'component', 'components'
+        ];
+        
+        // Remove very short terms (except the vendor name)
+        if (term.length < 4 && term.toLowerCase() !== potentialVendor.toLowerCase()) {
+          console.log(`Filtering out short term: "${term}"`);
+          return false;
+        }
+        
+        // Remove vague terms
+        if (vague.includes(term.toLowerCase())) {
+          console.log(`Filtering out vague term: "${term}"`);
+          return false;
+        }
+        
+        return true;
+      });
+      
+      // Ensure we always include at least the vendor name if all terms were filtered
+      if (validSearchTerms.length === 0) {
+        console.log(`All search terms were filtered. Falling back to vendor name: "${potentialVendor}"`);
+        validSearchTerms.push(potentialVendor);
       }
       
-      // Remove vague terms
-      if (vague.includes(term.toLowerCase())) {
-        console.log(`Filtering out vague term: "${term}"`);
-        return false;
+      console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
+      return searchAllCollections(shopDomain, token, validSearchTerms, potentialVendor);
+    } else {
+      // Fallback to searching all collections with original terms
+      console.log(`No products found for vendor "${potentialVendor}" - using standard collection search`);
+      
+      // Filter out vague terms more aggressively
+      const validSearchTerms = searchTerms.filter(term => {
+        // Expanded list of vague terms to filter out
+        const vague = [
+          'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
+          'group', 'equipment', 'commercial', 'head', 'professional',
+          'accessory', 'accessories', 'component', 'components'
+        ];
+        
+        // Remove very short terms
+        if (term.length < 4) {
+          console.log(`Filtering out short term: "${term}"`);
+          return false;
+        }
+        
+        // Remove vague terms
+        if (vague.includes(term.toLowerCase())) {
+          console.log(`Filtering out vague term: "${term}"`);
+          return false;
+        }
+        
+        return true;
+      });
+      
+      // If all terms were filtered, use a reasonable fallback
+      if (validSearchTerms.length === 0) {
+        // Try to extract meaningful words (longer than 4 chars)
+        const meaningfulWords = originalKeyword.split(' ').filter(word => word.length > 4);
+        
+        if (meaningfulWords.length > 0) {
+          console.log(`All search terms were filtered. Using meaningful words from keyword: ${meaningfulWords.join(', ')}`);
+          validSearchTerms.push(...meaningfulWords);
+        } else {
+          // Last resort - just use the original keyword
+          console.log(`No valid search terms found. Using original keyword: "${originalKeyword}"`);
+          validSearchTerms.push(originalKeyword);
+        }
       }
       
-      return true;
-    });
-    
-    // Ensure we always include at least the vendor name if all terms were filtered
-    if (validSearchTerms.length === 0) {
-      console.log(`All search terms were filtered. Falling back to vendor name: "${potentialVendor}"`);
-      validSearchTerms.push(potentialVendor);
+      console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
+      return searchAllCollections(shopDomain, token, validSearchTerms, potentialVendor);
     }
-    
-    console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
-    return searchAllCollections(shopDomain, token, validSearchTerms);
   } else {
-    // Fallback to searching all collections with original terms
-    console.log(`No products found for vendor "${potentialVendor}" - using standard collection search`);
+    // No vendor identified, use standard collection search
+    console.log('No vendor identified from keyword - using standard collection search');
     
-    // Filter out vague terms more aggressively
+    // Filter out vague terms
     const validSearchTerms = searchTerms.filter(term => {
       // Expanded list of vague terms to filter out
       const vague = [
         'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
-        'group', 'equipment', 'commercial', 'head', 'professional',
-        'accessory', 'accessories', 'component', 'components'
+        'group', 'equipment', 'commercial', 'head', 'professional', 
+        'accessory', 'accessories', 'component', 'components',
+        'how', 'to', 'what', 'why', 'when', 'where'
       ];
       
       // Remove very short terms
@@ -298,19 +761,28 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
       return true;
     });
     
-    // If all terms were filtered, use just the first word of the original keyword
+    // If all terms were filtered, extract meaningful words from original keyword
     if (validSearchTerms.length === 0) {
-      console.log(`All search terms were filtered. Falling back to first word of keyword: "${keywordParts[0]}"`);
-      validSearchTerms.push(keywordParts[0]);
+      // Try to extract meaningful words (longer than 4 chars)
+      const meaningfulWords = originalKeyword.split(' ').filter(word => word.length > 4);
+      
+      if (meaningfulWords.length > 0) {
+        console.log(`All search terms were filtered. Using meaningful words from keyword: ${meaningfulWords.join(', ')}`);
+        validSearchTerms.push(...meaningfulWords);
+      } else {
+        // Last resort - just use the original keyword
+        console.log(`No valid search terms found. Using original keyword: "${originalKeyword}"`);
+        validSearchTerms.push(originalKeyword);
+      }
     }
     
     console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
-    return searchAllCollections(shopDomain, token, validSearchTerms);
+    return searchAllCollections(shopDomain, token, validSearchTerms, null);
   }
 }
 
 // Function to search all Shopify collections (original implementation)
-async function searchAllCollections(shopDomain: string, token: string, searchTerms: string[]): Promise<any[]> {
+async function searchAllCollections(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null): Promise<any[]> {
   let matchedCollections: any[] = [];
   
   // Function to search a batch of collections with our terms
@@ -318,9 +790,9 @@ async function searchAllCollections(shopDomain: string, token: string, searchTer
     const results: any[] = [];
     const scoredCollections: {collection: any, score: number}[] = [];
     
-    // Extract primary vendor/brand name (first word in first search term)
-    const keywordParts = searchTerms[0].toLowerCase().split(' ');
-    const primaryVendor = keywordParts[0]; // e.g., "unic"
+    // Extract primary vendor/brand name - use the identified vendor if available
+    const primaryVendor = identifiedVendor || 
+                        searchTerms[0].toLowerCase().split(' ')[0]; // Fallback to first word in first search term
     
     console.log(`Primary vendor/brand for relevance filtering: "${primaryVendor}"`);
     
@@ -1764,16 +2236,33 @@ export async function POST(request: Request) {
           // Extract key terms from topic breakdown
           const searchTerms = await extractKeyTerms(topicBreakdown || '', keyword);
           // Always include the original keyword
-          if (!searchTerms.includes(keyword)) {
-            searchTerms.unshift(keyword);
+          if (!searchTerms.searchTerms.includes(keyword)) {
+            searchTerms.searchTerms.unshift(keyword);
           }
           
           try {
             if (articleMode === 'store') {
               console.log(`Fetching related products from Shopify store: ${shopDomain}`);
               
+              // First, fetch all vendors from the store
+              console.log('Fetching all vendors before extracting key terms...');
+              const availableVendors = await fetchShopifyVendors(shopDomain, shopifyAccessToken);
+              console.log(`Found ${availableVendors.length} vendors in the store.`);
+              
+              // Extract key terms with vendor awareness
+              const keyTermsResult = await extractKeyTerms(topicBreakdown || '', keyword, availableVendors);
+              const searchTerms = keyTermsResult.searchTerms;
+              const identifiedVendor = keyTermsResult.primaryVendor;
+              
+              console.log(`Using primary vendor "${identifiedVendor}" and ${searchTerms.length} search terms for product/collection search`);
+              
+              // Always include the original keyword
+              if (!searchTerms.includes(keyword)) {
+                searchTerms.unshift(keyword);
+              }
+              
               // Search for products using multiple approaches
-              const products = await searchShopifyProducts(shopDomain, shopifyAccessToken, searchTerms);
+              const products = await searchShopifyProducts(shopDomain, shopifyAccessToken, searchTerms, availableVendors);
               
               if (products.length > 0) {
                 console.log(`Found ${products.length} products to include in article`);
@@ -1791,7 +2280,7 @@ export async function POST(request: Request) {
               console.log(`Fetching related collections from Shopify store: ${shopDomain}`);
               
               // Search for collections using multiple approaches
-              const collections = await searchShopifyCollections(shopDomain, shopifyAccessToken, searchTerms);
+              const collections = await searchShopifyCollections(shopDomain, shopifyAccessToken, searchTerms, availableVendors);
               
               if (collections.length > 0) {
                 console.log(`Found ${collections.length} related collections`);
@@ -1819,12 +2308,12 @@ ${relatedCollectionsList ? relatedCollectionsList : ''}
 
 IMPORTANT INTEGRATION INSTRUCTIONS:
 1. Naturally incorporate these products and collections throughout your article.
-2. Replace generic mentions of terms like "${keyword.split(' ')[0]}" with the specific branded collection links when appropriate.
+2. Replace generic mentions of terms like "${identifiedVendor || keyword.split(' ')[0]}" with the specific branded collection links when appropriate.
 3. When discussing specific parts or components, reference the relevant products by name and link.
 4. Ensure every section of the article includes at least one relevant product or collection reference where it makes sense.
 5. Use the exact collection and product names when referring to them.
 6. IMPORTANT: Only mention collections that are directly related to the main topic "${keyword}". Do not include collections like "Pizza Group" if the article is about "${keyword}".
-7. Focus primarily on collections that contain the brand name "${keyword.split(' ')[0]}" as these are most relevant to the article topic.
+7. Focus primarily on collections that contain the brand name "${identifiedVendor || keyword.split(' ')[0]}" as these are most relevant to the article topic.
 8. When mentioning collections, explain their relevance to the article topic to maintain article focus.
 `;
                 console.log('Successfully added Shopify products/collections to prompt with enhanced integration instructions');
@@ -1833,6 +2322,21 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
               }
             } else if (articleMode === 'service') {
               console.log(`Fetching related pages from Shopify store: ${shopDomain}`);
+              
+              // First, fetch all vendors from the store
+              console.log('Fetching all vendors before extracting key terms...');
+              const availableVendors = await fetchShopifyVendors(shopDomain, shopifyAccessToken);
+              console.log(`Found ${availableVendors.length} vendors in the store.`);
+              
+              // Extract key terms with vendor awareness
+              const keyTermsResult = await extractKeyTerms(topicBreakdown || '', keyword, availableVendors);
+              const searchTerms = keyTermsResult.searchTerms;
+              
+              // Always include the original keyword
+              if (!searchTerms.includes(keyword)) {
+                searchTerms.unshift(keyword);
+              }
+              
               // Fetch pages
               try {
                 const pagesRes = await fetch(`https://${shopDomain}/admin/api/2023-01/pages.json?title=${encodeURIComponent(searchTerms[0])}`, {
@@ -1933,7 +2437,7 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
       console.log('Calling Claude API for article generation');
       const message = await anthropic.messages.create({
         model: "claude-3-7-sonnet-20250219",
-        max_tokens: 4000,
+        max_tokens: 7000,
         messages: [
           {
             role: "user",
