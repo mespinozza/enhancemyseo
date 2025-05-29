@@ -500,9 +500,43 @@ async function fetchShopifyVendorsWithREST(shopDomain: string, token: string): P
   }
 }
 
-// Function to identify potential vendor from all words in a keyword
-async function identifyVendorFromKeyword(shopDomain: string, token: string, keyword: string, availableVendors: string[] = []): Promise<string | null> {
-  // Use provided vendors list or fetch if not provided
+// Add interface for vendor scoring
+interface ScoredVendorMatch {
+  vendor: string;
+  score: number;
+}
+
+// Add interface for product scoring
+interface ProductScoreResult {
+  score: number;
+  product: any;
+  matchedTerms: string[];
+}
+
+// Add the vendor score calculation function
+function calculateVendorScore(vendor: string, words: string[]): number {
+  return words.reduce((score: number, word: string) => {
+    if (vendor.toLowerCase().includes(word) || word.includes(vendor.toLowerCase())) {
+      score += word.length; // Longer matches score higher
+    }
+    return score;
+  }, 0);
+}
+
+// Add minimum score threshold for vendor matching
+const VENDOR_MATCH_THRESHOLD = 5; // Minimum score to consider a vendor match valid
+
+// Add common words that should never be considered as brand names or search terms
+const COMMON_WORDS = [
+  'the', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'from', 'up', 'about', 'into', 'over', 'after',
+  'importance', 'important', 'how', 'what', 'why', 'when', 'where', 'which', 'who', 'whom', 'whose',
+  'using', 'understanding', 'getting', 'making', 'finding', 'choosing', 'selecting', 'working',
+  'guide', 'tips', 'basics', 'benefits', 'advantages', 'disadvantages', 'overview', 'introduction',
+  'and', 'or', 'but', 'nor', 'so', 'yet', 'unless', 'although', 'because'
+];
+
+// Enhance the vendor identification function
+async function identifyVendorFromKeyword(shopDomain: string, token: string, keyword: string, availableVendors: string[] = []): Promise<{ vendor: string | null; searchTerms: string[] }> {
   let vendorsList = availableVendors;
   
   if (vendorsList.length === 0) {
@@ -510,388 +544,791 @@ async function identifyVendorFromKeyword(shopDomain: string, token: string, keyw
     vendorsList = await fetchShopifyVendors(shopDomain, token);
   }
   
-  if (vendorsList.length === 0) {
-    console.log('No vendors found in store, falling back to first-word approach');
-    // Find the first meaningful word in the keyword
-    const words = keyword.toLowerCase().split(' ');
-    for (const word of words) {
-      if (word.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset", "find", "install"].includes(word)) {
-        return word;
-      }
-    }
-    return keyword.split(' ')[0]; // Fallback to first word
-  }
-  
   const keywordLower = keyword.toLowerCase();
-  console.log(`Checking if any part of "${keyword}" matches a vendor in the store`);
+  console.log(`Checking keyword "${keyword}" against ${vendorsList.length} vendors`);
   
-  // First check for exact match of the entire keyword
-  if (vendorsList.includes(keywordLower)) {
-    console.log(`Found exact vendor match: "${keywordLower}" is the entire keyword`);
-    return keywordLower;
+  // First check for exact brand names in the full keyword
+  const exactMatches = vendorsList.filter(vendor => 
+    keywordLower.includes(vendor.toLowerCase())
+  ).sort((a, b) => b.length - a.length); // Sort by length to prefer longer matches
+  
+  if (exactMatches.length > 0) {
+    const matchScore = calculateVendorScore(exactMatches[0], keywordLower.split(' '));
+    if (matchScore >= VENDOR_MATCH_THRESHOLD) {
+      console.log(`Found exact vendor match: "${exactMatches[0]}" with score ${matchScore}`);
+      return { vendor: exactMatches[0], searchTerms: generateSearchTerms(keyword, exactMatches[0]) };
+    }
+    console.log(`Found exact vendor match "${exactMatches[0]}" but score ${matchScore} below threshold`);
   }
   
-  // Then check for multi-word vendors appearing in the keyword
-  for (const vendor of vendorsList) {
-    if (vendor.includes(' ') && keywordLower.includes(vendor)) {
-      console.log(`Found multi-word vendor match: "${vendor}" in keyword`);
-      return vendor;
-    }
-  }
-  
-  // Extract all words from the keyword
-  const words = keywordLower.split(' ');
-  
-  // Check each word against the vendor list for exact matches
-  for (const word of words) {
-    // Skip very short words and common words that wouldn't be vendors
-    if (word.length <= 2 || ["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word)) {
-      continue;
-    }
-    
-    // Check if this word exactly matches a vendor
-    if (vendorsList.includes(word)) {
-      console.log(`Found exact vendor match: "${word}"`);
-      return word;
-    }
-  }
-  
-  // Check for partial matches - vendor names that appear within the keyword
+  // Check for partial matches with minimum length
   const partialMatches = vendorsList.filter(vendor => 
-    keywordLower.includes(vendor)
+    vendor.length > 3 && 
+    keywordLower.split(' ').some(word => 
+      vendor.toLowerCase().includes(word) || 
+      word.includes(vendor.toLowerCase())
+    )
   );
   
   if (partialMatches.length > 0) {
-    // Sort by length (descending) to prioritize longer vendor names
-    partialMatches.sort((a, b) => b.length - a.length);
-    console.log(`Found partial vendor match: "${partialMatches[0]}" in keyword`);
-    return partialMatches[0];
+    const scoredMatches = partialMatches.map(vendor => ({
+      vendor,
+      score: calculateVendorScore(vendor, keywordLower.split(' '))
+    }));
+    
+    scoredMatches.sort((a, b) => b.score - a.score);
+    
+    if (scoredMatches[0].score >= VENDOR_MATCH_THRESHOLD) {
+      console.log(`Found partial vendor match: "${scoredMatches[0].vendor}" with score ${scoredMatches[0].score}`);
+      return { vendor: scoredMatches[0].vendor, searchTerms: generateSearchTerms(keyword, scoredMatches[0].vendor) };
+    }
+    console.log(`Best partial match "${scoredMatches[0].vendor}" score ${scoredMatches[0].score} below threshold`);
   }
   
-  // Check for vendors that contain words from the keyword
-  for (const word of words) {
-    // Skip very short words and common words
-    if (word.length <= 2 || ["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word)) {
+  // No vendor found - generate search terms without a brand focus
+  console.log('No vendor matches found - proceeding with term-based search');
+  return { vendor: null, searchTerms: generateSearchTerms(keyword, null) };
+}
+
+// Function to generate search terms
+function generateSearchTerms(keyword: string, vendor: string | null): string[] {
+  const keywordLower = keyword.toLowerCase();
+  const searchTerms: Set<string> = new Set();
+  
+  // Get meaningful words from the keyword
+  const words = keywordLower.split(' ').filter(word => 
+    word.length > 3 && !COMMON_WORDS.includes(word.toLowerCase())
+  );
+  
+  // Product-specific terms that are always relevant
+  const productTerms = ['oil', 'lubricant', 'fluid', 'grease', 'hydraulic', 'industrial'];
+  
+  // If we have a vendor, prioritize vendor-based combinations
+  if (vendor) {
+    searchTerms.add(vendor);
+    
+    // Combine vendor with each meaningful word
+    words.forEach(word => {
+      if (word.toLowerCase() !== vendor.toLowerCase() && !COMMON_WORDS.includes(word)) {
+        searchTerms.add(`${vendor} ${word}`);
+      }
+    });
+    
+    // Combine vendor with product terms
+    productTerms.forEach(term => {
+      searchTerms.add(`${vendor} ${term}`);
+    });
+  }
+  
+  // Generate combinations of meaningful words
+  words.forEach((word, i) => {
+    // Skip if it's a common word
+    if (!COMMON_WORDS.includes(word)) {
+      // Only add single words if they're significant
+      if (isSignificantTerm(word)) {
+        searchTerms.add(word);
+      }
+      
+      // Combine with product terms
+      productTerms.forEach(term => {
+        searchTerms.add(`${word} ${term}`);
+      });
+      
+      // Create pairs of meaningful words
+      words.slice(i + 1).forEach(nextWord => {
+        if (!COMMON_WORDS.includes(nextWord)) {
+          const pair = `${word} ${nextWord}`;
+          // Only add the pair if at least one word is significant
+          if (isSignificantTerm(word) || isSignificantTerm(nextWord)) {
+            searchTerms.add(pair);
+          }
+        }
+      });
+    }
+  });
+  
+  // Add relevant industry/category terms if they appear in the keyword
+  const categoryTerms = ['food grade', 'industrial grade', 'food safe', 'food processing'];
+  categoryTerms.forEach(term => {
+    if (keywordLower.includes(term)) {
+      searchTerms.add(term);
+    }
+  });
+  
+  // Filter out any terms that are too short or only contain common words
+  const filteredTerms = Array.from(searchTerms).filter(term => {
+    const termWords = term.toLowerCase().split(' ');
+    // Keep terms that:
+    // 1. Are longer than 3 characters
+    // 2. Contain at least one significant word
+    // 3. Are not just common words combined
+    return term.length > 3 && 
+           (isSignificantTerm(term) || termWords.some(word => isSignificantTerm(word))) &&
+           !(termWords.every(word => COMMON_WORDS.includes(word)));
+  });
+  
+  // Sort by length (descending) to prioritize more specific terms
+  const sortedTerms = filteredTerms.sort((a, b) => b.length - a.length);
+  
+  console.log('Generated search terms:', sortedTerms);
+  return sortedTerms;
+}
+
+// Function to search products using GraphQL for better performance
+async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null): Promise<any[]> {
+  console.log('Searching products using GraphQL with targeted queries...');
+  console.log(`Using matching strategy: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
+  const matchedProducts: any[] = [];
+  
+  // Search all terms - don't artificially limit to avoid missing important matches
+  console.log(`Will search all ${searchTerms.length} generated terms:`, searchTerms.join(', '));
+  
+  for (const term of searchTerms) {
+    if (matchedProducts.length >= 5) break; // Stop once we have enough products
+    
+    // Skip very short or common terms
+    if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
+      console.log(`Skipping GraphQL search for common/short term: "${term}"`);
       continue;
     }
     
-    const vendorContainsWord = vendorsList.filter(vendor => 
-      vendor.includes(word)
-    );
+    console.log(`Searching with GraphQL for term: "${term}"`);
     
-    if (vendorContainsWord.length > 0) {
-      console.log(`Found vendor containing keyword word: "${vendorContainsWord[0]}" contains "${word}"`);
-      return vendorContainsWord[0];
+    try {
+      // GraphQL query to search products by title
+      const graphqlQuery = `
+        query searchProducts($query: String!) {
+          products(first: 20, query: $query) {
+            edges {
+              node {
+                id
+                title
+                handle
+                vendor
+                productType
+                tags
+                variants(first: 1) {
+                  edges {
+                    node {
+                      id
+                      price
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+      
+      // Create comprehensive search queries to find exact phrases anywhere in the title
+      const searchQueries = [];
+      
+      // For multi-word terms, search for exact phrase anywhere in title
+      if (term.includes(' ')) {
+        // Primary search: exact phrase match anywhere in title
+        searchQueries.push(`title:*${term}*`);
+        
+        // Secondary search: try with quotes for exact phrase matching
+        searchQueries.push(`title:"${term}"`);
+        
+        // Tertiary search: individual words that must all appear in title
+        const words = term.split(' ').filter(word => word.length > 3);
+        if (words.length > 1) {
+          searchQueries.push(`title:*${words[0]}* AND title:*${words[1]}*`);
+          
+          // If more than 2 words, try combinations
+          if (words.length > 2) {
+            searchQueries.push(`title:*${words[0]}* AND title:*${words[1]}* AND title:*${words[2]}*`);
+          }
+        }
+      } else {
+        // For single words, search anywhere in title
+        searchQueries.push(`title:*${term}*`);
+        
+        // Also try word boundary search if it's a significant term
+        if (isSignificantTerm(term)) {
+          searchQueries.push(`title:"${term}"`);
+        }
+      }
+      
+      // Execute each search query
+      for (const query of searchQueries) {
+        if (matchedProducts.length >= 5) break;
+        
+        console.log(`Trying GraphQL query: "${query}"`);
+        
+        const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: graphqlQuery,
+            variables: { query }
+          }),
+        });
+        
+        // Add rate limiting
+        await sleep(300);
+        
+        if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+            console.log(`Rate limited. Waiting ${retryAfter} seconds...`);
+            await sleep(retryAfter * 1000);
+            continue;
+          }
+          console.error(`GraphQL query failed with status ${response.status}`);
+          continue;
+        }
+        
+        const data = await response.json();
+        
+        if (data.data?.products?.edges) {
+          const products = data.data.products.edges;
+          console.log(`GraphQL returned ${products.length} products for query: "${query}"`);
+          
+          // Filter and add products that haven't been added yet
+          products.forEach((edge: any) => {
+            const product = edge.node;
+            
+            // Double-check that product title actually contains our search term (case insensitive)
+            // This ensures the GraphQL results are accurate
+            const productTitle = product.title.toLowerCase();
+            const searchTerm = term.toLowerCase();
+            
+            let isMatch = false;
+            
+            // For multi-word terms, use different strategies based on vendor presence
+            if (term.includes(' ')) {
+              // Strategy A: Vendor identified - flexible matching (check if all words exist individually)
+              if (identifiedVendor && searchTerm.includes(identifiedVendor.toLowerCase())) {
+                const words = searchTerm.split(' ').filter(word => word.length > 2);
+                isMatch = words.every(word => {
+                  const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
+                  return pattern.test(productTitle);
+                });
+                
+                if (isMatch) {
+                  console.log(`✓ Flexible match (vendor present): All words "${words.join(', ')}" found in product: "${product.title}"`);
+                } else {
+                  console.log(`✗ Flexible match failed: Not all words "${words.join(', ')}" found in product: "${product.title}"`);
+                }
+              } 
+              // Strategy B: No vendor - strict exact phrase matching
+              else {
+                isMatch = productTitle.includes(searchTerm);
+                if (isMatch) {
+                  console.log(`✓ Strict exact phrase "${term}" found in product: "${product.title}"`);
+                } else {
+                  console.log(`✗ Strict match failed: Exact phrase "${term}" not found in product: "${product.title}"`);
+                }
+              }
+            } else {
+              // For single words, use word boundary matching to avoid partial matches
+              const pattern = new RegExp(`\\b${escapeRegExp(searchTerm)}\\b`);
+              isMatch = pattern.test(productTitle);
+              if (isMatch) {
+                console.log(`✓ Word "${term}" found in product: "${product.title}"`);
+              } else {
+                console.log(`✗ Word "${term}" not found in product: "${product.title}"`);
+              }
+            }
+            
+            // Add the product if it matches and hasn't been added yet
+            if (isMatch && !matchedProducts.some(p => p.id === product.id) && matchedProducts.length < 5) {
+              // Transform to match expected format
+              const transformedProduct = {
+                id: product.id,
+                title: product.title,
+                handle: product.handle,
+                vendor: product.vendor,
+                product_type: product.productType,
+                tags: product.tags,
+                variants: product.variants.edges.map((v: any) => ({
+                  id: v.node.id,
+                  price: v.node.price
+                }))
+              };
+              
+              matchedProducts.push(transformedProduct);
+              console.log(`✓ Added product via GraphQL: "${product.title}"`);
+            }
+          });
+        } else {
+          console.log(`No products returned for GraphQL query: "${query}"`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error in GraphQL search for term "${term}":`, error);
+      continue;
     }
   }
   
-  // If no vendor match found, look for a meaningful word that could be a brand
-  for (const word of words) {
-    if (word.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset", "find", "install", "remove", "repair", "help"].includes(word)) {
-      console.log(`No vendor matches found. Using word as potential brand: "${word}"`);
-      return word;
-    }
+  console.log(`GraphQL search completed. Found ${matchedProducts.length} matching products.`);
+  if (matchedProducts.length > 0) {
+    console.log('Found products:');
+    matchedProducts.forEach((p: any) => console.log(`- ${p.title} (${p.vendor})`));
   }
-  
-  console.log(`No vendor or brand matches found for "${keyword}"`);
-  return null;
+  return matchedProducts;
 }
 
-// Function to search Shopify products with vendor-first approach
+// Function to search collections using GraphQL for better performance
+async function searchCollectionsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null): Promise<any[]> {
+  console.log('Searching collections using GraphQL with targeted queries...');
+  console.log(`Using matching strategy for collections: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
+  const matchedCollections: any[] = [];
+  
+  // Search all terms - don't artificially limit to avoid missing important matches
+  console.log(`Will search all ${searchTerms.length} generated terms for collections:`, searchTerms.join(', '));
+  
+  for (const term of searchTerms) {
+    if (matchedCollections.length >= 5) break; // Stop once we have enough collections
+    
+    // Skip very short or common terms
+    if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
+      console.log(`Skipping GraphQL search for common/short term: "${term}"`);
+      continue;
+    }
+    
+    console.log(`Searching collections with GraphQL for term: "${term}"`);
+    
+    try {
+      // GraphQL query to search collections by title
+      const graphqlQuery = `
+        query searchCollections($query: String!) {
+          collections(first: 10, query: $query) {
+            edges {
+              node {
+                id
+                title
+                handle
+                description
+              }
+            }
+          }
+        }
+      `;
+      
+      // Create search queries
+      const searchQueries = [];
+      
+      // For multi-word terms, search for exact phrase
+      if (term.includes(' ')) {
+        searchQueries.push(`title:*${term}*`);
+      } else {
+        // For single words, search in title
+        searchQueries.push(`title:*${term}*`);
+      }
+      
+      for (const query of searchQueries) {
+        if (matchedCollections.length >= 5) break;
+        
+        const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: graphqlQuery,
+            variables: { query }
+          }),
+        });
+        
+        // Add rate limiting
+        await sleep(300);
+        
+        if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+            console.log(`Rate limited. Waiting ${retryAfter} seconds...`);
+            await sleep(retryAfter * 1000);
+            continue;
+          }
+          console.error(`GraphQL collections query failed with status ${response.status}`);
+          continue;
+        }
+        
+        const data = await response.json();
+        
+        if (data.data?.collections?.edges) {
+          const collections = data.data.collections.edges;
+          console.log(`Found ${collections.length} collections with GraphQL query: "${query}"`);
+          
+          // Filter and add collections that haven't been added yet
+          collections.forEach((edge: any) => {
+            const collection = edge.node;
+            
+            // Check if collection title actually contains our search term (case insensitive)
+            const collectionTitle = collection.title.toLowerCase();
+            const searchTerm = term.toLowerCase();
+            
+            let isMatch = false;
+            
+            // For multi-word terms, use different strategies based on vendor presence
+            if (term.includes(' ')) {
+              // Strategy A: Vendor identified - flexible matching (check if all words exist individually)
+              if (identifiedVendor && searchTerm.includes(identifiedVendor.toLowerCase())) {
+                const words = searchTerm.split(' ').filter(word => word.length > 2);
+                isMatch = words.every(word => {
+                  const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
+                  return pattern.test(collectionTitle);
+                });
+                
+                if (isMatch) {
+                  console.log(`✓ Flexible collection match (vendor present): All words "${words.join(', ')}" found in collection: "${collection.title}"`);
+                } else {
+                  console.log(`✗ Flexible collection match failed: Not all words "${words.join(', ')}" found in collection: "${collection.title}"`);
+                }
+              } 
+              // Strategy B: No vendor - strict exact phrase matching
+              else {
+                isMatch = collectionTitle.includes(searchTerm);
+                if (isMatch) {
+                  console.log(`✓ Strict exact phrase "${term}" found in collection: "${collection.title}"`);
+                } else {
+                  console.log(`✗ Strict collection match failed: Exact phrase "${term}" not found in collection: "${collection.title}"`);
+                }
+              }
+            } else {
+              // For single words, use word boundary matching if it's a significant term
+              if (isSignificantTerm(term)) {
+                const pattern = new RegExp(`\\b${escapeRegExp(searchTerm)}\\b`);
+                isMatch = pattern.test(collectionTitle);
+                if (isMatch) {
+                  console.log(`✓ Word "${term}" found in collection: "${collection.title}"`);
+                } else {
+                  console.log(`✗ Word "${term}" not found in collection: "${collection.title}"`);
+                }
+              }
+            }
+            
+            if (isMatch && !matchedCollections.some(c => c.id === collection.id) && matchedCollections.length < 5) {
+              matchedCollections.push(collection);
+              console.log(`✓ Added collection via GraphQL: "${collection.title}"`);
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Error in GraphQL search for collections term "${term}":`, error);
+      continue;
+    }
+  }
+  
+  console.log(`GraphQL collections search completed. Found ${matchedCollections.length} matching collections.`);
+  return matchedCollections;
+}
+
+// Update the main search functions to use GraphQL only, with REST as fallback
 async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // Use the vendor identification function with available vendors
-  const potentialVendor = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
+  // First, extract comprehensive terms using AI analysis
+  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+  const aiExtractedTerms = aiAnalysisResult.searchTerms;
+  const primaryVendor = aiAnalysisResult.primaryVendor;
   
-  console.log(`Identified potential vendor: "${potentialVendor || 'None found'}"`);
+  // Then, use the vendor identification function to get supplementary product-focused terms
+  const { vendor: identifiedVendor, searchTerms: supplementaryTerms } = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
   
-  if (potentialVendor) {
-    // Check if this vendor exists in the store
-    const vendorExists = await checkVendorExists(shopDomain, token, potentialVendor);
+  // Use the vendor from AI analysis if available, otherwise use the identified vendor
+  const finalVendor = primaryVendor || identifiedVendor;
+  
+  console.log(`Primary vendor identified: "${finalVendor || 'None found'}"`);
+  console.log(`AI extracted terms (${aiExtractedTerms.length}):`, aiExtractedTerms.slice(0, 8).join(', '), aiExtractedTerms.length > 8 ? '...' : '');
+  console.log(`Supplementary terms (${supplementaryTerms.length}):`, supplementaryTerms.join(', '));
+  
+  // Intelligently merge and prioritize the terms
+  const mergedTerms = mergeAndPrioritizeSearchTerms(aiExtractedTerms, supplementaryTerms, originalKeyword, finalVendor);
+  
+  console.log(`Final merged and prioritized terms (${mergedTerms.length}):`, mergedTerms.join(', '));
+  
+  // Use GraphQL only - no REST fallback
+  try {
+    const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, mergedTerms, finalVendor);
     
-    if (vendorExists) {
-      // If vendor exists, use optimized vendor-specific search
-      console.log(`Vendor "${potentialVendor}" exists in store - using targeted search`);
-      return searchVendorProducts(shopDomain, token, potentialVendor, searchTerms);
+    if (graphqlResults.length > 0) {
+      console.log(`GraphQL found ${graphqlResults.length} products, using these results`);
+      return graphqlResults;
     } else {
-      // Fallback to searching all products
-      console.log(`No products found for vendor "${potentialVendor}" - falling back to full catalog search`);
-      return searchAllProducts(shopDomain, token, searchTerms);
+      console.log('GraphQL search completed but no products matched any of the search terms.');
+      console.log('Search terms that were tried:', mergedTerms.join(', '));
+      return []; // Return empty array instead of falling back to REST
     }
-  } else {
-    // No vendor identified, use regular search
-    console.log('No vendor identified from keyword - using full catalog search');
-    return searchAllProducts(shopDomain, token, searchTerms);
+  } catch (error) {
+    console.error('GraphQL search failed:', error);
+    console.log('No products found due to GraphQL search failure.');
+    return []; // Return empty array instead of falling back to REST
   }
 }
 
-// Function to search Shopify collections with vendor-first approach
+// Function to intelligently merge and prioritize search terms
+function mergeAndPrioritizeSearchTerms(
+  aiExtractedTerms: string[], 
+  supplementaryTerms: string[], 
+  originalKeyword: string, 
+  vendor: string | null
+): string[] {
+  const finalTerms: string[] = [];
+  const addedTerms = new Set<string>();
+  
+  // Helper function to add term if not already added
+  const addTerm = (term: string, priority: string) => {
+    const cleanTerm = term.toLowerCase().trim();
+    if (cleanTerm.length > 3 && 
+        !COMMON_WORDS.includes(cleanTerm) && 
+        !addedTerms.has(cleanTerm) &&
+        finalTerms.length < 15) { // Limit to 15 total terms for efficiency
+      finalTerms.push(term);
+      addedTerms.add(cleanTerm);
+      console.log(`Added ${priority}: "${term}"`);
+    }
+  };
+  
+  // Priority 1: Original keyword (most important)
+  addTerm(originalKeyword, 'Priority 1 (original keyword)');
+  
+  // Priority 2: Vendor + key component combinations from AI analysis
+  if (vendor) {
+    const vendorLower = vendor.toLowerCase();
+    const keyComponents = ['motor', 'mixer', 'dishwasher', 'oven', 'scale', 'pump', 'valve', 'seal'];
+    
+    // Add vendor + component combinations that exist in AI extracted terms
+    aiExtractedTerms.forEach(term => {
+      const termLower = term.toLowerCase();
+      if (termLower.includes(vendorLower) && 
+          keyComponents.some(comp => termLower.includes(comp)) &&
+          term.split(' ').length === 2) { // Focus on two-word combinations
+        addTerm(term, 'Priority 2 (vendor + component)');
+      }
+    });
+  }
+  
+  // Priority 3: Individual key terms (vendor and main components)
+  if (vendor) {
+    addTerm(vendor, 'Priority 3 (vendor)');
+  }
+  
+  // Add key components that appear in the original keyword
+  const originalWords = originalKeyword.toLowerCase().split(' ');
+  const significantComponents = ['motor', 'mixer', 'dishwasher', 'oven', 'scale', 'pump', 'valve', 'seal'];
+  significantComponents.forEach(component => {
+    if (originalWords.includes(component)) {
+      addTerm(component, 'Priority 3 (key component)');
+    }
+  });
+  
+  // Priority 4: Other meaningful multi-word terms from AI analysis
+  aiExtractedTerms.forEach(term => {
+    const termLower = term.toLowerCase();
+    const words = term.split(' ');
+    
+    // Skip if already added or if it's a meaningless combination
+    if (addedTerms.has(termLower)) return;
+    
+    // Add meaningful multi-word terms (but skip vague ones)
+    if (words.length >= 2 && words.length <= 3) {
+      const hasVagueWords = words.some(word => 
+        ['importance', 'the', 'of', 'a', 'and', 'for', 'with'].includes(word.toLowerCase())
+      );
+      
+      if (!hasVagueWords) {
+        addTerm(term, 'Priority 4 (meaningful combination)');
+      }
+    }
+  });
+  
+  // Priority 5: Supplementary product-focused terms (maintenance, parts)
+  supplementaryTerms.forEach(term => {
+    if (!addedTerms.has(term.toLowerCase())) {
+      addTerm(term, 'Priority 5 (supplementary)');
+    }
+  });
+  
+  // Priority 6: Remaining single meaningful words from AI analysis
+  aiExtractedTerms.forEach(term => {
+    const termLower = term.toLowerCase();
+    const words = term.split(' ');
+    
+    if (words.length === 1 && 
+        !addedTerms.has(termLower) && 
+        isSignificantTerm(term) &&
+        !['importance'].includes(termLower)) {
+      addTerm(term, 'Priority 6 (individual component)');
+    }
+  });
+  
+  console.log(`\nTerm prioritization complete. Selected ${finalTerms.length} terms from ${aiExtractedTerms.length + supplementaryTerms.length} total options.`);
+  
+  return finalTerms;
+}
+
 async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // Use the vendor identification function with available vendors
-  const potentialVendor = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
+  // First, extract comprehensive terms using AI analysis
+  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+  const aiExtractedTerms = aiAnalysisResult.searchTerms;
+  const primaryVendor = aiAnalysisResult.primaryVendor;
   
-  console.log(`Identified potential vendor for collections: "${potentialVendor || 'None found'}"`);
+  // Then, use the vendor identification function to get supplementary product-focused terms
+  const { vendor: identifiedVendor, searchTerms: supplementaryTerms } = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
   
-  if (potentialVendor) {
-    // Check if this vendor exists in the store
-    const vendorExists = await checkVendorExists(shopDomain, token, potentialVendor);
-    
-    if (vendorExists) {
-      // If vendor exists, try to find collections that match the vendor name first
-      console.log(`Vendor "${potentialVendor}" exists in store - prioritizing collections with this vendor name`);
-      
-      // For collections, we'll modify our search approach to prioritize the vendor name
-      // but still use the existing search mechanism, as collections aren't associated with vendors in Shopify API
-      
-      // Create a prioritized list of search terms with vendor name first
-      const prioritizedTerms = [
-        potentialVendor, // Just the vendor name
-        ...searchTerms.filter(term => term.toLowerCase() !== potentialVendor.toLowerCase()) // All other terms
-      ];
-      
-      // Filter out vague terms more aggressively
-      const validSearchTerms = prioritizedTerms.filter(term => {
-        // Expanded list of vague terms to filter out
-        const vague = [
-          'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
-          'group', 'equipment', 'commercial', 'head', 'professional',
-          'accessory', 'accessories', 'component', 'components'
-        ];
-        
-        // Remove very short terms (except the vendor name)
-        if (term.length < 4 && term.toLowerCase() !== potentialVendor.toLowerCase()) {
-          console.log(`Filtering out short term: "${term}"`);
-          return false;
-        }
-        
-        // Remove vague terms
-        if (vague.includes(term.toLowerCase())) {
-          console.log(`Filtering out vague term: "${term}"`);
-          return false;
-        }
-        
-        return true;
-      });
-      
-      // Ensure we always include at least the vendor name if all terms were filtered
-      if (validSearchTerms.length === 0) {
-        console.log(`All search terms were filtered. Falling back to vendor name: "${potentialVendor}"`);
-        validSearchTerms.push(potentialVendor);
-      }
-      
-      console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
-      return searchAllCollections(shopDomain, token, validSearchTerms, potentialVendor);
-    } else {
-      // Fallback to searching all collections with original terms
-      console.log(`No products found for vendor "${potentialVendor}" - using standard collection search`);
-      
-      // Filter out vague terms more aggressively
-      const validSearchTerms = searchTerms.filter(term => {
-        // Expanded list of vague terms to filter out
-        const vague = [
-          'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
-          'group', 'equipment', 'commercial', 'head', 'professional',
-          'accessory', 'accessories', 'component', 'components'
-        ];
-        
-        // Remove very short terms
-        if (term.length < 4) {
-          console.log(`Filtering out short term: "${term}"`);
-          return false;
-        }
-        
-        // Remove vague terms
-        if (vague.includes(term.toLowerCase())) {
-          console.log(`Filtering out vague term: "${term}"`);
-          return false;
-        }
-        
-        return true;
-      });
-      
-      // If all terms were filtered, use a reasonable fallback
-      if (validSearchTerms.length === 0) {
-        // Try to extract meaningful words (longer than 4 chars)
-        const meaningfulWords = originalKeyword.split(' ').filter(word => word.length > 4);
-        
-        if (meaningfulWords.length > 0) {
-          console.log(`All search terms were filtered. Using meaningful words from keyword: ${meaningfulWords.join(', ')}`);
-          validSearchTerms.push(...meaningfulWords);
-        } else {
-          // Last resort - just use the original keyword
-          console.log(`No valid search terms found. Using original keyword: "${originalKeyword}"`);
-          validSearchTerms.push(originalKeyword);
-        }
-      }
-      
-      console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
-      return searchAllCollections(shopDomain, token, validSearchTerms, potentialVendor);
+  // Use the vendor from AI analysis if available, otherwise use the identified vendor
+  const finalVendor = primaryVendor || identifiedVendor;
+  
+  console.log(`Identified potential vendor for collections: "${finalVendor || 'None found'}"`);
+  
+  // Intelligently merge and prioritize the terms for collections
+  const mergedTerms = mergeAndPrioritizeSearchTerms(aiExtractedTerms, supplementaryTerms, originalKeyword, finalVendor);
+  
+  // Filter out vague terms that are especially problematic for collections
+  const validSearchTerms = mergedTerms.filter(term => {
+    const termLower = term.toLowerCase();
+    // Be more selective for collections - they tend to have broader, less specific names
+    if (term.length < 4 || COMMON_WORDS.includes(termLower)) {
+      console.log(`Filtering out common/short term for collections: "${term}"`);
+      return false;
     }
-  } else {
-    // No vendor identified, use standard collection search
-    console.log('No vendor identified from keyword - using standard collection search');
     
-    // Filter out vague terms
-    const validSearchTerms = searchTerms.filter(term => {
-      // Expanded list of vague terms to filter out
-      const vague = [
-        'espresso machine', 'machine parts', 'espresso', 'machine', 'parts',
-        'group', 'equipment', 'commercial', 'head', 'professional', 
-        'accessory', 'accessories', 'component', 'components',
-        'how', 'to', 'what', 'why', 'when', 'where'
-      ];
-      
-      // Remove very short terms
-      if (term.length < 4) {
-        console.log(`Filtering out short term: "${term}"`);
-        return false;
-      }
-      
-      // Remove vague terms
-      if (vague.includes(term.toLowerCase())) {
-        console.log(`Filtering out vague term: "${term}"`);
-        return false;
-      }
-      
-      return true;
-    });
+    // Skip very vague multi-word terms for collections
+    const vaguePhrases = ['importance of', 'the importance', 'of a', 'a hobart'];
+    if (vaguePhrases.some(phrase => termLower.includes(phrase))) {
+      console.log(`Filtering out vague phrase for collections: "${term}"`);
+      return false;
+    }
     
-    // If all terms were filtered, extract meaningful words from original keyword
-    if (validSearchTerms.length === 0) {
-      // Try to extract meaningful words (longer than 4 chars)
-      const meaningfulWords = originalKeyword.split(' ').filter(word => word.length > 4);
-      
-      if (meaningfulWords.length > 0) {
-        console.log(`All search terms were filtered. Using meaningful words from keyword: ${meaningfulWords.join(', ')}`);
-        validSearchTerms.push(...meaningfulWords);
+    return true;
+  });
+  
+  if (validSearchTerms.length === 0) {
+    // If all terms were filtered out, extract meaningful words from original keyword
+    const meaningfulWords = originalKeyword
+      .split(' ')
+      .filter(word => 
+        word.length > 4 && 
+        !COMMON_WORDS.includes(word.toLowerCase()) &&
+        !['importance', 'the', 'of', 'a'].includes(word.toLowerCase())
+      );
+    
+    if (meaningfulWords.length > 0) {
+      console.log(`All search terms were filtered. Using meaningful words from keyword: ${meaningfulWords.join(', ')}`);
+      validSearchTerms.push(...meaningfulWords);
+    } else {
+      // Last resort - just use the vendor if we have one
+      if (finalVendor) {
+        console.log(`No valid search terms found. Using vendor only: "${finalVendor}"`);
+        validSearchTerms.push(finalVendor);
       } else {
-        // Last resort - just use the original keyword
         console.log(`No valid search terms found. Using original keyword: "${originalKeyword}"`);
         validSearchTerms.push(originalKeyword);
       }
     }
+  }
+  
+  console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
+  
+  // Use GraphQL only - no REST fallback
+  try {
+    const graphqlResults = await searchCollectionsWithGraphQL(shopDomain, token, validSearchTerms, finalVendor);
     
-    console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
-    return searchAllCollections(shopDomain, token, validSearchTerms, null);
+    if (graphqlResults.length > 0) {
+      console.log(`GraphQL found ${graphqlResults.length} collections, using these results`);
+      return graphqlResults;
+    } else {
+      console.log('GraphQL search completed but no collections matched any of the search terms.');
+      console.log('Search terms that were tried:', validSearchTerms.join(', '));
+      return []; // Return empty array instead of falling back to REST
+    }
+  } catch (error) {
+    console.error('GraphQL collections search failed:', error);
+    console.log('No collections found due to GraphQL search failure.');
+    return []; // Return empty array instead of falling back to REST
   }
 }
 
-// Function to search all Shopify collections (original implementation)
-async function searchAllCollections(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null): Promise<any[]> {
+// Function to search all Shopify collections
+async function searchAllCollections(shopDomain: string, token: string, searchTerms: string[], vendorName: string | null = null): Promise<any[]> {
   let matchedCollections: any[] = [];
   
   // Function to search a batch of collections with our terms
-  const searchCollectionBatch = (collections: any[]): any[] => {
+  const searchCollectionBatch = (collections: any[], terms: string[]): any[] => {
     const results: any[] = [];
-    const scoredCollections: {collection: any, score: number}[] = [];
     
-    // Extract primary vendor/brand name - use the identified vendor if available
-    const primaryVendor = identifiedVendor || 
-                        searchTerms[0].toLowerCase().split(' ')[0]; // Fallback to first word in first search term
-    
-    console.log(`Primary vendor/brand for relevance filtering: "${primaryVendor}"`);
-    
-    // Score each collection based on relevance to search terms
-    for (const collection of collections) {
-      if (!collection.title) continue;
+    // Execute searches in priority order
+    for (const term of terms) {
+      if (results.length >= 5) break; // Stop once we have enough collections
       
-      const collectionTitle = collection.title.toLowerCase();
-      let score = 0;
-      let matchedTerms: string[] = [];
-      
-      // Check if collection has the primary vendor name - most important criteria
-      const vendorPattern = new RegExp(`\\b${escapeRegExp(primaryVendor.toLowerCase())}\\b`);
-      if (vendorPattern.test(collectionTitle)) {
-        score += 100; // High boost for having the primary vendor name
-        matchedTerms.push(primaryVendor);
-        console.log(`Collection "${collection.title}" includes primary vendor "${primaryVendor}" (+100 pts)`);
+      // Skip very short or common terms
+      if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
+        console.log(`Skipping search for common/short term: "${term}"`);
+        continue;
       }
       
-      // Check against each search term
-      for (const term of searchTerms) {
-        const words = term.split(' ');
+      console.log(`Searching current batch for term: "${term}"`);
+      
+      const words = term.split(' ');
+      
+      if (words.length > 1) {
+        // For multi-word terms, require exact phrase match in title
+        const titleMatches = collections.filter((collection: any) => {
+          if (!collection.title) return false;
+          if (results.some(c => c.id === collection.id)) return false; // Skip if already matched
+          
+          const collectionTitle = collection.title.toLowerCase();
+          
+          // Only accept exact phrase matches
+          if (collectionTitle.includes(term.toLowerCase())) {
+            console.log(`Found exact phrase match in title: "${collection.title}" matches "${term}"`);
+            return true;
+          }
+          return false;
+        });
         
-        // Skip scoring against the primary vendor again
-        if (term.toLowerCase() === primaryVendor.toLowerCase()) continue;
+        console.log(`Found ${titleMatches.length} collections by exact phrase match for "${term}" in this batch`);
         
-        if (words.length > 1) {
-          // For multi-word terms, check if ALL words appear in the title
-          const allWordsMatch = words.every(word => {
-            const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
+        // Add unique collections from title matches
+        titleMatches.forEach((collection: any) => {
+          if (!results.some(c => c.id === collection.id)) {
+            results.push(collection);
+            console.log(`Added collection by exact phrase match: "${collection.title}"`);
+          }
+        });
+      } else {
+        // For single-word terms, only search if it's a significant term
+        if (isSignificantTerm(term)) {
+          const titleMatches = collections.filter((collection: any) => {
+            if (!collection.title || results.some(c => c.id === collection.id)) return false;
+            
+            const collectionTitle = collection.title.toLowerCase();
+            // Create a regex pattern that matches the word with word boundaries
+            const pattern = new RegExp(`\\b${escapeRegExp(term.toLowerCase())}\\b`);
             return pattern.test(collectionTitle);
           });
           
-          if (allWordsMatch) {
-            score += 50; // Good boost for matching multi-word terms
-            matchedTerms.push(term);
-            console.log(`Collection "${collection.title}" matches multi-word term "${term}" (+50 pts)`);
-          }
+          console.log(`Found ${titleMatches.length} collections by exact word match for significant term "${term}" in this batch`);
+          
+          titleMatches.forEach((collection: any) => {
+            if (!results.some(c => c.id === collection.id)) {
+              results.push(collection);
+              console.log(`Added collection by exact word match: "${collection.title}"`);
+            }
+          });
         } else {
-          // For single-word terms
-          const pattern = new RegExp(`\\b${escapeRegExp(term.toLowerCase())}\\b`);
-          if (pattern.test(collectionTitle)) {
-            score += 25; // Smaller boost for matching single words
-            matchedTerms.push(term);
-            console.log(`Collection "${collection.title}" matches term "${term}" (+25 pts)`);
-          }
+          console.log(`Skipping search for non-significant single word term: "${term}"`);
         }
-      }
-      
-      // Apply penalties for unrelated collections
-      
-      // Check for collections that seem unrelated to our primary vendor
-      // This is where we filter out cases like "Pizza Group" for "Unic espresso machines"
-      if (score < 100 && !matchedTerms.includes(primaryVendor)) {
-        // Collection doesn't have primary vendor/brand and only matched on generic terms
-        // Penalize heavily to avoid including irrelevant collections
-        score -= 50;
-        console.log(`Collection "${collection.title}" doesn't match primary vendor - penalized (-50 pts)`);
-      }
-      
-      // Check if collection might be for a completely different brand
-      const potentialCompetitors = ["la marzocco", "rocket", "lelit", "breville", "pizza group", "astoria", "slayer", "sanremo"];
-      for (const competitor of potentialCompetitors) {
-        if (collectionTitle.includes(competitor) && competitor !== primaryVendor.toLowerCase()) {
-          score -= 100; // Heavy penalty for collections primarily about other brands
-          console.log(`Collection "${collection.title}" appears to be for competing brand "${competitor}" (-100 pts)`);
-        }
-      }
-      
-      // Store collection with its score if it's positive
-      if (score > 0) {
-        scoredCollections.push({ collection, score });
       }
     }
     
-    // Sort collections by relevance score (high to low)
-    scoredCollections.sort((a, b) => b.score - a.score);
-    
-    // Log the scored collections for debugging
-    console.log("Scored collections:");
-    scoredCollections.forEach(item => {
-      console.log(`- "${item.collection.title}" (score: ${item.score})`);
-    });
-    
-    // Apply minimum relevance threshold - only include collections with reasonable relevance
-    const RELEVANCE_THRESHOLD = 20; // Minimum score to be considered relevant
-    
-    // Take the top 5 most relevant collections that meet the threshold
-    for (const item of scoredCollections) {
-      if (item.score >= RELEVANCE_THRESHOLD && results.length < 5) {
-        results.push(item.collection);
-        console.log(`Selected collection: "${item.collection.title}" (score: ${item.score})`);
-      }
-    }
-    
-    return results;
+    return results.slice(0, 5); // Return at most 5 collections
   };
   
-  // Fetch and search collections page by page
   try {
     console.log('Fetching and searching collections from Shopify store with pagination');
     
@@ -906,7 +1343,6 @@ async function searchAllCollections(shopDomain: string, token: string, searchTer
     
     // Custom collections first
     console.log('Fetching custom collections...');
-    // No MAX_PAGES limit - continue until we find enough collections or reach the end
     while (hasNextPage && nextPageUrl && matchedCollections.length < 5) {
       console.log(`Fetching custom collections page ${pageCount}...`);
       
@@ -972,7 +1408,7 @@ async function searchAllCollections(shopDomain: string, token: string, searchTer
           console.log(`Found ${customData.custom_collections.length} custom collections on page ${pageCount}, searching for matches...`);
           
           // Search this batch of collections immediately
-          const newMatches = searchCollectionBatch(customData.custom_collections);
+          const newMatches = searchCollectionBatch(customData.custom_collections, searchTerms);
           
           // Add new matches to our collection
           newMatches.forEach(collection => {
@@ -1012,7 +1448,6 @@ async function searchAllCollections(shopDomain: string, token: string, searchTer
       pageCount = 1;
       
       console.log('Fetching smart collections...');
-      // No MAX_PAGES limit - continue until we find enough collections or reach the end
       while (hasNextPage && nextPageUrl && matchedCollections.length < 5) {
         console.log(`Fetching smart collections page ${pageCount}...`);
         
@@ -1078,7 +1513,7 @@ async function searchAllCollections(shopDomain: string, token: string, searchTer
             console.log(`Found ${smartData.smart_collections.length} smart collections on page ${pageCount}, searching for matches...`);
             
             // Search this batch of collections immediately
-            const newMatches = searchCollectionBatch(smartData.smart_collections);
+            const newMatches = searchCollectionBatch(smartData.smart_collections, searchTerms);
             
             // Add new matches to our collection
             newMatches.forEach(collection => {
@@ -1125,814 +1560,57 @@ async function searchAllCollections(shopDomain: string, token: string, searchTer
   }
 }
 
-// Function to get fallback products if the store has any products at all
-async function getFallbackProducts(shopDomain: string, token: string): Promise<any[]> {
-  try {
-    console.log('Attempting to fetch any products as fallback');
-    // Add rate limiting for this API call as well
-    await sleep(500);
-    
-    // Try to get just a few products as fallback content
-    const response = await fetch(`https://${shopDomain}/admin/api/2023-01/products.json?limit=5`, {
-      headers: {
-        'X-Shopify-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (!response.ok) {
-      console.error(`Fallback product fetch failed with status ${response.status}`);
-      return [];
-    }
-    
-    const data = await response.json();
-    if (data.products && data.products.length > 0) {
-      console.log(`Found ${data.products.length} fallback products`);
-      return data.products;
-    }
-    
-    return [];
-  } catch (error) {
-    console.error('Error fetching fallback products:', error);
-    return [];
-  }
-}
-
-// New function to check if a vendor exists in the store
-async function checkVendorExists(shopDomain: string, token: string, vendorName: string): Promise<boolean> {
-  try {
-    console.log(`Checking if vendor "${vendorName}" exists in the Shopify store...`);
-    
-    // Rate limiting
-    await sleep(500);
-    
-    // Search specifically for products from this vendor (limited to just 1 product)
-    const url = `https://${shopDomain}/admin/api/2023-01/products.json?vendor=${encodeURIComponent(vendorName)}&limit=1`;
-    const response = await fetch(url, {
-      headers: {
-        'X-Shopify-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (!response.ok) {
-      if (response.status === 429) {
-        // Handle rate limiting
-        const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
-        console.log(`Rate limited during vendor check. Waiting ${retryAfter} seconds before retrying...`);
-        await sleep(retryAfter * 1000);
-        // Retry this check
-        return checkVendorExists(shopDomain, token, vendorName);
-      }
-      console.error(`Error checking vendor: ${response.status}`);
-      return false;
-    }
-    
-    const data = await response.json();
-    // Return true if we found at least one product from this vendor
-    const exists = data.products && data.products.length > 0;
-    if (exists) {
-      console.log(`✓ Vendor "${vendorName}" found in store with ${data.products.length} product(s)`);
-    } else {
-      console.log(`✗ No products found for vendor "${vendorName}"`);
-    }
-    return exists;
-  } catch (error) {
-    console.error(`Error checking if vendor "${vendorName}" exists:`, error);
-    return false;
-  }
-}
-
-// Function to search products from a specific vendor
-async function searchVendorProducts(shopDomain: string, token: string, vendorName: string, searchTerms: string[]): Promise<any[]> {
-  console.log(`Searching products from vendor "${vendorName}"...`);
-  let matchedProducts: any[] = [];
-  
-  // Categorize terms for prioritized searching
-  const validSearchTerms = searchTerms.filter(term => {
-    // Filter out the vague terms the user specifically doesn't want
-    const vague = ['espresso machine', 'machine parts', 'espresso', 'machine', 'parts'];
-    return !vague.includes(term.toLowerCase());
-  });
-  
-  // Extract secondary terms (all except the vendor name and full keyword)
-  const primaryKeyword = searchTerms[0]; // The full search query
-  const secondaryTerms = validSearchTerms.filter(term => 
-    term !== primaryKeyword && 
-    term.toLowerCase() !== vendorName.toLowerCase() &&
-    !term.toLowerCase().startsWith(vendorName.toLowerCase() + ' ') // Exclude compound terms with vendor
-  );
-  
-  // Create compound terms by combining vendor with each secondary term
-  const compoundTerms = secondaryTerms.map(term => `${vendorName} ${term}`);
-  
-  // CRITICAL DEBUG: Log the secondary terms we found
-  console.log('Secondary terms identified:');
-  secondaryTerms.forEach(term => console.log(`- ${term}`));
-  
-  // Force extract component terms directly from search terms - this is the key fix
-  // Look for terms that start with the vendor name and extract the remainder
-  const componentTermsFromCompounds = [];
-  for (const term of searchTerms) {
-    if (term.toLowerCase().startsWith(vendorName.toLowerCase() + ' ')) {
-      const component = term.substring(vendorName.length).trim();
-      if (component && component.length > 0) {
-        componentTermsFromCompounds.push(component);
-      }
-    }
-  }
-  
-  // Also add all secondary terms as component terms
-  const componentTerms = [...new Set([...componentTermsFromCompounds, ...secondaryTerms])];
-  
-  // Combine all search terms in priority order
-  const prioritizedTerms = [
-    primaryKeyword, // Original full keyword
-    ...compoundTerms, // Vendor + component terms
-    ...validSearchTerms.filter(term => 
-      term !== primaryKeyword && 
-      !secondaryTerms.includes(term) && 
-      term.toLowerCase() !== vendorName.toLowerCase()
-    ) // Other terms
-  ];
-  
-  console.log('Searching for the following prioritized terms:');
-  prioritizedTerms.forEach(term => console.log(`- ${term}`));
-  
-  console.log('After filtering by vendor, looking for these component terms:');
-  componentTerms.forEach(term => console.log(`- ${term}`));
-  
-  console.log('Also searching for these secondary terms:');
-  secondaryTerms.forEach(term => console.log(`- ${term}`));
-  
-  // Add an early check for empty component terms
-  if (componentTerms.length === 0) {
-    console.log('CRITICAL ERROR: No component terms were extracted from search terms. Creating components from keywords.');
-    // If we have no component terms but we have keywords, extract parts after vendor name
-    const fullKeyword = searchTerms[0]; // e.g., "unic espresso machine parts"
-    if (fullKeyword && fullKeyword.toLowerCase().includes(vendorName.toLowerCase())) {
-      const afterVendor = fullKeyword.substring(fullKeyword.toLowerCase().indexOf(vendorName.toLowerCase()) + vendorName.length).trim();
-      const keywordParts = afterVendor.split(' ').filter(p => p.length > 3);
-      componentTerms.push(...keywordParts);
-      
-      // Also add direct pairs from the keyword
-      for (let i = 0; i < keywordParts.length - 1; i++) {
-        componentTerms.push(`${keywordParts[i]} ${keywordParts[i+1]}`);
-      }
-      
-      console.log('Created component terms from keyword:');
-      componentTerms.forEach(term => console.log(`- ${term}`));
-    }
-    
-    // As a last resort, use some common component terms for this domain
-    if (componentTerms.length === 0) {
-      const commonComponents = ['portafilter', 'boiler', 'valve', 'hose', 'gasket', 'group', 'pump', 'seal', 'switch'];
-      componentTerms.push(...commonComponents);
-      console.log('Using common component terms as fallback:');
-      componentTerms.forEach(term => console.log(`- ${term}`));
-    }
-  }
-  
-  // Track the best match for each secondary term
-  type ProductMatch = {
-    product: any;
-    score: number;
-    matchedTerm: string;
-  };
-  
-  // Initialize map to track best match for each term
-  const bestMatches = new Map<string, ProductMatch>();
-  
-  // Keep track of products we've already matched to avoid duplicates
-  const matchedProductIds = new Set<number>();
-  
-  // Function to evaluate a product for all secondary terms
-  // CRITICAL FIX: Pass component terms and secondary terms explicitly as arguments
-  const evaluateProduct = (product: any, componentTermsToUse: string[], secondaryTermsToUse: string[], compoundTermsToUse: string[]) => {
-    if (!product.title) return;
-    
-    const productTitle = product.title.toLowerCase();
-    const productDesc = product.body_html?.toLowerCase() || '';
-    
-    // Improved debug logging at random intervals
-    const shouldLog = Math.random() < 0.01; // Log approximately 1% of products
-    if (shouldLog) {
-      console.log(`DEBUG - Evaluating product "${product.title}" against ${componentTermsToUse.length} component terms and ${secondaryTermsToUse.length} secondary terms`);
-    }
-    
-    // Always check the component terms - this is our primary matching mechanism
-    if (componentTermsToUse.length === 0) {
-      console.log(`WARNING: No component terms available to search! This should not happen.`);
-      return; // Skip processing if no terms to search
-    }
-    
-    // Check for component terms directly since we already filtered by vendor
-    // This is the key change - we're looking for "boiler", not "unic boiler"
-    for (let i = 0; i < componentTermsToUse.length; i++) {
-      // Skip if we already have 5 products
-      if (matchedProductIds.size >= 5) break;
-      
-      const componentTerm = componentTermsToUse[i]; // e.g., "boiler", "pump"
-      const matchTerm = i < compoundTermsToUse.length ? compoundTermsToUse[i] : `${vendorName} ${componentTerm}`; // e.g., "unic boiler" - just for tracking
-
-      // Get individual words from the term
-      const words = componentTerm.split(' ').filter(w => w.length > 2); // Filter out very short words
-      
-      // More detailed debug logging
-      if (shouldLog) {
-        console.log(`DEBUG - Looking for component "${componentTerm}" in product "${product.title}"`);
-      }
-      
-      // Calculate match score with much higher weight for title matches
-      let titleScore = 0;
-      let descScore = 0;
-      
-      // PARTIAL MATCH - Allow more flexible matching
-      // First, try a simple case-insensitive substring match (most lenient)
-      if (productTitle.includes(componentTerm.toLowerCase())) {
-        titleScore += 80; // Good boost for a simple substring match
-        console.log(`SUBSTRING MATCH: Found "${componentTerm}" in title of "${product.title}"`);
-      }
-      
-      // Next, try a word boundary match (more strict)
-      const exactTermPattern = new RegExp(`\\b${escapeRegExp(componentTerm.toLowerCase())}\\b`);
-      if (exactTermPattern.test(productTitle)) {
-        titleScore += 50; // Additional boost for exact word boundary match
-        console.log(`EXACT MATCH: Found "${componentTerm}" as a whole word in title of "${product.title}"`);
-      }
-      
-      // Check for individual words matches in title
-      let wordsFoundInTitle = 0;
-      for (const word of words) {
-        // Check for simple substring match first
-        if (productTitle.includes(word.toLowerCase())) {
-          titleScore += 5; // Some points for any word match
-          wordsFoundInTitle++;
-          
-          // Create a regex pattern that matches the word with word boundaries (stricter)
-          const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
-          if (pattern.test(productTitle)) {
-            titleScore += 5; // Additional points for word boundary match
-          }
-          
-          if (shouldLog) {
-            console.log(`DEBUG - Found word "${word}" in title of "${product.title}"`);
-          }
-        }
-      }
-      
-      // Bonus if ALL words appear in the title
-      if (wordsFoundInTitle === words.length && words.length > 0) {
-        titleScore += 25; // Additional bonus if all words are present
-      }
-      
-      // Only check description if title score is low
-      if (titleScore < 20) {
-        // Check for exact term in description (lower priority)
-        if (exactTermPattern.test(productDesc)) {
-          descScore += 5;
-        }
-        
-        // Check for words in description
-        for (const word of words) {
-          const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
-          if (pattern.test(productDesc)) {
-            descScore += 1; // Much lower weight for description matches
-          }
-        }
-      }
-      
-      // Combine scores (title is MUCH more important)
-      const totalScore = titleScore + descScore;
-      
-      // If this product is a better match than what we've seen before for this term
-      if (totalScore > 0) {
-        if (!bestMatches.has(componentTerm) || bestMatches.get(componentTerm)!.score < totalScore) {
-          console.log(`New best match for "${componentTerm}": "${product.title}" (score: ${totalScore})`);
-          bestMatches.set(componentTerm, {
-            product,
-            score: totalScore,
-            matchedTerm: matchTerm // Store the full compound term for reference
-          });
-        }
-      }
-    }
- 
-    // Also check against individual secondary terms directly (without vendor prefix)
-    for (const term of secondaryTermsToUse) {
-      // Skip if we already have 5 products
-      if (matchedProductIds.size >= 5) break;
-      
-      const words = term.split(' ').filter(w => w.length > 2);
-      
-      // More detailed debug logging
-      if (shouldLog) {
-        console.log(`DEBUG - Looking for secondary term "${term}" in product "${product.title}"`);
-      }
-      
-      // Calculate match score with high emphasis on title
-      let titleScore = 0;
-      let descScore = 0;
-      
-      // Check for exact term match in title - highest priority
-      const exactTermPattern = new RegExp(`\\b${escapeRegExp(term.toLowerCase())}\\b`);
-      if (exactTermPattern.test(productTitle)) {
-        titleScore += 50; // High boost but slightly lower than compound terms
-        console.log(`EXACT MATCH for term "${term}" in title of "${product.title}"`);
-      }
-      
-      // Check for individual word matches in title
-      let allWordsInTitle = true;
-      for (const word of words) {
-        // Create a regex pattern that matches the word with word boundaries
-        const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
-        if (pattern.test(productTitle)) {
-          titleScore += 5; // Good weight for title matches
-        } else {
-          allWordsInTitle = false;
-        }
-      }
-      
-      // Bonus if ALL words appear in the title
-      if (allWordsInTitle && words.length > 1) {
-        titleScore += 15; // Additional bonus
-      }
-      
-      // Only check description if title score is low
-      if (titleScore < 10) {
-        // Check for exact term in description
-        if (exactTermPattern.test(productDesc)) {
-          descScore += 3;
-        }
-        
-        for (const word of words) {
-          const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
-          if (pattern.test(productDesc)) {
-            descScore += 0.5; // Much lower weight for description matches
-          }
-        }
-      }
-      
-      // Combine scores (title is much more important)
-      const totalScore = titleScore + descScore;
-      
-      // If this product is a better match than what we've seen before for this term
-      if (totalScore > 0) {
-        if (!bestMatches.has(term) || bestMatches.get(term)!.score < totalScore) {
-          console.log(`New best match for secondary term "${term}": "${product.title}" (score: ${totalScore})`);
-          bestMatches.set(term, {
-            product,
-            score: totalScore,
-            matchedTerm: term
-          });
-        }
-      }
-    }
-  };
-
-  try {
-    // We're targeting a specific vendor, so we can use the vendor filter in the API
-    let nextPageUrl: string | null = `https://${shopDomain}/admin/api/2023-01/products.json?vendor=${encodeURIComponent(vendorName)}&limit=250`;
-    let hasNextPage = true;
-    let pageCount = 1;
-    const TIMEOUT_MS = 60000; // 1 minute timeout for each request
-    
-    let totalProductsChecked = 0;
-    let startTime = Date.now();
-    
-    // Process all vendor products to find best matches for each term
-    // Continue until we've exhausted all pages or found enough matches
-    while (hasNextPage && nextPageUrl) {
-      console.log(`Fetching page ${pageCount} of products from vendor "${vendorName}"...`);
-      
-      // Create an abort controller for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      
-      try {
-        // Rate limiting
-        await sleep(500);
-        
-        const productsRes: Response = await fetch(nextPageUrl, {
-          headers: {
-            'X-Shopify-Access-Token': token,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal
-        });
-        
-        // Clear the timeout since request completed
-        clearTimeout(timeoutId);
-        
-        console.log(`Shopify vendor products API response status (page ${pageCount}):`, productsRes.status);
-        
-        if (!productsRes.ok) {
-          const errorText = await productsRes.text();
-          console.error(`Shopify API error (${productsRes.status}):`, errorText);
-          
-          // Handle rate limiting with exponential backoff
-          if (productsRes.status === 429) {
-            const retryAfter = parseInt(productsRes.headers.get('Retry-After') || '1', 10);
-            console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
-            await sleep(retryAfter * 1000);
-            pageCount--; // Retry this page
-            continue;
-          }
-          
-          throw new Error(`Shopify API returned ${productsRes.status}: ${errorText}`);
-        }
-        
-        // Check for Link header which contains pagination info
-        const linkHeader: string | null = productsRes.headers.get('Link');
-        nextPageUrl = null;
-        
-        if (linkHeader) {
-          // Parse Link header to get next page URL
-          const links: string[] = linkHeader.split(',');
-          for (const link of links) {
-            const match: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
-            if (match && match[2] === 'next') {
-              nextPageUrl = match[1];
-              break;
-            }
-          }
-        }
-        
-        hasNextPage = !!nextPageUrl;
-        
-        const productsData = await productsRes.json();
-        
-        if (productsData.products && productsData.products.length > 0) {
-          totalProductsChecked += productsData.products.length;
-          console.log(`Found ${productsData.products.length} vendor products on page ${pageCount}, evaluating matches...`);
-          
-          // Check each product against our secondary terms
-          if (componentTerms.length === 0 && secondaryTerms.length === 0) {
-            console.log("CRITICAL: Both component terms and secondary terms are empty. Nothing to search for!");
-            
-            // Extract component terms directly from the first 10 products
-            const sampledProducts = productsData.products.slice(0, 10);
-            
-            // Use product titles to identify potential component terms
-            for (const product of sampledProducts) {
-              if (!product.title) continue;
-              
-              const title = product.title.toLowerCase();
-              // Skip the vendor name part
-              if (title.startsWith(vendorName.toLowerCase())) {
-                const afterVendor = title.substring(vendorName.length).trim();
-                // Split into words and filter short ones
-                const words = afterVendor.split(/[\s\-_]+/).filter((w: string) => w.length > 3);
-                // Add meaningful words as component terms
-                words.forEach((word: string) => {
-                  if (!commonStopWords.includes(word)) {
-                    componentTerms.push(word);
-                  }
-                });
-              }
-            }
-            
-            if (componentTerms.length > 0) {
-              console.log("Extracted component terms from product titles:");
-              componentTerms.forEach(term => console.log(`- ${term}`));
-            } else {
-              // Last resort - use common component terms
-              const commonComponents = ['portafilter', 'boiler', 'valve', 'hose', 'gasket', 'group', 'pump', 'seal', 'switch'];
-              componentTerms.push(...commonComponents);
-              console.log('Using common component terms as fallback:');
-              componentTerms.forEach(term => console.log(`- ${term}`));
-            }
-          }
-          
-          // Now evaluate each product
-          productsData.products.forEach((product: any) => evaluateProduct(product, componentTerms, secondaryTerms, compoundTerms));
-          
-          // Report progress every 5 pages
-          if (pageCount % 5 === 0) {
-            const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-            console.log(`Progress update: ${totalProductsChecked} products checked in ${elapsedSeconds} seconds, found ${bestMatches.size} term matches so far`);
-            
-            // Log current best matches
-            console.log('Current best matches by term:');
-            bestMatches.forEach((match, term) => {
-              console.log(`- ${term}: ${match.product.title} (score: ${match.score})`);
-            });
-          }
-          
-          // Add more detailed logging after each page processing
-          console.log(`After page ${pageCount}, matched terms (${bestMatches.size}):`);
-          if (bestMatches.size > 0) {
-            bestMatches.forEach((match, term) => {
-              console.log(`- ${term}: ${match.product.title} (score: ${match.score})`);
-            });
-          } else {
-            console.log('No matches found yet');
-          }
-          
-          // Check if we've found at least one good match (score >= 20) for each component term
-          const goodComponentMatches = componentTerms.filter(term => {
-            const match = bestMatches.get(term);
-            return match && match.score >= 20;
-          });
-          
-          console.log(`Found ${goodComponentMatches.length}/${componentTerms.length} high-quality component matches`);
-          
-          // Only exit early if we have good matches AND we have enough for a meaningful selection
-          const hasGoodMatchesForComponents = goodComponentMatches.length > 0 && 
-                                             (goodComponentMatches.length === componentTerms.length || 
-                                              bestMatches.size >= 5);
-          
-          // Early exit if we've found good matches for all component terms
-          if (hasGoodMatchesForComponents) {
-            console.log(`Found ${goodComponentMatches.length} high-quality matches for component terms, stopping search.`);
-            // List the matched terms and their scores
-            goodComponentMatches.forEach(term => {
-              const match = bestMatches.get(term)!;
-              console.log(`- ${term}: ${match.product.title} (score: ${match.score})`);
-            });
-            break;
-          }
-          
-          // Alternative check: have we found any matches for each component term?
-          const matchedComponentTerms = componentTerms.filter(term => bestMatches.has(term));
-          
-          // Check secondary terms too
-          const matchedSecondaryTerms = secondaryTerms.filter(term => bestMatches.has(term));
-          
-          console.log(`Found matches for ${matchedComponentTerms.length}/${componentTerms.length} component terms and ${matchedSecondaryTerms.length}/${secondaryTerms.length} secondary terms`);
-          
-          if ((matchedComponentTerms.length > 0 || matchedSecondaryTerms.length > 0) && bestMatches.size >= 5) {
-            console.log(`Found enough matches (${bestMatches.size}) to select products, stopping search.`);
-            break;
-          }
-        } else {
-          console.log(`No vendor products found on page ${pageCount}`);
-        }
-        
-        pageCount++;
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          console.error(`Request for page ${pageCount} timed out after ${TIMEOUT_MS/1000} seconds`);
-          // Move to the next page if we timeout
-          pageCount++;
-          continue;
-        }
-        throw error;
-      }
-    }
-    
-    // Process best matches, prioritizing products with direct title matches
-
-    // Collect best matches by score
-    const productMatches: ProductMatch[] = Array.from(bestMatches.values());
-    
-    // Group matches by whether they have direct title matches
-    // Direct title matches are those with score >= 20 (indicating title relevance)
-    const titleMatches = productMatches.filter(match => match.score >= 20);
-    const otherMatches = productMatches.filter(match => match.score < 20);
-    
-    // Sort each group by score
-    titleMatches.sort((a, b) => b.score - a.score);
-    otherMatches.sort((a, b) => b.score - a.score);
-    
-    console.log(`Found ${titleMatches.length} products with strong title matches and ${otherMatches.length} other potential matches`);
-    
-    // Add products to our final list, prioritizing diversity of terms
-    const addedTerms = new Set<string>();
-    
-    // First pass: add best title match for each component term (maintaining diversity)
-    for (const componentTerm of componentTerms) {
-      // Skip if we already have 5 products
-      if (matchedProducts.length >= 5) break;
-      
-      const match = bestMatches.get(componentTerm);
-      if (!match || match.score < 20) continue; // Skip if no strong match for this component
-      
-      // Skip if we already have this product
-      if (matchedProductIds.has(match.product.id)) continue;
-      
-      // Add this product
-      matchedProducts.push(match.product);
-      matchedProductIds.add(match.product.id);
-      addedTerms.add(componentTerm);
-      
-      console.log(`Selected product with TITLE match for component "${componentTerm}": ${match.product.title} (score: ${match.score})`);
-    }
-    
-    // Second pass: add best title match for each secondary term not yet covered
-    for (const term of secondaryTerms) {
-      // Skip if we already have 5 products
-      if (matchedProducts.length >= 5) break;
-      
-      const match = bestMatches.get(term);
-      if (!match || match.score < 20) continue; // Skip if no strong match
-      
-      // Skip if we already have this product
-      if (matchedProductIds.has(match.product.id)) continue;
-      
-      // Add this product
-      matchedProducts.push(match.product);
-      matchedProductIds.add(match.product.id);
-      addedTerms.add(term);
-      
-      console.log(`Selected product with TITLE match for secondary term "${term}": ${match.product.title} (score: ${match.score})`);
-    }
-    
-    // Third pass: add remaining top scoring title-matched products
-    for (const match of titleMatches) {
-      // Skip if we already have 5 products
-      if (matchedProducts.length >= 5) break;
-      
-      // Skip if we already have this product
-      if (matchedProductIds.has(match.product.id)) continue;
-      
-      // Add this product
-      matchedProducts.push(match.product);
-      matchedProductIds.add(match.product.id);
-      
-      console.log(`Added additional product with TITLE match for "${match.matchedTerm}": ${match.product.title} (score: ${match.score})`);
-    }
-    
-    // Fourth pass: fill any remaining slots with other matches
-    for (const match of otherMatches) {
-      // Skip if we already have 5 products
-      if (matchedProducts.length >= 5) break;
-      
-      // Skip if we already have this product
-      if (matchedProductIds.has(match.product.id)) continue;
-      
-      // Add this product
-      matchedProducts.push(match.product);
-      matchedProductIds.add(match.product.id);
-      
-      console.log(`Added fallback product match for "${match.matchedTerm}": ${match.product.title} (score: ${match.score})`);
-    }
-    
-    // Only if we still don't have enough products after all the above passes,
-    // add any vendor products as fallback
-    if (matchedProducts.length < 5 && pageCount > 0) {
-      console.log(`Still need ${5 - matchedProducts.length} more products, adding generic vendor matches`);
-      
-      // Reset pagination to first page
-      const fallbackUrl = `https://${shopDomain}/admin/api/2023-01/products.json?vendor=${encodeURIComponent(vendorName)}&limit=${5 - matchedProducts.length}`;
-      
-      try {
-        // Rate limiting
-        await sleep(500);
-        
-        const fallbackRes = await fetch(fallbackUrl, {
-          headers: {
-            'X-Shopify-Access-Token': token,
-            'Content-Type': 'application/json',
-          }
-        });
-        
-        if (fallbackRes.ok) {
-          const fallbackData = await fallbackRes.json();
-          
-          if (fallbackData.products && fallbackData.products.length > 0) {
-            // Add fallback products that aren't already in our list
-            for (const product of fallbackData.products) {
-              if (!matchedProductIds.has(product.id)) {
-                matchedProducts.push(product);
-                matchedProductIds.add(product.id);
-                console.log(`Added generic fallback product: ${product.title}`);
-                
-                if (matchedProducts.length >= 5) break;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Error fetching fallback products:', e);
-      }
-    }
-    
-    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-    console.log(`Completed vendor product search in ${elapsedSeconds} seconds. Checked ${totalProductsChecked} products and found ${matchedProducts.length} matches.`);
-    
-    console.log('Final product selection:');
-    matchedProducts.forEach((p) => console.log(`- ${p.title} (${p.variants[0]?.price || 'N/A'})`));
-    
-    return matchedProducts.slice(0, 5);
-  } catch (error) {
-    console.error(`Error searching vendor products for "${vendorName}":`, error);
-    return matchedProducts.slice(0, 5); // Return any products we found before the error
-  }
-}
-
 // Function to search all Shopify products (original implementation, now as fallback)
 async function searchAllProducts(shopDomain: string, token: string, searchTerms: string[]): Promise<any[]> {
   console.log('Searching all products across store (vendor-first approach failed)...');
   let matchedProducts: any[] = [];
   
-  // Categorize terms into groups for prioritized searching
-  const keywordParts = searchTerms[0].toLowerCase().split(' '); // First term is always the full keyword
-  const brandName = keywordParts[0]; // Assume first word is the brand
-  
-  // Group terms for prioritized searching
-  const brandCompoundTerms: string[] = [];
-  const multiWordTerms: string[] = [];
-  
-  // Categorize each search term
-  const validSearchTerms = searchTerms.filter(term => {
-    // Filter out the vague terms the user specifically doesn't want
-    const vague = ['espresso machine', 'machine parts', 'espresso', 'machine', 'parts'];
-    return !vague.includes(term.toLowerCase());
-  });
-  
-  // Re-organize terms for search
-  for (const term of validSearchTerms) {
-    const words = term.split(' ');
-    
-    // Skip the full original keyword as we'll handle it separately
-    if (term === searchTerms[0]) continue;
-    
-    if (words.length > 1) {
-      // Check if this is a brand compound term (starts with brand name)
-      if (words[0].toLowerCase() === brandName.toLowerCase()) {
-        brandCompoundTerms.push(term);
-      } else {
-        // Other multi-word terms
-        multiWordTerms.push(term);
-      }
-    }
-  }
-  
-  // Search priority order: original keyword, brand compounds, brand name only
-  const searchPriority = [
-    [searchTerms[0]], // Original full keyword
-    brandCompoundTerms, // Brand + component terms (e.g., "unic gasket")
-    multiWordTerms,     // Other multi-word terms that aren't in the vague list
-    [brandName],        // Just the brand name
-  ];
-  
   // Function to search a batch of products with our terms
-  const searchProductBatch = (products: any[]): any[] => {
+  const searchProductBatch = (products: any[], terms: string[]): any[] => {
     const results: any[] = [];
     
     // Execute searches in priority order
-    for (const termGroup of searchPriority) {
+    for (const term of terms) {
       if (results.length >= 5) break; // Stop once we have enough products
       
-      for (const term of termGroup) {
-        if (results.length >= 5) break; // Stop once we have enough products
-        
-        console.log(`Searching current batch for term: "${term}"`);
-        
-        const words = term.split(' ');
-        
-        if (words.length > 1) {
-          // For multi-word terms, implement a broader match where ALL words appear in the title
-          // This handles cases like "unic hose" -> "Unic 12707 SILICONE HOSE"
-          const titleMatches = products.filter((product: any) => {
-            if (!product.title) return false;
-            if (results.some(p => p.id === product.id)) return false; // Skip if already matched
-            
-            const productTitle = product.title.toLowerCase();
-            // Check if ALL words in the search term appear as whole words in the title
-            return words.every(word => {
-              // Create a regex pattern that matches the word with word boundaries
-              const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
-              return pattern.test(productTitle);
-            });
-          });
+      // Skip very short or common terms
+      if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
+        console.log(`Skipping search for common/short term: "${term}"`);
+        continue;
+      }
+      
+      console.log(`Searching current batch for term: "${term}"`);
+      
+      const words = term.split(' ');
+      
+      if (words.length > 1) {
+        // For multi-word terms, require exact phrase match in title
+        const titleMatches = products.filter((product: any) => {
+          if (!product.title) return false;
+          if (results.some(p => p.id === product.id)) return false; // Skip if already matched
           
-          console.log(`Found ${titleMatches.length} products by combined word match for "${term}" in this batch`);
+          const productTitle = product.title.toLowerCase();
           
-          // Add unique products from title matches
-          titleMatches.forEach((product: any) => {
-            if (!results.some(p => p.id === product.id)) {
-              results.push(product);
-              console.log(`Added product by combined word match: "${product.title}"`);
-            }
-          });
-          
-          // Same approach for description search
-          if (results.length < 5) {
-            const descMatches = products.filter((product: any) => {
-              if (!product.body_html || results.some(p => p.id === product.id)) return false;
-              
-              const productDesc = product.body_html.toLowerCase();
-              // Check if ALL words in the search term appear as whole words in the description
-              return words.every(word => {
-                // Create a regex pattern that matches the word with word boundaries
-                const pattern = new RegExp(`\\b${escapeRegExp(word.toLowerCase())}\\b`);
-                return pattern.test(productDesc);
-              });
-            });
-            
-            console.log(`Found ${descMatches.length} products by combined word description match for "${term}" in this batch`);
-            
-            descMatches.forEach((product: any) => {
-              if (!results.some(p => p.id === product.id)) {
-                results.push(product);
-                console.log(`Added product by combined word description match: "${product.title}"`);
-              }
-            });
+          // Only accept exact phrase matches
+          if (productTitle.includes(term.toLowerCase())) {
+            console.log(`Found exact phrase match in title: "${product.title}" matches "${term}"`);
+            return true;
           }
-        } else {
-          // For single-word terms (like just the brand name), use regex with word boundaries
+          return false;
+        });
+        
+        console.log(`Found ${titleMatches.length} products by exact phrase match for "${term}" in this batch`);
+        
+        // Add unique products from title matches
+        titleMatches.forEach((product: any) => {
+          if (!results.some(p => p.id === product.id)) {
+            results.push(product);
+            console.log(`Added product by exact phrase match: "${product.title}"`);
+          }
+        });
+      } else {
+        // For single-word terms, only search if it's a significant term
+        if (isSignificantTerm(term)) {
           const titleMatches = products.filter((product: any) => {
             if (!product.title || results.some(p => p.id === product.id)) return false;
             
@@ -1942,44 +1620,23 @@ async function searchAllProducts(shopDomain: string, token: string, searchTerms:
             return pattern.test(productTitle);
           });
           
-          console.log(`Found ${titleMatches.length} products by title match for "${term}" in this batch`);
+          console.log(`Found ${titleMatches.length} products by exact word match for significant term "${term}" in this batch`);
           
-          // Add unique products from title matches
           titleMatches.forEach((product: any) => {
             if (!results.some(p => p.id === product.id)) {
               results.push(product);
-              console.log(`Added product by title match: "${product.title}"`);
+              console.log(`Added product by exact word match: "${product.title}"`);
             }
           });
-          
-          // If we still don't have enough products, try description search
-          if (results.length < 5) {
-            const descMatches = products.filter((product: any) => {
-              if (!product.body_html || results.some(p => p.id === product.id)) return false;
-              
-              const productDesc = product.body_html.toLowerCase();
-              // Create a regex pattern that matches the word with word boundaries
-              const pattern = new RegExp(`\\b${escapeRegExp(term.toLowerCase())}\\b`);
-              return pattern.test(productDesc);
-            });
-            
-            console.log(`Found ${descMatches.length} products by description match for "${term}" in this batch`);
-            
-            // Add unique products from description matches
-            descMatches.forEach((product: any) => {
-              if (!results.some(p => p.id === product.id)) {
-                results.push(product);
-                console.log(`Added product by description match: "${product.title}"`);
-              }
-            });
-          }
+        } else {
+          console.log(`Skipping search for non-significant single word term: "${term}"`);
         }
       }
     }
     
     return results.slice(0, 5); // Return at most 5 products
   };
-  
+
   // Fetch and search products page by page
   try {
     console.log('Fetching and searching products from Shopify store with pagination');
@@ -2059,7 +1716,7 @@ async function searchAllProducts(shopDomain: string, token: string, searchTerms:
           console.log(`Found ${productsData.products.length} products on page ${pageCount}, searching for matches...`);
           
           // Search this batch of products immediately
-          const newMatches = searchProductBatch(productsData.products);
+          const newMatches = searchProductBatch(productsData.products, searchTerms);
           
           // Add new matches to our collection
           newMatches.forEach(product => {
@@ -2109,6 +1766,42 @@ async function searchAllProducts(shopDomain: string, token: string, searchTerms:
     console.error('Error fetching products:', error);
     return matchedProducts.slice(0, 5); // Return any products we found before the error
   }
+}
+
+// Helper function to identify high-value terms worth checking in descriptions
+function isHighValueTerm(term: string): boolean {
+  // List of term patterns that indicate high value
+  const highValuePatterns = [
+    'food grade',
+    'industrial grade',
+    'food safe',
+    'food processing',
+    'kluberfood',
+    'hydraulic',
+    'lubricant',
+    'grease'
+  ];
+  
+  const termLower = term.toLowerCase();
+  return highValuePatterns.some(pattern => termLower.includes(pattern));
+}
+
+// Helper function to identify significant single-word terms
+function isSignificantTerm(term: string): boolean {
+  // List of significant single words that are worth searching for
+  const significantTerms = [
+    'oil',
+    'lubricant',
+    'fluid',
+    'grease',
+    'hydraulic',
+    'industrial',
+    'kluberfood',
+    'synthetic',
+    'mineral'
+  ];
+  
+  return significantTerms.includes(term.toLowerCase());
 }
 
 export async function POST(request: Request) {
@@ -2299,6 +1992,7 @@ export async function POST(request: Request) {
                 }
               }
               
+              // Create shopifyPrompt for store mode with products and collections
               if (relatedProductsList || relatedCollectionsList) {
                 shopifyPrompt = `
 Here are related products and collections from the store. Use these throughout the article where relevant:
@@ -2320,6 +2014,7 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
               } else {
                 console.log('No Shopify products/collections found to add to prompt');
               }
+              
             } else if (articleMode === 'service') {
               console.log(`Fetching related pages from Shopify store: ${shopDomain}`);
               
@@ -2400,8 +2095,8 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
           }
         }
       } catch (error) {
-        console.error('Failed to connect to Shopify store:', error);
-        shopifyIntegrationStatus = 'connection_error';
+        console.error('Error verifying Shopify connection:', error);
+        shopifyIntegrationStatus = 'error';
         console.log('Will continue without Shopify product integration');
       }
     } else if (articleMode) {
