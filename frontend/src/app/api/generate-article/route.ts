@@ -535,8 +535,48 @@ const COMMON_WORDS = [
   'and', 'or', 'but', 'nor', 'so', 'yet', 'unless', 'although', 'because'
 ];
 
-// Enhance the vendor identification function
-async function identifyVendorFromKeyword(shopDomain: string, token: string, keyword: string, availableVendors: string[] = []): Promise<{ vendor: string | null; searchTerms: string[] }> {
+// Quick vendor validation function to avoid unnecessary processing
+async function quickVendorCheck(keyword: string, availableVendors: string[]): Promise<string | null> {
+  const keywordLower = keyword.toLowerCase();
+  
+  // Check for exact vendor matches first (most reliable)
+  const exactMatches = availableVendors.filter(vendor => 
+    keywordLower.includes(vendor.toLowerCase())
+  ).sort((a, b) => b.length - a.length); // Sort by length to prefer longer matches
+  
+  if (exactMatches.length > 0) {
+    const matchScore = calculateVendorScore(exactMatches[0], keywordLower.split(' '));
+    if (matchScore >= VENDOR_MATCH_THRESHOLD) {
+      console.log(`✓ Quick vendor check found: "${exactMatches[0]}" (score: ${matchScore})`);
+      return exactMatches[0];
+    }
+  }
+  
+  // Check for strong partial matches
+  const words = keywordLower.split(' ').filter(word => word.length > 3);
+  for (const vendor of availableVendors) {
+    if (vendor.length > 3) {
+      const vendorLower = vendor.toLowerCase();
+      // Check if vendor name appears as a complete word in keyword
+      if (words.includes(vendorLower)) {
+        console.log(`✓ Quick vendor check found partial match: "${vendor}"`);
+        return vendor;
+      }
+    }
+  }
+  
+  console.log('✗ Quick vendor check: No vendor found in keyword');
+  return null;
+}
+
+// Enhanced function that can either identify vendor OR enhance existing terms
+async function identifyVendorFromKeyword(
+  shopDomain: string, 
+  token: string, 
+  keyword: string, 
+  availableVendors: string[] = [],
+  existingTerms: string[] = [] // NEW: Accept existing terms for enhancement
+): Promise<{ vendor: string | null; searchTerms: string[] }> {
   let vendorsList = availableVendors;
   
   if (vendorsList.length === 0) {
@@ -544,13 +584,36 @@ async function identifyVendorFromKeyword(shopDomain: string, token: string, keyw
     vendorsList = await fetchShopifyVendors(shopDomain, token);
   }
   
+  // If we have existing terms, this is an enhancement call
+  if (existingTerms.length > 0) {
+    console.log(`Enhancing existing ${existingTerms.length} terms with product-focused variants...`);
+    
+    // Quick vendor check to determine if enhancement is needed
+    const vendor = await quickVendorCheck(keyword, vendorsList);
+    
+    if (vendor) {
+      console.log(`Vendor present: "${vendor}" - Adding product-focused enhancements`);
+      return { 
+        vendor, 
+        searchTerms: enhanceTermsWithProductFocus(existingTerms, vendor, keyword) 
+      };
+    } else {
+      console.log('No vendor present - Skipping term enhancement to avoid wasted processing');
+      return { 
+        vendor: null, 
+        searchTerms: existingTerms // Return original terms unchanged
+      };
+    }
+  }
+  
+  // Original vendor identification logic (fallback for legacy calls)
   const keywordLower = keyword.toLowerCase();
   console.log(`Checking keyword "${keyword}" against ${vendorsList.length} vendors`);
   
   // First check for exact brand names in the full keyword
   const exactMatches = vendorsList.filter(vendor => 
     keywordLower.includes(vendor.toLowerCase())
-  ).sort((a, b) => b.length - a.length); // Sort by length to prefer longer matches
+  ).sort((a, b) => b.length - a.length);
   
   if (exactMatches.length > 0) {
     const matchScore = calculateVendorScore(exactMatches[0], keywordLower.split(' '));
@@ -588,6 +651,53 @@ async function identifyVendorFromKeyword(shopDomain: string, token: string, keyw
   // No vendor found - generate search terms without a brand focus
   console.log('No vendor matches found - proceeding with term-based search');
   return { vendor: null, searchTerms: generateSearchTerms(keyword, null) };
+}
+
+// New function to enhance existing terms with product-focused variants
+function enhanceTermsWithProductFocus(existingTerms: string[], vendor: string, originalKeyword: string): string[] {
+  const enhancedTerms: Set<string> = new Set();
+  
+  // Always preserve original terms first
+  existingTerms.forEach(term => enhancedTerms.add(term));
+  
+  console.log(`Starting with ${existingTerms.length} original terms:`, existingTerms.join(', '));
+  
+  // Product-focused enhancement categories
+  const productSuffixes = ['parts', 'replacement', 'maintenance', 'repair', 'service'];
+  const productTypes = ['motor', 'pump', 'valve', 'seal', 'gasket', 'belt', 'filter'];
+  
+  // Add vendor + product type combinations if they make sense
+  productTypes.forEach(type => {
+    const originalWords = originalKeyword.toLowerCase().split(' ');
+    if (originalWords.includes(type)) {
+      const combination = `${vendor} ${type}`;
+      enhancedTerms.add(combination);
+      console.log(`Added vendor+type enhancement: "${combination}"`);
+      
+      // Add with common suffixes
+      productSuffixes.forEach(suffix => {
+        enhancedTerms.add(`${vendor} ${type} ${suffix}`);
+      });
+    }
+  });
+  
+  // Enhance multi-word terms that contain the vendor
+  existingTerms.forEach(term => {
+    const termLower = term.toLowerCase();
+    if (termLower.includes(vendor.toLowerCase()) && term.split(' ').length === 2) {
+      // Add maintenance variants
+      productSuffixes.forEach(suffix => {
+        enhancedTerms.add(`${term} ${suffix}`);
+      });
+    }
+  });
+  
+  // Convert to array and limit to reasonable size
+  const finalTerms = Array.from(enhancedTerms).slice(0, 20);
+  
+  console.log(`Enhanced to ${finalTerms.length} terms (added ${finalTerms.length - existingTerms.length} product-focused variants)`);
+  
+  return finalTerms;
 }
 
 // Function to generate search terms
@@ -674,25 +784,28 @@ function generateSearchTerms(keyword: string, vendor: string | null): string[] {
   return sortedTerms;
 }
 
-// Function to search products using GraphQL for better performance
-async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null): Promise<any[]> {
-  console.log('Searching products using GraphQL with targeted queries...');
+// Function to search products using GraphQL for better performance with hybrid prioritization approach
+async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<any[]> {
+  console.log('Searching products using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
-  const matchedProducts: any[] = [];
   
-  // Search all terms - don't artificially limit to avoid missing important matches
-  console.log(`Will search all ${searchTerms.length} generated terms:`, searchTerms.join(', '));
+  // Step 1: Prioritize search terms by relevance
+  const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
+  console.log(`\nSearching ${prioritizedTerms.length} terms in priority order...`);
   
-  for (const term of searchTerms) {
-    if (matchedProducts.length >= 5) break; // Stop once we have enough products
-    
+  // Step 2: Collect products with scores from all relevant terms
+  const candidateProducts: { product: any, score: number, searchTerm: string }[] = [];
+  const QUALITY_THRESHOLD = 10; // Minimum score for a product to be considered relevant
+  const TARGET_PRODUCTS = 5;
+  
+  for (const term of prioritizedTerms) {
     // Skip very short or common terms
     if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
       console.log(`Skipping GraphQL search for common/short term: "${term}"`);
       continue;
     }
     
-    console.log(`Searching with GraphQL for term: "${term}"`);
+    console.log(`\nSearching with GraphQL for prioritized term: "${term}"`);
     
     try {
       // GraphQL query to search products by title
@@ -754,8 +867,6 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
       
       // Execute each search query
       for (const query of searchQueries) {
-        if (matchedProducts.length >= 5) break;
-        
         console.log(`Trying GraphQL query: "${query}"`);
         
         const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
@@ -790,12 +901,16 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
           const products = data.data.products.edges;
           console.log(`GraphQL returned ${products.length} products for query: "${query}"`);
           
-          // Filter and add products that haven't been added yet
+          // Process and score each product
           products.forEach((edge: any) => {
             const product = edge.node;
             
+            // Check if we already have this product
+            if (candidateProducts.some(cp => cp.product.id === product.id)) {
+              return; // Skip duplicates
+            }
+            
             // Double-check that product title actually contains our search term (case insensitive)
-            // This ensures the GraphQL results are accurate
             const productTitle = product.title.toLowerCase();
             const searchTerm = term.toLowerCase();
             
@@ -837,24 +952,36 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
               }
             }
             
-            // Add the product if it matches and hasn't been added yet
-            if (isMatch && !matchedProducts.some(p => p.id === product.id) && matchedProducts.length < 5) {
-              // Transform to match expected format
-              const transformedProduct = {
-                id: product.id,
-                title: product.title,
-                handle: product.handle,
-                vendor: product.vendor,
-                product_type: product.productType,
-                tags: product.tags,
-                variants: product.variants.edges.map((v: any) => ({
-                  id: v.node.id,
-                  price: v.node.price
-                }))
-              };
+            // If product matches, calculate its relevance score
+            if (isMatch) {
+              const relevanceScore = calculateProductRelevanceScore(product, term, originalKeyword, identifiedVendor);
               
-              matchedProducts.push(transformedProduct);
-              console.log(`✓ Added product via GraphQL: "${product.title}"`);
+              // Only add products that meet the quality threshold
+              if (relevanceScore >= QUALITY_THRESHOLD) {
+                // Transform to match expected format
+                const transformedProduct = {
+                  id: product.id,
+                  title: product.title,
+                  handle: product.handle,
+                  vendor: product.vendor,
+                  product_type: product.productType,
+                  tags: product.tags,
+                  variants: product.variants.edges.map((v: any) => ({
+                    id: v.node.id,
+                    price: v.node.price
+                  }))
+                };
+                
+                candidateProducts.push({
+                  product: transformedProduct,
+                  score: relevanceScore,
+                  searchTerm: term
+                });
+                
+                console.log(`✓ Added product candidate: "${product.title}" (Score: ${relevanceScore})`);
+              } else {
+                console.log(`✗ Product "${product.title}" below quality threshold (Score: ${relevanceScore})`);
+              }
             }
           });
         } else {
@@ -865,35 +992,55 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
       console.error(`Error in GraphQL search for term "${term}":`, error);
       continue;
     }
+    
+    // Early termination if we have enough high-quality products
+    const highQualityProducts = candidateProducts.filter(cp => cp.score >= QUALITY_THRESHOLD * 2);
+    if (highQualityProducts.length >= TARGET_PRODUCTS) {
+      console.log(`\n🎯 Found ${highQualityProducts.length} high-quality products, stopping search early.`);
+      break;
+    }
   }
   
-  console.log(`GraphQL search completed. Found ${matchedProducts.length} matching products.`);
-  if (matchedProducts.length > 0) {
-    console.log('Found products:');
-    matchedProducts.forEach((p: any) => console.log(`- ${p.title} (${p.vendor})`));
+  // Step 3: Sort by relevance score and select top products
+  candidateProducts.sort((a, b) => b.score - a.score);
+  const finalProducts = candidateProducts.slice(0, TARGET_PRODUCTS).map(cp => cp.product);
+  
+  console.log(`\n📊 Product Selection Summary:`);
+  console.log(`- Total candidates found: ${candidateProducts.length}`);
+  console.log(`- Quality threshold: ${QUALITY_THRESHOLD}`);
+  console.log(`- Final selection: ${finalProducts.length} products`);
+  
+  if (finalProducts.length > 0) {
+    console.log('\n🏆 Selected products (by relevance score):');
+    candidateProducts.slice(0, TARGET_PRODUCTS).forEach((cp, index) => {
+      console.log(`${index + 1}. "${cp.product.title}" (Score: ${cp.score}, Term: "${cp.searchTerm}")`);
+    });
   }
-  return matchedProducts;
+  
+  return finalProducts;
 }
 
-// Function to search collections using GraphQL for better performance
-async function searchCollectionsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null): Promise<any[]> {
-  console.log('Searching collections using GraphQL with targeted queries...');
+// Function to search collections using GraphQL for better performance with hybrid prioritization
+async function searchCollectionsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<any[]> {
+  console.log('Searching collections using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy for collections: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
-  const matchedCollections: any[] = [];
   
-  // Search all terms - don't artificially limit to avoid missing important matches
-  console.log(`Will search all ${searchTerms.length} generated terms for collections:`, searchTerms.join(', '));
+  // Step 1: Prioritize search terms by relevance (reuse same logic as products)
+  const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
+  console.log(`\nSearching ${prioritizedTerms.length} terms for collections in priority order...`);
   
-  for (const term of searchTerms) {
-    if (matchedCollections.length >= 5) break; // Stop once we have enough collections
-    
+  // Step 2: Collect collections with basic scoring
+  const candidateCollections: { collection: any, score: number, searchTerm: string }[] = [];
+  const TARGET_COLLECTIONS = 5;
+  
+  for (const term of prioritizedTerms) {
     // Skip very short or common terms
     if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
       console.log(`Skipping GraphQL search for common/short term: "${term}"`);
       continue;
     }
     
-    console.log(`Searching collections with GraphQL for term: "${term}"`);
+    console.log(`\nSearching collections with GraphQL for prioritized term: "${term}"`);
     
     try {
       // GraphQL query to search collections by title
@@ -924,8 +1071,6 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
       }
       
       for (const query of searchQueries) {
-        if (matchedCollections.length >= 5) break;
-        
         const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
           method: 'POST',
           headers: {
@@ -958,15 +1103,21 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
           const collections = data.data.collections.edges;
           console.log(`Found ${collections.length} collections with GraphQL query: "${query}"`);
           
-          // Filter and add collections that haven't been added yet
+          // Process and score each collection
           collections.forEach((edge: any) => {
             const collection = edge.node;
+            
+            // Check if we already have this collection
+            if (candidateCollections.some(cc => cc.collection.id === collection.id)) {
+              return; // Skip duplicates
+            }
             
             // Check if collection title actually contains our search term (case insensitive)
             const collectionTitle = collection.title.toLowerCase();
             const searchTerm = term.toLowerCase();
             
             let isMatch = false;
+            let score = 0;
             
             // For multi-word terms, use different strategies based on vendor presence
             if (term.includes(' ')) {
@@ -979,6 +1130,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
                 });
                 
                 if (isMatch) {
+                  score += 15; // Higher score for multi-word matches
                   console.log(`✓ Flexible collection match (vendor present): All words "${words.join(', ')}" found in collection: "${collection.title}"`);
                 } else {
                   console.log(`✗ Flexible collection match failed: Not all words "${words.join(', ')}" found in collection: "${collection.title}"`);
@@ -988,14 +1140,36 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
               else {
                 isMatch = collectionTitle.includes(searchTerm);
                 if (isMatch) {
+                  score += 12; // Good score for exact phrase
                   console.log(`✓ Strict exact phrase "${term}" found in collection: "${collection.title}"`);
                 } else {
                   console.log(`✗ Strict collection match failed: Exact phrase "${term}" not found in collection: "${collection.title}"`);
                 }
               }
             } else {
-              // For single words, use word boundary matching if it's a significant term
+              // For single words, use enhanced matching logic for collections
+              let shouldMatch = false;
+              
+              // Always match if it's a significant product term
               if (isSignificantTerm(term)) {
+                shouldMatch = true;
+                score += 10;
+                console.log(`✓ Matching significant product term for collections: "${term}"`);
+              }
+              // Always match if it's the identified vendor
+              else if (identifiedVendor && term.toLowerCase() === identifiedVendor.toLowerCase()) {
+                shouldMatch = true;
+                score += 8;
+                console.log(`✓ Matching vendor term for collections: "${term}"`);
+              }
+              // Also match terms that are longer than 4 characters and not common words (likely meaningful)
+              else if (term.length > 4 && !COMMON_WORDS.includes(term.toLowerCase())) {
+                shouldMatch = true;
+                score += 6;
+                console.log(`✓ Matching meaningful term for collections: "${term}"`);
+              }
+              
+              if (shouldMatch) {
                 const pattern = new RegExp(`\\b${escapeRegExp(searchTerm)}\\b`);
                 isMatch = pattern.test(collectionTitle);
                 if (isMatch) {
@@ -1003,12 +1177,19 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
                 } else {
                   console.log(`✗ Word "${term}" not found in collection: "${collection.title}"`);
                 }
+              } else {
+                console.log(`⚠️ Skipping non-significant term for collections: "${term}"`);
               }
             }
             
-            if (isMatch && !matchedCollections.some(c => c.id === collection.id) && matchedCollections.length < 5) {
-              matchedCollections.push(collection);
-              console.log(`✓ Added collection via GraphQL: "${collection.title}"`);
+            // Add collection if it matches
+            if (isMatch && score > 0) {
+              candidateCollections.push({
+                collection: collection,
+                score: score,
+                searchTerm: term
+              });
+              console.log(`✓ Added collection candidate: "${collection.title}" (Score: ${score})`);
             }
           });
         }
@@ -1017,10 +1198,30 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
       console.error(`Error in GraphQL search for collections term "${term}":`, error);
       continue;
     }
+    
+    // Early termination if we have enough collections
+    if (candidateCollections.length >= TARGET_COLLECTIONS) {
+      console.log(`\n🎯 Found ${candidateCollections.length} collections, stopping search early.`);
+      break;
+    }
   }
   
-  console.log(`GraphQL collections search completed. Found ${matchedCollections.length} matching collections.`);
-  return matchedCollections;
+  // Step 3: Sort by score and select top collections
+  candidateCollections.sort((a, b) => b.score - a.score);
+  const finalCollections = candidateCollections.slice(0, TARGET_COLLECTIONS).map(cc => cc.collection);
+  
+  console.log(`\n📊 Collection Selection Summary:`);
+  console.log(`- Total candidates found: ${candidateCollections.length}`);
+  console.log(`- Final selection: ${finalCollections.length} collections`);
+  
+  if (finalCollections.length > 0) {
+    console.log('\n🏆 Selected collections (by relevance score):');
+    candidateCollections.slice(0, TARGET_COLLECTIONS).forEach((cc, index) => {
+      console.log(`${index + 1}. "${cc.collection.title}" (Score: ${cc.score}, Term: "${cc.searchTerm}")`);
+    });
+  }
+  
+  return finalCollections;
 }
 
 // Update the main search functions to use GraphQL only, with REST as fallback
@@ -1028,168 +1229,139 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // First, extract comprehensive terms using AI analysis
+  // Step 1: Extract comprehensive terms using AI analysis (always do this first)
+  console.log('\n=== STEP 1: AI Term Extraction ===');
   const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
   const primaryVendor = aiAnalysisResult.primaryVendor;
   
-  // Then, use the vendor identification function to get supplementary product-focused terms
-  const { vendor: identifiedVendor, searchTerms: supplementaryTerms } = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
+  console.log(`AI extracted ${aiExtractedTerms.length} terms:`, aiExtractedTerms.join(', '));
+  console.log(`AI identified primary vendor: "${primaryVendor || 'None'}"`);
   
-  // Use the vendor from AI analysis if available, otherwise use the identified vendor
-  const finalVendor = primaryVendor || identifiedVendor;
+  // Step 2: Smart vendor detection and conditional enhancement
+  console.log('\n=== STEP 2: Smart Vendor Detection & Conditional Enhancement ===');
   
-  console.log(`Primary vendor identified: "${finalVendor || 'None found'}"`);
-  console.log(`AI extracted terms (${aiExtractedTerms.length}):`, aiExtractedTerms.slice(0, 8).join(', '), aiExtractedTerms.length > 8 ? '...' : '');
-  console.log(`Supplementary terms (${supplementaryTerms.length}):`, supplementaryTerms.join(', '));
+  let finalVendor = primaryVendor;
+  let enhancedTerms = aiExtractedTerms;
   
-  // Intelligently merge and prioritize the terms
-  const mergedTerms = mergeAndPrioritizeSearchTerms(aiExtractedTerms, supplementaryTerms, originalKeyword, finalVendor);
-  
-  console.log(`Final merged and prioritized terms (${mergedTerms.length}):`, mergedTerms.join(', '));
-  
-  // Use GraphQL only - no REST fallback
-  try {
-    const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, mergedTerms, finalVendor);
+  // Only do vendor enhancement if no vendor was found in AI analysis
+  if (!primaryVendor) {
+    console.log('No vendor found in AI analysis, checking for vendor presence...');
     
-    if (graphqlResults.length > 0) {
-      console.log(`GraphQL found ${graphqlResults.length} products, using these results`);
-      return graphqlResults;
-    } else {
-      console.log('GraphQL search completed but no products matched any of the search terms.');
-      console.log('Search terms that were tried:', mergedTerms.join(', '));
-      return []; // Return empty array instead of falling back to REST
+    // Quick vendor check first
+    let vendorsList = availableVendors;
+    if (vendorsList.length === 0) {
+      console.log('Fetching vendors for validation...');
+      vendorsList = await fetchShopifyVendors(shopDomain, token);
     }
-  } catch (error) {
-    console.error('GraphQL search failed:', error);
-    console.log('No products found due to GraphQL search failure.');
-    return []; // Return empty array instead of falling back to REST
-  }
-}
-
-// Function to intelligently merge and prioritize search terms
-function mergeAndPrioritizeSearchTerms(
-  aiExtractedTerms: string[], 
-  supplementaryTerms: string[], 
-  originalKeyword: string, 
-  vendor: string | null
-): string[] {
-  const finalTerms: string[] = [];
-  const addedTerms = new Set<string>();
-  
-  // Helper function to add term if not already added
-  const addTerm = (term: string, priority: string) => {
-    const cleanTerm = term.toLowerCase().trim();
-    if (cleanTerm.length > 3 && 
-        !COMMON_WORDS.includes(cleanTerm) && 
-        !addedTerms.has(cleanTerm) &&
-        finalTerms.length < 15) { // Limit to 15 total terms for efficiency
-      finalTerms.push(term);
-      addedTerms.add(cleanTerm);
-      console.log(`Added ${priority}: "${term}"`);
-    }
-  };
-  
-  // Priority 1: Original keyword (most important)
-  addTerm(originalKeyword, 'Priority 1 (original keyword)');
-  
-  // Priority 2: Vendor + key component combinations from AI analysis
-  if (vendor) {
-    const vendorLower = vendor.toLowerCase();
-    const keyComponents = ['motor', 'mixer', 'dishwasher', 'oven', 'scale', 'pump', 'valve', 'seal'];
     
-    // Add vendor + component combinations that exist in AI extracted terms
-    aiExtractedTerms.forEach(term => {
-      const termLower = term.toLowerCase();
-      if (termLower.includes(vendorLower) && 
-          keyComponents.some(comp => termLower.includes(comp)) &&
-          term.split(' ').length === 2) { // Focus on two-word combinations
-        addTerm(term, 'Priority 2 (vendor + component)');
-      }
-    });
-  }
-  
-  // Priority 3: Individual key terms (vendor and main components)
-  if (vendor) {
-    addTerm(vendor, 'Priority 3 (vendor)');
-  }
-  
-  // Add key components that appear in the original keyword
-  const originalWords = originalKeyword.toLowerCase().split(' ');
-  const significantComponents = ['motor', 'mixer', 'dishwasher', 'oven', 'scale', 'pump', 'valve', 'seal'];
-  significantComponents.forEach(component => {
-    if (originalWords.includes(component)) {
-      addTerm(component, 'Priority 3 (key component)');
-    }
-  });
-  
-  // Priority 4: Other meaningful multi-word terms from AI analysis
-  aiExtractedTerms.forEach(term => {
-    const termLower = term.toLowerCase();
-    const words = term.split(' ');
+    const quickVendor = await quickVendorCheck(originalKeyword, vendorsList);
     
-    // Skip if already added or if it's a meaningless combination
-    if (addedTerms.has(termLower)) return;
-    
-    // Add meaningful multi-word terms (but skip vague ones)
-    if (words.length >= 2 && words.length <= 3) {
-      const hasVagueWords = words.some(word => 
-        ['importance', 'the', 'of', 'a', 'and', 'for', 'with'].includes(word.toLowerCase())
+    if (quickVendor) {
+      console.log(`Vendor detected: "${quickVendor}" - Proceeding with term enhancement`);
+      
+      // Enhance the AI terms with product-focused variants
+      const enhancementResult = await identifyVendorFromKeyword(
+        shopDomain, 
+        token, 
+        originalKeyword, 
+        vendorsList,
+        aiExtractedTerms // Pass existing terms for enhancement
       );
       
-      if (!hasVagueWords) {
-        addTerm(term, 'Priority 4 (meaningful combination)');
-      }
+      finalVendor = enhancementResult.vendor;
+      enhancedTerms = enhancementResult.searchTerms;
+      
+      console.log(`Enhanced terms (${enhancedTerms.length}):`, enhancedTerms.join(', '));
+    } else {
+      console.log('No vendor detected - Using AI terms as-is (no wasted processing)');
     }
-  });
+  } else {
+    console.log('Vendor already identified in AI analysis - Using AI terms directly');
+  }
   
-  // Priority 5: Supplementary product-focused terms (maintenance, parts)
-  supplementaryTerms.forEach(term => {
-    if (!addedTerms.has(term.toLowerCase())) {
-      addTerm(term, 'Priority 5 (supplementary)');
-    }
-  });
+  // Step 3: Final term selection and prioritization
+  console.log('\n=== STEP 3: Final Term Selection ===');
+  console.log(`Using vendor: "${finalVendor || 'None'}"`);
+  console.log(`Final search terms (${enhancedTerms.length}):`, enhancedTerms.join(', '));
   
-  // Priority 6: Remaining single meaningful words from AI analysis
-  aiExtractedTerms.forEach(term => {
-    const termLower = term.toLowerCase();
-    const words = term.split(' ');
+  // Step 4: Execute GraphQL search
+  console.log('\n=== STEP 4: GraphQL Product Search ===');
+  try {
+    const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, enhancedTerms, finalVendor, originalKeyword);
     
-    if (words.length === 1 && 
-        !addedTerms.has(termLower) && 
-        isSignificantTerm(term) &&
-        !['importance'].includes(termLower)) {
-      addTerm(term, 'Priority 6 (individual component)');
+    if (graphqlResults.length > 0) {
+      console.log(`✅ GraphQL found ${graphqlResults.length} products`);
+      return graphqlResults;
+    } else {
+      console.log('❌ GraphQL search completed but no products matched any search terms.');
+      console.log('Search terms that were tried:', enhancedTerms.join(', '));
+      return [];
     }
-  });
-  
-  console.log(`\nTerm prioritization complete. Selected ${finalTerms.length} terms from ${aiExtractedTerms.length + supplementaryTerms.length} total options.`);
-  
-  return finalTerms;
+  } catch (error) {
+    console.error('❌ GraphQL search failed:', error);
+    return [];
+  }
 }
 
 async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // First, extract comprehensive terms using AI analysis
+  // Step 1: Extract comprehensive terms using AI analysis (reuse from products search)
+  console.log('\n=== COLLECTIONS STEP 1: AI Term Extraction ===');
   const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
   const primaryVendor = aiAnalysisResult.primaryVendor;
   
-  // Then, use the vendor identification function to get supplementary product-focused terms
-  const { vendor: identifiedVendor, searchTerms: supplementaryTerms } = await identifyVendorFromKeyword(shopDomain, token, originalKeyword, availableVendors);
+  console.log(`AI extracted ${aiExtractedTerms.length} terms for collections:`, aiExtractedTerms.join(', '));
+  console.log(`AI identified primary vendor: "${primaryVendor || 'None'}"`);
   
-  // Use the vendor from AI analysis if available, otherwise use the identified vendor
-  const finalVendor = primaryVendor || identifiedVendor;
+  // Step 2: Smart vendor detection and conditional enhancement
+  console.log('\n=== COLLECTIONS STEP 2: Smart Vendor Detection & Conditional Enhancement ===');
   
-  console.log(`Identified potential vendor for collections: "${finalVendor || 'None found'}"`);
+  let finalVendor = primaryVendor;
+  let enhancedTerms = aiExtractedTerms;
   
-  // Intelligently merge and prioritize the terms for collections
-  const mergedTerms = mergeAndPrioritizeSearchTerms(aiExtractedTerms, supplementaryTerms, originalKeyword, finalVendor);
+  // Only do vendor enhancement if no vendor was found in AI analysis
+  if (!primaryVendor) {
+    console.log('No vendor found in AI analysis, checking for vendor presence...');
+    
+    // Quick vendor check first
+    let vendorsList = availableVendors;
+    if (vendorsList.length === 0) {
+      console.log('Fetching vendors for validation...');
+      vendorsList = await fetchShopifyVendors(shopDomain, token);
+    }
+    
+    const quickVendor = await quickVendorCheck(originalKeyword, vendorsList);
+    
+    if (quickVendor) {
+      console.log(`Vendor detected: "${quickVendor}" - Proceeding with term enhancement for collections`);
+      
+      // Enhance the AI terms with product-focused variants
+      const enhancementResult = await identifyVendorFromKeyword(
+        shopDomain, 
+        token, 
+        originalKeyword, 
+        vendorsList,
+        aiExtractedTerms // Pass existing terms for enhancement
+      );
+      
+      finalVendor = enhancementResult.vendor;
+      enhancedTerms = enhancementResult.searchTerms;
+      
+      console.log(`Enhanced collection terms (${enhancedTerms.length}):`, enhancedTerms.join(', '));
+    } else {
+      console.log('No vendor detected - Using AI terms as-is for collections (no wasted processing)');
+    }
+  } else {
+    console.log('Vendor already identified in AI analysis - Using AI terms directly for collections');
+  }
   
-  // Filter out vague terms that are especially problematic for collections
-  const validSearchTerms = mergedTerms.filter(term => {
+  // Step 3: Filter terms for collections (be more selective)
+  console.log('\n=== COLLECTIONS STEP 3: Term Filtering ===');
+  const validSearchTerms = enhancedTerms.filter(term => {
     const termLower = term.toLowerCase();
     // Be more selective for collections - they tend to have broader, less specific names
     if (term.length < 4 || COMMON_WORDS.includes(termLower)) {
@@ -1226,30 +1398,30 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
         console.log(`No valid search terms found. Using vendor only: "${finalVendor}"`);
         validSearchTerms.push(finalVendor);
       } else {
-        console.log(`No valid search terms found. Using original keyword: "${originalKeyword}"`);
-        validSearchTerms.push(originalKeyword);
+        console.log('No valid search terms found for collections');
+        return [];
       }
     }
   }
   
-  console.log(`Using filtered search terms for collections: ${validSearchTerms.join(', ')}`);
+  console.log(`Final collection search terms (${validSearchTerms.length}):`, validSearchTerms.join(', '));
   
-  // Use GraphQL only - no REST fallback
+  // Step 4: Execute GraphQL search for collections
+  console.log('\n=== COLLECTIONS STEP 4: GraphQL Search ===');
   try {
-    const graphqlResults = await searchCollectionsWithGraphQL(shopDomain, token, validSearchTerms, finalVendor);
+    const graphqlResults = await searchCollectionsWithGraphQL(shopDomain, token, validSearchTerms, finalVendor, originalKeyword);
     
     if (graphqlResults.length > 0) {
-      console.log(`GraphQL found ${graphqlResults.length} collections, using these results`);
+      console.log(`✅ GraphQL found ${graphqlResults.length} collections`);
       return graphqlResults;
     } else {
-      console.log('GraphQL search completed but no collections matched any of the search terms.');
-      console.log('Search terms that were tried:', validSearchTerms.join(', '));
-      return []; // Return empty array instead of falling back to REST
+      console.log('❌ GraphQL search completed but no collections matched any search terms.');
+      console.log('Collection search terms that were tried:', validSearchTerms.join(', '));
+      return [];
     }
   } catch (error) {
-    console.error('GraphQL collections search failed:', error);
-    console.log('No collections found due to GraphQL search failure.');
-    return []; // Return empty array instead of falling back to REST
+    console.error('❌ GraphQL collections search failed:', error);
+    return [];
   }
 }
 
@@ -1804,6 +1976,149 @@ function isSignificantTerm(term: string): boolean {
   return significantTerms.includes(term.toLowerCase());
 }
 
+// Product relevance scoring system for better matching
+function calculateProductRelevanceScore(product: any, searchTerm: string, originalKeyword: string, identifiedVendor: string | null): number {
+  const productTitle = product.title.toLowerCase();
+  const searchTermLower = searchTerm.toLowerCase();
+  const originalKeywordLower = originalKeyword.toLowerCase();
+  
+  let score = 0;
+  
+  // Extract key topic words from original keyword (excluding vendor name)
+  const topicWords = originalKeywordLower.split(' ').filter(word => 
+    word.length > 3 && 
+    !COMMON_WORDS.includes(word) &&
+    (!identifiedVendor || word !== identifiedVendor.toLowerCase())
+  );
+  
+  console.log(`Scoring product "${product.title}" for term "${searchTerm}"`);
+  console.log(`Topic words: [${topicWords.join(', ')}]`);
+  
+  // SCORE CALCULATION:
+  
+  // +15 points: Contains all words from the search term
+  const searchWords = searchTermLower.split(' ').filter(word => word.length > 2);
+  const allWordsFound = searchWords.every(word => {
+    const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
+    return pattern.test(productTitle);
+  });
+  if (allWordsFound && searchWords.length > 1) {
+    score += 15;
+    console.log(`  +15: Contains all search words [${searchWords.join(', ')}]`);
+  }
+  
+  // +10 points: Multi-word term match vs single word (more specific)
+  if (searchTerm.includes(' ')) {
+    score += 10;
+    console.log(`  +10: Multi-word search term`);
+  }
+  
+  // +8 points per topic word found in product title
+  topicWords.forEach(word => {
+    const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
+    if (pattern.test(productTitle)) {
+      score += 8;
+      console.log(`  +8: Contains topic word "${word}"`);
+    }
+  });
+  
+  // +5 points: Exact phrase match anywhere in title
+  if (productTitle.includes(searchTermLower)) {
+    score += 5;
+    console.log(`  +5: Contains exact phrase "${searchTerm}"`);
+  }
+  
+  // +3 points: Contains vendor name (baseline relevance)
+  if (identifiedVendor && productTitle.includes(identifiedVendor.toLowerCase())) {
+    score += 3;
+    console.log(`  +3: Contains vendor "${identifiedVendor}"`);
+  }
+  
+  // PENALTY POINTS (reduce score for generic/irrelevant products):
+  
+  // -5 points: Generic electronic components (less relevant for mixing bowls)
+  const genericTerms = ['circuit', 'breaker', 'switch', 'board', 'light', 'gfci', 'terminal', 'jumper', 'bearing', 'washer', 'screw'];
+  genericTerms.forEach(genericTerm => {
+    if (productTitle.includes(genericTerm)) {
+      score -= 5;
+      console.log(`  -5: Contains generic term "${genericTerm}"`);
+    }
+  });
+  
+  // -3 points: Very short product codes (usually replacement parts, not main products)
+  const productCodePattern = /\b\d{2}-\d{6}-\d{5}\b/;
+  if (productCodePattern.test(productTitle)) {
+    score -= 3;
+    console.log(`  -3: Contains product code pattern (likely replacement part)`);
+  }
+  
+  console.log(`  Final score: ${score}`);
+  return score;
+}
+
+// Enhanced function to prioritize search terms by relevance
+function prioritizeSearchTerms(searchTerms: string[], originalKeyword: string, identifiedVendor: string | null): string[] {
+  const prioritized: { term: string, priority: number }[] = [];
+  
+  searchTerms.forEach(term => {
+    let priority = 0;
+    const termLower = term.toLowerCase();
+    const words = term.split(' ');
+    
+    // PRIORITY CALCULATION:
+    
+    // Priority 1: Multi-word terms that include topic-specific words (highest priority)
+    if (words.length >= 2) {
+      priority += 100;
+      
+      // Extra priority if it contains original keyword components
+      const originalWords = originalKeyword.toLowerCase().split(' ').filter(word => 
+        word.length > 3 && !COMMON_WORDS.includes(word)
+      );
+      
+      originalWords.forEach(originalWord => {
+        if (termLower.includes(originalWord)) {
+          priority += 50;
+        }
+      });
+      
+      // Extra priority for vendor + topic combinations
+      if (identifiedVendor && termLower.includes(identifiedVendor.toLowerCase())) {
+        priority += 30;
+      }
+    }
+    
+    // Priority 2: Single meaningful topic words
+    else if (words.length === 1) {
+      const topicWords = ['bowl', 'mixing', 'mixer', 'attachment', 'hook', 'beater', 'whip'];
+      if (topicWords.includes(termLower)) {
+        priority += 80;
+      }
+      // Lower priority for vendor-only terms
+      else if (identifiedVendor && termLower === identifiedVendor.toLowerCase()) {
+        priority += 20; // Lowest priority - only vendor name
+      }
+      // Medium priority for other meaningful terms
+      else if (term.length > 4 && !COMMON_WORDS.includes(termLower)) {
+        priority += 40;
+      }
+    }
+    
+    prioritized.push({ term, priority });
+  });
+  
+  // Sort by priority (highest first)
+  prioritized.sort((a, b) => b.priority - a.priority);
+  
+  const orderedTerms = prioritized.map(item => item.term);
+  console.log('Prioritized search terms:');
+  prioritized.forEach(item => {
+    console.log(`  ${item.priority}: "${item.term}"`);
+  });
+  
+  return orderedTerms;
+}
+
 export async function POST(request: Request) {
   try {
     console.log('Received article generation request');
@@ -1861,6 +2176,7 @@ export async function POST(request: Request) {
       articleMode,
       shopifyStoreUrl,
       shopifyAccessToken,
+      brandColor,
     } = body;
 
     // Validate required fields
@@ -2106,6 +2422,27 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
 
     console.log('Starting article generation with Claude');
     // 3. Construct the Claude prompt, including the topic breakdown and Shopify context
+    
+    // Validate and ensure we have a usable brand color
+    const validateBrandColor = (color: string | undefined): string => {
+      // If no color provided, use black
+      if (!color) return '#000000';
+      
+      // If white is provided, use black instead (white borders/text are invisible)
+      if (color.toLowerCase() === '#ffffff' || color.toLowerCase() === 'white') {
+        return '#000000';
+      }
+      
+      // Validate hex format (basic validation)
+      if (!/^#[0-9A-F]{6}$/i.test(color)) {
+        return '#000000';
+      }
+      
+      return color;
+    };
+
+    const finalBrandColor = validateBrandColor(brandColor);
+    
     const userPrompt = `
       DO NOT START WITH ANYTHING EXCEPT <H1>. Start every page off immediately, do not chat back to me in anyway.
       You are writing for ${brandName}. Write from the perspective of this brand.
@@ -2119,8 +2456,40 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
 
       Please write a long-form SEO-optimized article with 1500 words about the following article keyword: ${keyword}.
       Answer in HTML, starting with one single <h1> tag, as this is going on wordpress, do not give unnecessary HTML tags.
+      
+      VISUAL STYLING REQUIREMENTS:
+      - Use ${finalBrandColor} as the primary accent color throughout the article
+      - Key takeaways table: Light gray background (#f8f9fa) with ${finalBrandColor} left border (5px solid)
+      - Data tables: ALL headers with background-color: ${finalBrandColor}; color: white; alternating row colors (#f2f2f2)
+      - Call-out boxes: Light background (#f8f9fa) with ${finalBrandColor} left border (5px solid)
+      - All borders: 1px solid #ddd; padding: 8-12px; border-collapse: collapse
+      - IMPORTANT: Use ONLY ${finalBrandColor} for all colored elements - no other colors allowed
+
+      VISUAL ENHANCEMENT SYSTEM:
+      - For comparative data charts, use this exact HTML structure with inline styles:
+        <div style="max-width: 500px; margin: 20px auto; text-align: center; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <div style="margin-bottom: 15px;"><h3 style="margin: 0; color: #333;">Chart Title</h3></div>
+          <div style="display: flex; justify-content: space-around; align-items: flex-end; height: 200px; padding: 20px 0; background-color: #f8f9fa; border-radius: 8px; position: relative;">
+            <div style="display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; position: relative;">
+              <div style="position: absolute; top: 10px; font-size: 12px; font-weight: 500; color: #333;">60</div>
+              <div style="width: 40px; height: 60%; background-color: ${finalBrandColor}; position: absolute; bottom: 25px; border-radius: 4px 4px 0 0;"></div>
+              <div style="position: absolute; bottom: 0; font-size: 10px; color: #6c757d; max-width: 70px; text-align: center; line-height: 1.2;">Label Text</div>
+            </div>
+          </div>
+        </div>
+      - For process explanations, use: <div style="max-width: 600px; margin: 20px auto; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border-left: 5px solid ${finalBrandColor};">content</div>
+      - For parts breakdowns, use: <div style="max-width: 700px; margin: 20px auto; padding: 20px; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">content</div>
+      - Chart values must be displayed above each bar using a separate positioned div as shown in the template
+      - Each chart column should be wrapped in its own positioned container for proper alignment
+      - Primary chart color: ${finalBrandColor}
+      - Secondary chart color: #f8f9fa (light gray backgrounds)
+      - IMPORTANT: Use ONLY inline styles - no CSS classes - for maximum compatibility across all platforms
+
+      ${keyword.toLowerCase().match(/comparison|vs|breakdown|analysis/) ? 
+        'PRIORITY: Include comparison charts and data visualizations for this topic.' : ''}
+
       Please use a lot of formatting, tables and visuals are great for ranking on Google. If there is data that can be displayed through a table or other visual, ensure its removed from the text and replaced with the visual.
-      Always include a modern styledkey takeaways table at the beginning of the article listing the key points of the topic.
+      Always include a modern styled key takeaways table at the beginning of the article listing the key points of the topic.
 
       The article should be written in a ${toneOfVoice || 'professional'} tone and framed as ${contentType}.
       This is a ${businessType} so write from the perspective of that business.
@@ -2132,7 +2501,7 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
       console.log('Calling Claude API for article generation');
       const message = await anthropic.messages.create({
         model: "claude-3-7-sonnet-20250219",
-        max_tokens: 7000,
+        max_tokens: 8192,
         messages: [
           {
             role: "user",

@@ -113,6 +113,7 @@ export default function ArticlesPage() {
           articleMode,
           shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
           shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          brandColor: selectedProfile.brandColor || '#000000',
         }),
       });
 
