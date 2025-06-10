@@ -2465,26 +2465,43 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
       - All borders: 1px solid #ddd; padding: 8-12px; border-collapse: collapse
       - IMPORTANT: Use ONLY ${finalBrandColor} for all colored elements - no other colors allowed
 
-      VISUAL ENHANCEMENT SYSTEM:
-      - For comparative data charts, use this exact HTML structure with inline styles:
-        <div style="max-width: 500px; margin: 20px auto; text-align: center; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <div style="margin-bottom: 15px;"><h3 style="margin: 0; color: #333;">Chart Title</h3></div>
-          <div style="display: flex; justify-content: space-around; align-items: flex-end; height: 200px; padding: 20px 0; background-color: #f8f9fa; border-radius: 8px; position: relative;">
-            <div style="display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; position: relative;">
-              <div style="position: absolute; top: 10px; font-size: 12px; font-weight: 500; color: #333;">60</div>
-              <div style="width: 40px; height: 60%; background-color: ${finalBrandColor}; position: absolute; bottom: 25px; border-radius: 4px 4px 0 0;"></div>
-              <div style="position: absolute; bottom: 0; font-size: 10px; color: #6c757d; max-width: 70px; text-align: center; line-height: 1.2;">Label Text</div>
+      CHART CREATION SYSTEM (use inline styles only):
+      For comparative data, create charts using this exact structure:
+      <div style="background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; border: 1px solid #ddd;">
+        <h3 style="margin: 0 0 15px 0; color: #333;">[Chart Title]</h3>
+        <div style="display: flex; justify-content: space-around; align-items: end; height: 200px; border-bottom: 2px solid #ccc; padding: 10px;">
+          <div style="text-align: center; flex: 1; margin: 0 5px;">
+            <div style="position: relative; height: 150px; display: flex; align-items: end;">
+              <div style="background: ${finalBrandColor}; width: 40px; height: [percentage]%; border-radius: 4px 4px 0 0; position: relative; margin: 0 auto;">
+                <span style="position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-weight: bold; color: #333;">[value]</span>
+              </div>
             </div>
+            <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">[label]</p>
           </div>
+          [Repeat div block for each data point]
         </div>
-      - For process explanations, use: <div style="max-width: 600px; margin: 20px auto; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border-left: 5px solid ${finalBrandColor};">content</div>
-      - For parts breakdowns, use: <div style="max-width: 700px; margin: 20px auto; padding: 20px; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">content</div>
-      - Chart values must be displayed above each bar using a separate positioned div as shown in the template
-      - Each chart column should be wrapped in its own positioned container for proper alignment
-      - Primary chart color: ${finalBrandColor}
-      - Secondary chart color: #f8f9fa (light gray backgrounds)
-      - IMPORTANT: Use ONLY inline styles - no CSS classes - for maximum compatibility across all platforms
+      </div>
 
+      PROCESS DIAGRAMS:
+      For step-by-step processes, use:
+      <div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-left: 5px solid ${finalBrandColor}; border-radius: 0 8px 8px 0;">
+        <h4 style="margin: 0 0 10px 0; color: ${finalBrandColor};">Step [number]: [title]</h4>
+        <p style="margin: 0; color: #555;">[description]</p>
+      </div>
+
+      PARTS INFO BOXES:
+      <div style="background: white; padding: 15px; margin: 15px 0; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h4 style="margin: 0 0 10px 0; color: ${finalBrandColor};">[Part Name]</h4>
+        <p style="margin: 0; color: #666;">[description]</p>
+      </div>
+
+      ARTICLE STRUCTURE REQUIREMENTS:
+      - Introduction: 150-200 words introducing the topic and brand perspective
+      - Main content: 4-5 sections of 200-250 words each covering key aspects
+      - Conclusion: 150 words summarizing key points with call-to-action for Malachy Parts Plus
+      - CRITICAL: Always include a complete conclusion section - never end abruptly
+      - Target total: 1400-1500 words maximum for optimal completion
+      
       ${keyword.toLowerCase().match(/comparison|vs|breakdown|analysis/) ? 
         'PRIORITY: Include comparison charts and data visualizations for this topic.' : ''}
 
