@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
@@ -58,6 +59,19 @@ export default function BrandsPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
+      {/* Back Button */}
+      <div className="mb-4">
+        <Link 
+          href="/dashboard/settings"
+          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Settings
+        </Link>
+      </div>
+
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Brand Profiles</h1>
         <button

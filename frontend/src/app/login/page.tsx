@@ -58,7 +58,11 @@ export default function LoginPage() {
       await signInWithGoogle();
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'An error occurred during Google sign in');
+      // Only show error if it's not a user cancellation
+      if (err && err.message) {
+        setError(err.message);
+      }
+      // If error is undefined, it means user cancelled - don't show error
     }
   };
 

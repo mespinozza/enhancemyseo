@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { useRouter } from 'next/navigation';
 import { brandProfileOperations } from '@/lib/firebase/firestore';
 import type { BrandProfile } from '@/lib/firebase/firestore';
-import { ClipboardList, Store, Tag } from 'lucide-react';
+import { ClipboardList, Store, Tag, Lock } from 'lucide-react';
 
 interface CollectionHistory {
   id: string;
@@ -24,12 +25,20 @@ interface CollectionHistory {
 }
 
 export default function CollectionsPage() {
-  const { user } = useAuth();
+  const { user, subscription_status, loading } = useAuth();
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [brandProfile, setBrandProfile] = useState<BrandProfile | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [collectionHistory, setCollectionHistory] = useState<CollectionHistory[]>([]);
+
+  // Admin subscription access check
+  useEffect(() => {
+    if (!loading && subscription_status !== 'admin') {
+      router.push('/dashboard');
+    }
+  }, [loading, subscription_status, router]);
 
   // Load brand profiles on component mount
   useEffect(() => {
@@ -50,9 +59,44 @@ export default function CollectionsPage() {
     // Add optimization logic here
   };
 
+  // Show loading while checking admin status
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    );
+  }
+
+  // Show access denied for non-admin users
+  if (subscription_status !== 'admin') {
+    return (
+      <div className="p-8">
+        <div className="max-w-md mx-auto text-center">
+          <Lock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Restricted</h1>
+          <p className="text-gray-600 mb-6">
+            This feature is only available to administrators. Contact your administrator for access.
+          </p>
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 h-full">
-      <h1 className="text-2xl font-bold mb-6">Optimize Collections</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Optimize Collections</h1>
+        <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full">
+          Admin Feature
+        </span>
+      </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-10rem)]">
         {/* Left Column - Brand Selection and Optimization Controls */}
@@ -108,10 +152,10 @@ export default function CollectionsPage() {
           </button>
         </div>
 
-        {/* Right Column - Collection History */}
+        {/* Right Column - Optimization History */}
         <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col h-full">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold">Collection History</h2>
+            <h2 className="text-lg font-semibold">Optimization History</h2>
             <span className="text-sm text-gray-500">
               {collectionHistory.length} collections optimized
             </span>
@@ -127,19 +171,10 @@ export default function CollectionsPage() {
                       {item.timestamp.toLocaleDateString()}
                     </span>
                   </div>
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Based on Tags</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {item.basedOnTags.map((tag, index) => (
-                        <span
-                          key={index}
-                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-                        >
-                          <Tag className="w-3 h-3 mr-1" />
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+                  <div className="mb-3">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Based on tags:</span> {item.basedOnTags.join(', ')}
+                    </p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -165,7 +200,7 @@ export default function CollectionsPage() {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <ClipboardList className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <Tag className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600">
                   Select a brand profile to start optimizing your collections
                 </p>

@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { getUserSubscriptionStatus } from '@/lib/firebase/admin-users';
+import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import OpenAI from 'openai';
 
 // Log the environment variable at module load time
@@ -2148,17 +2151,51 @@ export async function POST(request: Request) {
     }
 
     const idToken = authHeader.split('Bearer ')[1];
+    let verifiedUser;
     
     try {
       // Verify the ID token
-      const decodedToken = await getAuth().verifyIdToken(idToken);
-      if (!decodedToken.uid) {
+      verifiedUser = await getAuth().verifyIdToken(idToken);
+      if (!verifiedUser.uid) {
         throw new Error('Invalid token');
       }
-      console.log('User authenticated successfully:', decodedToken.uid);
+      console.log('User authenticated successfully:', verifiedUser.uid);
     } catch (error) {
       console.error('Error verifying token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // CRITICAL: Server-side usage verification
+    console.log('Verifying usage limits for user:', verifiedUser.uid);
+    try {
+      // Get user's subscription status from Firestore
+      const subscriptionStatus = await getUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
+      console.log('User subscription status:', subscriptionStatus);
+      
+      // Get Firestore admin instance
+      const adminFirestore = getFirestore();
+      
+      // Check if user can perform this action
+      const usageCheck = await serverSideUsageUtils.canPerformAction(
+        verifiedUser.uid,
+        subscriptionStatus,
+        'articles',
+        adminFirestore
+      );
+      
+      if (!usageCheck.canPerform) {
+        console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
+        return NextResponse.json({ 
+          error: usageCheck.reason || 'Usage limit exceeded' 
+        }, { status: 429 });
+      }
+      
+      console.log('Usage verification passed for user:', verifiedUser.uid);
+    } catch (error) {
+      console.error('Error verifying usage limits:', error);
+      return NextResponse.json({ 
+        error: 'Unable to verify usage limits' 
+      }, { status: 500 });
     }
 
     const body = await request.json();
@@ -2516,16 +2553,16 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
     // Generate content using Claude
     try {
       console.log('Calling Claude API for article generation');
-      const message = await anthropic.messages.create({
+    const message = await anthropic.messages.create({
         model: "claude-3-7-sonnet-20250219",
         max_tokens: 8192,
-        messages: [
-          {
-            role: "user",
-            content: userPrompt
-          }
-        ]
-      });
+      messages: [
+        {
+          role: "user",
+          content: userPrompt
+        }
+      ]
+    });
 
       // Get the generated content from the response
       const generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
@@ -2535,12 +2572,23 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
       const titleMatch = generatedContent.match(/<h1>(.*?)<\/h1>/);
       const title = titleMatch ? titleMatch[1] : `${keyword} - ${contentType}`;
 
+      // CRITICAL: Increment usage count after successful generation
+      console.log('Incrementing usage count for user:', verifiedUser.uid);
+      try {
+        const adminFirestore = getFirestore();
+        await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', adminFirestore);
+        console.log('Usage count incremented successfully');
+      } catch (usageError) {
+        console.error('Error incrementing usage count:', usageError);
+        // Continue execution - don't fail the request for usage tracking errors
+      }
+
       console.log('Article generation completed successfully');
       
       // Return the response including Shopify integration status
-      return NextResponse.json({
-        title,
-        content: generatedContent,
+    return NextResponse.json({
+      title,
+      content: generatedContent,
         shopifyIntegration: {
           status: shopifyIntegrationStatus,
           message: getShopifyStatusMessage(shopifyIntegrationStatus)

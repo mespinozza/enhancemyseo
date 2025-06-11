@@ -1,12 +1,18 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 
 export default function Footer() {
   const router = useRouter();
+  const pathname = usePathname();
   const { user } = useAuth();
+
+  // Don't show footer on dashboard pages
+  if (pathname.startsWith('/dashboard')) {
+    return null;
+  }
 
   const handleGenerateClick = () => {
     if (!user) {
@@ -32,15 +38,6 @@ export default function Footer() {
             <div className="flex flex-col space-y-1">
               <p className="text-gray-400">Follow us on Social Media:</p>
               <div className="flex items-center space-x-3">
-                <a
-                  href="https://tiktok.com/@enhancemyseo.ai"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  TikTok
-                </a>
-                <span className="text-gray-600">|</span>
                 <a
                   href="https://www.linkedin.com/company/enhancemyseo"
                   target="_blank"
@@ -72,6 +69,11 @@ export default function Footer() {
                 >
                   Start Generating
                 </button>
+              </li>
+              <li>
+                <Link href="/feature-request" className="text-gray-400 hover:text-white transition-colors">
+                  Feature Requests
+                </Link>
               </li>
               <li>
                 <Link href="/privacy-policy" className="text-gray-400 hover:text-white transition-colors">

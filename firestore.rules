@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // General rule for all collections
+    match /{collection}/{document} {
+      allow read, write, create, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      
+      allow create: if 
+        request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+    }
+    
+    // Specific rules for important collections
+    match /users/{userId} {
+      // Allow read and write if the authenticated user's UID matches the document ID
+      allow read, write, update: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow user profile creation - critical fix for the permission error
+      allow create: if request.auth != null && 
+                      request.auth.uid == userId &&
+                      request.auth.uid == request.resource.data.uid;
+    }
+    
+    // CRITICAL: Usage collection security rules
+    match /usage/{usageId} {
+      // Allow reads by the owning user (usage document ID format: {uid}_{month})
+      // Check if the document ID starts with the user's UID followed by an underscore
+      allow read: if request.auth != null && 
+                     usageId.split('_')[0] == request.auth.uid;
+      
+      // Allow users to create and update their own usage documents (simplified for troubleshooting)
+      allow create, update: if request.auth != null && 
+                               usageId.split('_')[0] == request.auth.uid;
+      
+      // Never allow deletes from client
+      allow delete: if false;
+    }
+    
+    // Specific rules for user-owned collections
+    match /brandProfiles/{document} {
+      allow read, write, create, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow list: if request.auth != null;
+    }
+    
+    match /blogs/{document} {
+      allow read, write, create, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow list: if request.auth != null;
+    }
+    
+    match /history/{document} {
+      allow read, write, create, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow list: if request.auth != null;
+    }
+    
+    match /generatedProducts/{document} {
+      allow read, write, create, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow list: if request.auth != null;
+    }
+    
+    // Fallback rule for any other collections
+    match /{path=**} {
+      allow read, list: if request.auth != null;
+    }
+  }
+} 

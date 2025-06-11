@@ -4,40 +4,151 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { FileText, Key, LogOut, History, ChevronRight, ExternalLink, Package, LayoutGrid } from 'lucide-react';
-import { historyOperations, HistoryItem } from '@/lib/firebase/firestore';
+import { FileText, Key, LogOut, History, ChevronRight, ExternalLink, Package, Search } from 'lucide-react';
+import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, historyOperations, HistoryItem, initializeUserCollections } from '@/lib/firebase/firestore';
+import { getFilteredNavigation } from '@/config/navigation';
+
+// Combined interface for recent items
+interface RecentItem {
+  id: string;
+  type: 'blog' | 'product' | 'history';
+  title: string;
+  createdAt?: any;
+  icon: any;
+  tabLink: string;
+}
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { user, logout } = useAuth();
+  const { user, logout, subscription_status, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [recentHistory, setRecentHistory] = useState<HistoryItem[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const [isLoadingRecents, setIsLoadingRecents] = useState(true);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Load recent history items
+  // Ensure we have user and subscription status loaded before showing navigation
+  const isUserDataLoaded = !loading && user && user.subscription_status;
+  
+  // Get filtered navigation based on subscription status, but only when data is loaded
+  const filteredNavigation = isUserDataLoaded ? getFilteredNavigation(subscription_status) : [];
+
+  // Load all recent items from different collections
   useEffect(() => {
-    async function loadRecentHistory() {
-      if (!user) return;
+    async function loadRecentItems() {
+      if (!user?.uid) {
+        console.log('No authenticated user found, skipping recent items load');
+        return;
+      }
+      
+      // Ensure we have a valid auth token before making Firestore requests
       try {
-        setIsLoadingHistory(true);
-        const items = await historyOperations.getAll(user.uid);
-        // Take only the 5 most recent items
-        setRecentHistory(items.slice(0, 5));
+        await user.getIdToken();
+      } catch (tokenError) {
+        console.error('Failed to get auth token for recent items:', tokenError);
+        return;
+      }
+      
+      console.log('Loading recent items for user:', user.uid);
+      
+      try {
+        setIsLoadingRecents(true);
+        
+        // Initialize collections for the user (helps with permission errors)
+        await initializeUserCollections(user.uid);
+        
+        // Load all collections in parallel, with individual error handling
+        const [blogs, products, historyItems] = await Promise.all([
+          blogOperations.getAll(user.uid).catch((error) => {
+            console.warn('Error loading blogs for recent items:', error);
+            return [];
+          }),
+          // Handle generatedProducts more gracefully - it might not exist yet
+          (async () => {
+            try {
+              const products = await generatedProductOperations.getAll(user.uid);
+              console.log('Successfully loaded products for recent items:', products.length);
+              return products;
+            } catch (error: any) {
+              // Don't log permission errors for generatedProducts - collection might not exist yet
+              if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+                console.log('generatedProducts collection not yet available for this user');
+                return [];
+              } else {
+                console.warn('Error loading generated products for recent items:', error);
+                return [];
+              }
+            }
+          })(),
+          historyOperations.getAll(user.uid).catch((error) => {
+            console.warn('Error loading history for recent items:', error);
+            return [];
+          })
+        ]);
+
+        console.log('Recent items loaded successfully:', {
+          blogs: blogs.length,
+          products: products.length,
+          history: historyItems.length
+        });
+
+        // Transform all items to common format
+        const allItems: RecentItem[] = [
+          // Blog items
+          ...blogs.map((blog: Blog) => ({
+            id: blog.id!,
+            type: 'blog' as const,
+            title: blog.title,
+            createdAt: blog.createdAt,
+            icon: FileText,
+            tabLink: `blogs&highlight=${blog.id}`
+          })),
+          // Product items  
+          ...products.map((product: GeneratedProduct) => ({
+            id: product.id!,
+            type: 'product' as const,
+            title: product.productName,
+            createdAt: product.createdAt,
+            icon: Package,
+            tabLink: `products&highlight=${product.id}`
+          })),
+          // History items
+          ...historyItems.map((item: HistoryItem) => ({
+            id: item.id!,
+            type: 'history' as const,
+            title: item.title,
+            createdAt: item.createdAt,
+            icon: item.type === 'keywords' ? Search : History,
+            tabLink: item.type === 'keywords' ? `keywords&highlight=${item.id}` : `collections&highlight=${item.id}`
+          }))
+        ];
+
+        // Sort by creation date and take the 8 most recent
+        const sortedItems = allItems.sort((a, b) => {
+          const dateA = a.createdAt?.toDate?.() || new Date(0);
+          const dateB = b.createdAt?.toDate?.() || new Date(0);
+          return dateB.getTime() - dateA.getTime();
+        });
+
+        setRecentItems(sortedItems.slice(0, 8));
       } catch (error) {
-        console.error('Error loading recent history:', error);
+        console.warn('Error loading recent items:', error);
+        setRecentItems([]);
       } finally {
-        setIsLoadingHistory(false);
+        setIsLoadingRecents(false);
       }
     }
 
-    loadRecentHistory();
-  }, [user]);
+    // Only run when we have a fully authenticated user and user data is loaded
+    if (user?.uid && isUserDataLoaded && !loading) {
+      // Add delay to ensure Firestore rules have been applied
+      setTimeout(loadRecentItems, 500);
+    }
+  }, [user?.uid, isUserDataLoaded, loading]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -65,6 +176,18 @@ export default function DashboardLayout({
   // Get user's display name or first part of email
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'User';
 
+  // Show loading spinner while user data is loading
+  if (loading || !isUserDataLoaded) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="flex h-screen">
@@ -80,106 +203,67 @@ export default function DashboardLayout({
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 bg-white">
+          <nav className="flex-1 p-4 bg-white overflow-hidden flex flex-col">
             <div className="space-y-3">
-              {/* Optimize Products */}
-              <Link
-                href="/dashboard/products"
-                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
-                  pathname === '/dashboard/products'
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Package className="w-5 h-5 mr-3" />
-                Optimize Products
-              </Link>
-
-              {/* Optimize Collections */}
-              <Link
-                href="/dashboard/collections"
-                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
-                  pathname === '/dashboard/collections'
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <LayoutGrid className="w-5 h-5 mr-3" />
-                Optimize Collections
-              </Link>
-
-              {/* Generate Keywords */}
-              <Link
-                href="/dashboard/keywords"
-                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
-                  pathname === '/dashboard/keywords'
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Key className="w-5 h-5 mr-3" />
-                Generate Keywords
-              </Link>
-
-              {/* Generate Article */}
-              <Link
-                href="/dashboard/articles"
-                className={`flex items-center px-4 py-2 rounded-md transition-colors ${
-                  pathname === '/dashboard/articles'
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <FileText className="w-5 h-5 mr-3" />
-                Generate Article
-              </Link>
+              {/* Role-based navigation items - only show when user data is fully loaded */}
+              {filteredNavigation.map((item) => (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+                    pathname === item.href
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <item.icon className="w-5 h-5 mr-3" />
+                  {item.name}
+                </Link>
+              ))}
             </div>
 
-            {/* Content History Section */}
-            <div className="mt-8">
-              <div className="px-4 flex items-center justify-between mb-3">
+            {/* Recent Items Section */}
+            <div className="mt-8 flex-1 flex flex-col min-h-0">
+              <div className="px-4 flex items-center justify-between mb-3 flex-shrink-0">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Content History
+                  Recents
                 </h3>
                 <Link
                   href="/dashboard/history"
-                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center"
+                  className="text-xs text-blue-600 hover:text-blue-700 whitespace-nowrap"
                 >
                   See All
-                  <ChevronRight className="w-3 h-3 ml-1" />
                 </Link>
               </div>
               
-              <div className="space-y-1">
-                {isLoadingHistory ? (
-                  <div className="px-4 py-2 text-sm text-gray-500">
-                    Loading history...
-                  </div>
-                ) : recentHistory.length > 0 ? (
-                  recentHistory.map((item) => (
-                    <Link
-                      key={item.id}
-                      href={`/dashboard/history/${item.id}`}
-                      className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      {item.type === 'article' ? (
-                        <FileText className="w-4 h-4 mr-3 text-gray-400" />
-                      ) : (
-                        <Key className="w-4 h-4 mr-3 text-gray-400" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="truncate">{item.title}</p>
-                        <p className="text-xs text-gray-500">
-                          {item.createdAt?.toDate().toLocaleDateString()}
-                        </p>
-                      </div>
-                    </Link>
-                  ))
-                ) : (
-                  <div className="px-4 py-2 text-sm text-gray-500">
-                    No recent content
-                  </div>
-                )}
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-1">
+                  {isLoadingRecents ? (
+                    <div className="px-4 py-2 text-sm text-gray-500">
+                      Loading recent content...
+                    </div>
+                  ) : recentItems.length > 0 ? (
+                    recentItems.map((item) => (
+                      <Link
+                        key={`${item.type}-${item.id}`}
+                        href={`/dashboard/history?tab=${item.tabLink}`}
+                        className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-md"
+                      >
+                        <item.icon className="w-4 h-4 mr-3 text-gray-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate">{item.title}</p>
+                          <p className="text-xs text-gray-500">
+                            {item.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
+                          </p>
+                        </div>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="px-4 py-2 text-sm text-gray-500">
+                      No recent content
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </nav>
@@ -196,6 +280,9 @@ export default function DashboardLayout({
               <div className="flex-1 min-w-0 text-left">
                 <p className="text-sm font-medium text-gray-900 truncate">
                   {displayName}
+                </p>
+                <p className="text-xs text-gray-600 capitalize">
+                  {subscription_status} Plan
                 </p>
               </div>
               <svg

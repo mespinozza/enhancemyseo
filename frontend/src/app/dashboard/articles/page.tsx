@@ -8,6 +8,8 @@ import { db } from '@/lib/firebase/config';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import { blogOperations, Blog } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
+import UsageTracker from '@/components/usage/UsageTracker';
+import { getUserUsage, canPerformAction, incrementUsage } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
 import { Download, Copy, Eye, Code, Info, ShoppingBag, Wrench } from 'lucide-react';
 
@@ -20,7 +22,7 @@ interface BlogPost {
 }
 
 export default function ArticlesPage() {
-  const { user } = useAuth();
+  const { user, subscription_status } = useAuth();
   const router = useRouter();
   const [topic, setTopic] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -63,6 +65,22 @@ export default function ArticlesPage() {
 
   const handleGenerateBlog = async () => {
     if (!selectedBrandId || !keyword || !contentType || !user) {
+      return;
+    }
+
+    // Check usage limits before generating
+    try {
+      const currentUsage = await getUserUsage(user.uid);
+      const { canPerform, reason } = await canPerformAction(user.uid, subscription_status, 'articles', currentUsage);
+      
+      if (!canPerform) {
+        const errorMessage = reason || 'You have reached your limit. Please upgrade your plan or wait for the next reset period.';
+        toast.error(errorMessage);
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking usage limits:', error);
+      toast.error('Unable to verify usage limits. Please try again.');
       return;
     }
 
@@ -150,6 +168,8 @@ export default function ArticlesPage() {
           createdAt: new Date(),
           status: 'draft'
         });
+
+        toast.success('Article generated successfully!');
       }
 
     } catch (error) {
@@ -229,6 +249,9 @@ export default function ArticlesPage() {
       <div className="w-full md:w-1/2 p-4 md:p-6 border-r border-gray-200 overflow-y-auto h-full flex-shrink-0">
         <div className="max-w-xl mx-auto">
           <h2 className="text-2xl font-bold mb-6">Generate New Article</h2>
+          
+          {/* Usage Tracker */}
+          <UsageTracker tool="articles" className="mb-6" />
 
           {/* Brand Profile Selection */}
           <div className={`mb-8 ${!selectedBrandId ? 'relative' : ''}`}>
@@ -504,8 +527,14 @@ export default function ArticlesPage() {
       <div className="w-full md:w-1/2 p-4 md:p-6 bg-white overflow-hidden flex flex-col h-full">
         <div className="max-w-2xl mx-auto w-full flex flex-col h-full">
           {isGenerating ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="flex flex-col items-center justify-center h-64 space-y-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <div className="text-center">
+                <p className="text-lg font-medium text-gray-700 mb-2">Generating your article...</p>
+                <p className="text-sm text-gray-500 max-w-md">
+                  Please give the tool 2-5 minutes to generate your content. We're crafting high-quality, SEO-optimized content tailored to your brand.
+                </p>
+              </div>
             </div>
           ) : selectedPost ? (
             <>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 
-const words = ['Enrich', 'Optimize', 'Enhance', 'Boost', 'Elevate'];
+const words = ['Enrich', 'Enhance', 'Elevate'];
 
 export default function WordCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0);

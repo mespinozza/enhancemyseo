@@ -1,21 +1,30 @@
 'use client';
 
-import { AuthProvider } from '@/lib/firebase/auth-context';
-import MainLayout from '@/components/layout/MainLayout';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { ApolloProvider } from '@apollo/client';
+import { AuthProvider } from '@/lib/firebase/auth-context';
+import { ShopifyProvider } from '@/contexts/ShopifyContext';
+import { defaultApolloClient } from '@/lib/apollo/client';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  // Create a client for React Query
-  const [queryClient] = useState(() => new QueryClient());
-
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <MainLayout>
-          {children}
-        </MainLayout>
-      </AuthProvider>
+      <ApolloProvider client={defaultApolloClient}>
+        <AuthProvider>
+          <ShopifyProvider>
+            {children}
+          </ShopifyProvider>
+        </AuthProvider>
+      </ApolloProvider>
     </QueryClientProvider>
   );
 } 

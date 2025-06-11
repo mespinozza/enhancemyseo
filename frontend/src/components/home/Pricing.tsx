@@ -36,10 +36,10 @@ export default function Pricing() {
       price: "0",
       description: "Perfect for trying out our platform",
       features: [
-        "5 generations per day",
-        "Basic keyword research",
-        "Basic Article Generation",
-        "Contains Ads"
+        "1 article generation per month",
+        "1 keyword generation per month",
+        "Basic article templates",
+        "Community support"
       ],
       buttonText: "Get Started",
     },
@@ -48,11 +48,10 @@ export default function Pricing() {
       price: getPrice(29, isAnnual),
       description: "Ideal for growing businesses",
       features: [
-        "12,000 words per month",
-        "Unlimited Article Revisions",
-        "200 keyword suggestions",
-        "All API costs included",
-        "Priority support",
+        "15 article generations per month",
+        "10 keyword generations per month",
+        "Advanced article templates",
+        "Priority email support",
         "No Ads"
       ],
       buttonText: "Get Started",
@@ -66,11 +65,11 @@ export default function Pricing() {
       price: getPrice(99, isAnnual),
       description: "For serious content creators",
       features: [
-        "30,000 words per month",
-        "Unlimited Article Revisions",
-        "400 keyword suggestions",
+        "40 article generations per month",
+        "30 keyword generations per month",
+        "All article templates",
         "24/7 Priority support",
-        "Article Scheduling",
+        "Article scheduling",
         "Access to new features first"
       ],
       buttonText: "Get Started",
@@ -96,7 +95,7 @@ export default function Pricing() {
       if (!tier.priceId) {
         throw new Error('Price ID not found');
       }
-      await createCheckoutSession(tier.priceId, user.uid);
+      await createCheckoutSession(tier.priceId);
     } catch (error) {
       console.error('Error:', error);
       alert('Something went wrong. Please try again.');
@@ -108,7 +107,7 @@ export default function Pricing() {
   };
 
   return (
-    <section className="py-12">
+    <section id="pricing" className="py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Pricing Header */}
         <div className="text-center mb-12">

@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 import { Toaster } from 'react-hot-toast';
+import MainLayout from '@/components/layout/MainLayout';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,7 +21,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} min-h-screen bg-gradient-to-b from-white via-white to-blue-50/50 bg-fixed`}>
         <Providers>
-          {children}
+          <MainLayout>
+            {children}
+          </MainLayout>
         </Providers>
         <Toaster position="top-right" />
       </body>

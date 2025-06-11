@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { getUserSubscriptionStatus } from '@/lib/firebase/admin-users';
+import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 
 // Initialize Firebase Admin if not already initialized
 initializeFirebaseAdmin();
@@ -19,16 +22,51 @@ export async function POST(request: Request) {
     }
 
     const idToken = authHeader.split('Bearer ')[1];
+    let verifiedUser;
     
     try {
       // Verify the ID token
-      const decodedToken = await getAuth().verifyIdToken(idToken);
-      if (!decodedToken.uid) {
+      verifiedUser = await getAuth().verifyIdToken(idToken);
+      if (!verifiedUser.uid) {
         throw new Error('Invalid token');
       }
+      console.log('User authenticated successfully:', verifiedUser.uid);
     } catch (error) {
       console.error('Error verifying token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // CRITICAL: Server-side usage verification
+    console.log('Verifying usage limits for user:', verifiedUser.uid);
+    try {
+      // Get user's subscription status from Firestore
+      const subscriptionStatus = await getUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
+      console.log('User subscription status:', subscriptionStatus);
+      
+      // Get Firestore admin instance
+      const adminFirestore = getFirestore();
+      
+      // Check if user can perform this action
+      const usageCheck = await serverSideUsageUtils.canPerformAction(
+        verifiedUser.uid,
+        subscriptionStatus,
+        'keywords',
+        adminFirestore
+      );
+      
+      if (!usageCheck.canPerform) {
+        console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
+        return NextResponse.json({ 
+          error: usageCheck.reason || 'Usage limit exceeded' 
+        }, { status: 429 });
+      }
+      
+      console.log('Usage verification passed for user:', verifiedUser.uid);
+    } catch (error) {
+      console.error('Error verifying usage limits:', error);
+      return NextResponse.json({ 
+        error: 'Unable to verify usage limits' 
+      }, { status: 500 });
     }
 
     const body = await request.json();
@@ -90,6 +128,17 @@ export async function POST(request: Request) {
     }
 
     const keywords = JSON.parse(keywordsMatch[0]);
+
+    // CRITICAL: Increment usage count after successful generation
+    console.log('Incrementing usage count for user:', verifiedUser.uid);
+    try {
+      const adminFirestore = getFirestore();
+      await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'keywords', adminFirestore);
+      console.log('Usage count incremented successfully');
+    } catch (usageError) {
+      console.error('Error incrementing usage count:', usageError);
+      // Continue execution - don't fail the request for usage tracking errors
+    }
 
     return NextResponse.json({
       keywords
