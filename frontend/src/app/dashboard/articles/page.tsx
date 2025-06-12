@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
@@ -23,6 +24,7 @@ interface BlogPost {
 
 export default function ArticlesPage() {
   const { user, subscription_status } = useAuth();
+  const { refreshUsage } = useUsageRefresh();
   const router = useRouter();
   const [topic, setTopic] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -112,7 +114,7 @@ export default function ArticlesPage() {
       // Create the initial blog post
       const blog = await blogOperations.create(blogData);
 
-      // Call your article generation API endpoint
+      // Generate the content
       const response = await fetch('/api/generate-article', {
         method: 'POST',
         headers: {
@@ -129,26 +131,15 @@ export default function ArticlesPage() {
           instructions,
           brandGuidelines: selectedProfile.brandGuidelines || '',
           articleMode,
-          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
-          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          shopifyStoreUrl: selectedProfile.shopifyStoreUrl || '',
+          shopifyAccessToken: selectedProfile.shopifyAccessToken || '',
           brandColor: selectedProfile.brandColor || '#000000',
         }),
       });
 
       if (!response.ok) {
-        const responseText = await response.text();
-        console.error('Article generation API responded with error:', response.status, responseText);
-        let errorDetail = 'Failed to generate article. Status: ' + response.status;
-        try {
-          const errorData = JSON.parse(responseText);
-          errorDetail = errorData.error || errorDetail;
-        } catch (e) {
-          // If responseText is not JSON or doesn't have an .error property, use the raw text if it's short
-          if (responseText.length < 100) { // Avoid overly long toast messages
-            errorDetail = responseText || errorDetail;
-          }
-        }
-        throw new Error(errorDetail);
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate article');
       }
 
       const generatedContent = await response.json();
@@ -170,6 +161,11 @@ export default function ArticlesPage() {
         });
 
         toast.success('Article generated successfully!');
+        
+        // CRITICAL: Refresh usage display after successful generation
+        console.log('Refreshing articles usage display after successful generation...');
+        await refreshUsage('articles');
+        console.log('Articles usage display refreshed');
       }
 
     } catch (error) {

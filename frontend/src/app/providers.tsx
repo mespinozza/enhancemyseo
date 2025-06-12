@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ApolloProvider } from '@apollo/client';
 import { AuthProvider } from '@/lib/firebase/auth-context';
 import { ShopifyProvider } from '@/contexts/ShopifyContext';
+import { UsageRefreshProvider } from '@/lib/usage-refresh-context';
 import { defaultApolloClient } from '@/lib/apollo/client';
 
 const queryClient = new QueryClient({
@@ -20,9 +21,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ApolloProvider client={defaultApolloClient}>
         <AuthProvider>
-          <ShopifyProvider>
-            {children}
-          </ShopifyProvider>
+          <UsageRefreshProvider>
+            <ShopifyProvider>
+              {children}
+            </ShopifyProvider>
+          </UsageRefreshProvider>
         </AuthProvider>
       </ApolloProvider>
     </QueryClientProvider>

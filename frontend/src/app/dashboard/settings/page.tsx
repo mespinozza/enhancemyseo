@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential, User, updateProfile } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
+import { useUsageRefresh } from '@/lib/usage-refresh-context';
 
 const profileSchema = z.object({
   displayName: z.string().min(1, 'Display name is required'),
@@ -28,10 +29,14 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 type PasswordFormData = z.infer<typeof passwordSchema>;
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshSubscriptionStatus } = useAuth();
+  const { refreshAllUsage } = useUsageRefresh();
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [isGoogleLinked, setIsGoogleLinked] = useState(false);
+  const [isResettingUsage, setIsResettingUsage] = useState(false);
+  const [targetUserEmail, setTargetUserEmail] = useState('');
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
 
   // Monitor Firebase auth user for provider data
   useEffect(() => {
@@ -140,6 +145,121 @@ export default function SettingsPage() {
     if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
       // Implement account deletion logic
       toast.error('Account deletion is not yet implemented. Please contact support.');
+    }
+  };
+
+  const handleResetUsage = async (targetEmail?: string) => {
+    if (!user || user.subscription_status !== 'admin') {
+      toast.error('Admin access required');
+      return;
+    }
+
+    const confirmMessage = targetEmail 
+      ? `Reset usage data for ${targetEmail}?`
+      : 'Reset your own usage data for testing?';
+      
+    if (!confirm(confirmMessage)) return;
+
+    setIsResettingUsage(true);
+    
+    try {
+      // Get the user's ID token for authentication
+      const idToken = await firebaseUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('No authentication token available');
+      }
+
+      const response = await fetch('/api/admin/reset-usage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          targetUserEmail: targetEmail || undefined,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to reset usage');
+      }
+
+      toast.success(result.message || 'Usage data reset successfully!');
+      
+      // CRITICAL: Refresh all usage trackers after successful reset
+      if (!targetEmail) {
+        // Only refresh if we reset our own usage
+        console.log('Refreshing usage displays after successful reset...');
+        await refreshAllUsage();
+        console.log('Usage displays refreshed');
+      }
+      
+      // Clear the target email field
+      setTargetUserEmail('');
+      
+    } catch (error: any) {
+      console.error('Error resetting usage:', error);
+      toast.error(error.message || 'Failed to reset usage data');
+    } finally {
+      setIsResettingUsage(false);
+    }
+  };
+
+  const handleRefreshSubscriptionStatus = async () => {
+    setIsRefreshingStatus(true);
+    try {
+      await refreshSubscriptionStatus();
+      toast.success('Subscription status refreshed successfully!');
+    } catch (error: any) {
+      console.error('Error refreshing subscription status:', error);
+      toast.error('Failed to refresh subscription status');
+    } finally {
+      setIsRefreshingStatus(false);
+    }
+  };
+
+  const handleDebugSubscription = async () => {
+    if (!user || !firebaseUser) {
+      toast.error('User not authenticated');
+      return;
+    }
+
+    try {
+      // Get the user's ID token
+      const idToken = await firebaseUser.getIdToken();
+      
+      console.log('🐛 DEBUG: Frontend user object:', {
+        uid: user.uid,
+        email: user.email,
+        subscription_status: user.subscription_status
+      });
+
+      // Test what the server sees
+      const response = await fetch('/api/admin/reset-usage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          debug: true // Special debug flag
+        }),
+      });
+
+      const result = await response.json();
+      console.log('🐛 DEBUG: Server response:', result);
+      
+      if (response.status === 403) {
+        toast.error(`Server sees you as: ${result.serverSubscriptionStatus || 'unknown'}, but frontend sees: ${user.subscription_status}`);
+      } else {
+        toast.success('Debug info logged to console');
+      }
+      
+    } catch (error: any) {
+      console.error('Debug error:', error);
+      toast.error('Debug failed');
     }
   };
 
@@ -367,6 +487,141 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* Admin Tools - Only visible to admin users */}
+        {user?.subscription_status === 'admin' && (
+          <div className="bg-white shadow sm:rounded-lg overflow-hidden border border-blue-200">
+            <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-blue-200 bg-blue-50">
+              <h3 className="text-base sm:text-lg font-medium leading-6 text-blue-900">
+                Admin Tools
+              </h3>
+              <p className="mt-1 text-sm text-blue-700">
+                Administrative functions for testing and user management.
+              </p>
+            </div>
+            <div className="px-4 sm:px-6 py-4 sm:py-6 space-y-6">
+              {/* Reset Own Usage */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Reset My Usage Data</h4>
+                    <p className="text-sm text-gray-600">
+                      Clear your usage limits for testing different subscription tiers
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleResetUsage()}
+                    disabled={isResettingUsage}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isResettingUsage ? 'Resetting...' : 'Reset My Usage'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Refresh Subscription Status */}
+              <div className="border-t border-gray-200 pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Refresh Subscription Status</h4>
+                    <p className="text-sm text-gray-600">
+                      Sync your subscription status after manual Firestore changes (Current: <span className="font-medium text-blue-600">{user?.subscription_status}</span>)
+                    </p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleDebugSubscription}
+                      className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                    >
+                      Debug
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // Use the browser debug function to set admin status
+                          if (typeof (window as any).setMeAsAdmin === 'function') {
+                            await (window as any).setMeAsAdmin();
+                            setTimeout(() => {
+                              handleRefreshSubscriptionStatus();
+                            }, 1000);
+                          } else {
+                            toast.error('Admin setter function not available');
+                          }
+                        } catch (error) {
+                          console.error('Error fixing admin status:', error);
+                          toast.error('Failed to fix admin status');
+                        }
+                      }}
+                      className="px-3 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    >
+                      Fix Admin
+                    </button>
+                    <button
+                      onClick={handleRefreshSubscriptionStatus}
+                      disabled={isRefreshingStatus}
+                      className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isRefreshingStatus ? 'Refreshing...' : 'Refresh Status'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reset Other User's Usage */}
+              <div className="border-t border-gray-200 pt-6">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900">Reset Another User's Usage</h4>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Enter a user's email to reset their usage data (admin only)
+                  </p>
+                  
+                  <div className="flex space-x-3">
+                    <div className="flex-1">
+                      <input
+                        type="email"
+                        value={targetUserEmail}
+                        onChange={(e) => setTargetUserEmail(e.target.value)}
+                        placeholder="user@example.com"
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleResetUsage(targetUserEmail)}
+                      disabled={isResettingUsage || !targetUserEmail.trim()}
+                      className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isResettingUsage ? 'Resetting...' : 'Reset User'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Admin Notice */}
+              <div className="border-t border-gray-200 pt-6">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-yellow-800">
+                        Testing Notice
+                      </h3>
+                      <div className="mt-2 text-sm text-yellow-700">
+                        <p>
+                          Use these tools to reset usage limits when testing different subscription tiers. 
+                          This allows you to test the full user experience without waiting for cooldown periods.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Danger Zone */}
         <div className="bg-white shadow sm:rounded-lg overflow-hidden border border-red-200">

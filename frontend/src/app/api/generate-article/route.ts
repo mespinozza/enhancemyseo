@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
-import { getUserSubscriptionStatus } from '@/lib/firebase/admin-users';
+import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import OpenAI from 'openai';
 
@@ -2169,7 +2169,7 @@ export async function POST(request: Request) {
     console.log('Verifying usage limits for user:', verifiedUser.uid);
     try {
       // Get user's subscription status from Firestore
-      const subscriptionStatus = await getUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
+      const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
       console.log('User subscription status:', subscriptionStatus);
       
       // Get Firestore admin instance

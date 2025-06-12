@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { useRouter } from 'next/navigation';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
@@ -19,6 +20,7 @@ interface Keyword {
 
 export default function KeywordsPage() {
   const { user, subscription_status, loading } = useAuth();
+  const { refreshUsage } = useUsageRefresh();
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
@@ -105,6 +107,12 @@ export default function KeywordsPage() {
       setCurrentKeywordIndex(0);
       
       toast.success('Keywords generated successfully!');
+      
+      // CRITICAL: Refresh usage display after successful generation
+      console.log('Refreshing keywords usage display after successful generation...');
+      await refreshUsage('keywords');
+      console.log('Keywords usage display refreshed');
+      
     } catch (error) {
       console.error('Failed to generate keywords:', error);
       toast.error('Failed to generate keywords. Please try again.');

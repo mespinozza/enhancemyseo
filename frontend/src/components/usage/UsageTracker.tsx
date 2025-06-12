@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { getUserUsage, getUsageDisplay, canPerformAction, getResetInfo, UserUsage } from '@/lib/usage-limits';
 import { BarChart3, Crown, Zap, TrendingUp, Sparkles, X, ArrowUp, Clock } from 'lucide-react';
 import Link from 'next/link';
@@ -9,6 +10,11 @@ import Link from 'next/link';
 interface UsageTrackerProps {
   tool: 'articles' | 'keywords';
   className?: string;
+}
+
+// Export the ref interface for external components to use
+export interface UsageTrackerRef {
+  refreshUsage: () => Promise<void>;
 }
 
 const tierDisplayNames = {
@@ -74,8 +80,9 @@ const UPGRADE_PATHS = {
   }
 };
 
-export default function UsageTracker({ tool, className = '' }: UsageTrackerProps) {
+const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, className = '' }, ref) => {
   const { user, subscription_status } = useAuth();
+  const { registerRefreshFunction, unregisterRefreshFunction } = useUsageRefresh();
   const [usage, setUsage] = useState<UserUsage | null>(null);
   const [resetInfo, setResetInfo] = useState<{
     resetText: string;
@@ -85,25 +92,46 @@ export default function UsageTracker({ tool, className = '' }: UsageTrackerProps
   const [loading, setLoading] = useState(true);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
-  useEffect(() => {
-    const loadUsageAndResetInfo = async () => {
-      if (!user) return;
+  const loadUsageAndResetInfo = async () => {
+    if (!user) return;
+    
+    try {
+      const [userUsage, resetData] = await Promise.all([
+        getUserUsage(user.uid),
+        getResetInfo(user.uid, subscription_status, tool)
+      ]);
       
-      try {
-        const [userUsage, resetData] = await Promise.all([
-          getUserUsage(user.uid),
-          getResetInfo(user.uid, subscription_status, tool)
-        ]);
-        
-        setUsage(userUsage);
-        setResetInfo(resetData);
-      } catch (error) {
-        console.error('Error loading usage:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+      setUsage(userUsage);
+      setResetInfo(resetData);
+    } catch (error) {
+      console.error('Error loading usage:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const refreshUsageData = async () => {
+    console.log(`Refreshing usage data for ${tool}...`);
+    setLoading(true);
+    await loadUsageAndResetInfo();
+    console.log(`Usage data refreshed for ${tool}`);
+  };
+
+  // Expose refresh function to parent components via ref
+  useImperativeHandle(ref, () => ({
+    refreshUsage: refreshUsageData
+  }));
+
+  // Register with the global refresh context
+  useEffect(() => {
+    registerRefreshFunction(tool, refreshUsageData);
+    
+    return () => {
+      unregisterRefreshFunction(tool);
+    };
+  }, [tool, registerRefreshFunction, unregisterRefreshFunction]);
+
+  useEffect(() => {
     loadUsageAndResetInfo();
   }, [user, subscription_status, tool]);
 
@@ -356,4 +384,8 @@ export default function UsageTracker({ tool, className = '' }: UsageTrackerProps
       )}
     </>
   );
-} 
+});
+
+UsageTracker.displayName = 'UsageTracker';
+
+export default UsageTracker; 
