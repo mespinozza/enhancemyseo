@@ -6,6 +6,7 @@ import { getUserSubscriptionDate } from './firebase/admin-users';
 export interface UsageLimits {
   articles: number | 'unlimited';
   keywords: number | 'unlimited';
+  thumbnails: number | 'unlimited';
 }
 
 export interface UserUsage {
@@ -13,9 +14,11 @@ export interface UserUsage {
   currentMonth: string; // Format: YYYY-MM
   articles: number;
   keywords: number;
+  thumbnails: number;
   lastUpdated: any;
   lastArticleGeneration?: any; // For 24-hour tracking
   lastKeywordGeneration?: any; // For 24-hour tracking
+  lastThumbnailGeneration?: any; // For 24-hour tracking
 }
 
 // Define usage limits for each subscription tier
@@ -23,22 +26,27 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, UsageLimits> = {
   free: {
     articles: 1,
     keywords: 1,
+    thumbnails: 2,
   },
   kickstart: {
     articles: 15,
     keywords: 10,
+    thumbnails: 20,
   },
   seo_takeover: {
     articles: 40,
     keywords: 30,
+    thumbnails: 50,
   },
   agency: {
     articles: 'unlimited',
     keywords: 'unlimited',
+    thumbnails: 'unlimited',
   },
   admin: {
     articles: 'unlimited',
     keywords: 'unlimited',
+    thumbnails: 'unlimited',
   },
 };
 
@@ -65,6 +73,7 @@ export const getUserUsage = async (uid: string): Promise<UserUsage> => {
         currentMonth,
         articles: 0,
         keywords: 0,
+        thumbnails: 0,
         lastUpdated: serverTimestamp(),
       };
       
@@ -79,13 +88,14 @@ export const getUserUsage = async (uid: string): Promise<UserUsage> => {
       currentMonth,
       articles: 0,
       keywords: 0,
+      thumbnails: 0,
       lastUpdated: null,
     };
   }
 };
 
 // Secure increment usage using atomic operations (client-side safe version)
-export const incrementUsage = async (uid: string, tool: 'articles' | 'keywords'): Promise<void> => {
+export const incrementUsage = async (uid: string, tool: 'articles' | 'keywords' | 'thumbnails'): Promise<void> => {
   const currentMonth = getCurrentMonth();
   const usageDocRef = doc(db, 'usage', `${uid}_${currentMonth}`);
   
@@ -102,8 +112,10 @@ export const incrementUsage = async (uid: string, tool: 'articles' | 'keywords')
       // Add specific timestamp for 24-hour tracking
       if (tool === 'articles') {
         updateData.lastArticleGeneration = serverTimestamp();
-      } else {
+      } else if (tool === 'keywords') {
         updateData.lastKeywordGeneration = serverTimestamp();
+      } else if (tool === 'thumbnails') {
+        updateData.lastThumbnailGeneration = serverTimestamp();
       }
       
       await updateDoc(usageDocRef, updateData);
@@ -114,14 +126,17 @@ export const incrementUsage = async (uid: string, tool: 'articles' | 'keywords')
         currentMonth,
         articles: tool === 'articles' ? 1 : 0,
         keywords: tool === 'keywords' ? 1 : 0,
+        thumbnails: tool === 'thumbnails' ? 1 : 0,
         lastUpdated: serverTimestamp(),
       };
       
       // Add specific timestamp for 24-hour tracking
       if (tool === 'articles') {
         newUsage.lastArticleGeneration = serverTimestamp();
-      } else {
+      } else if (tool === 'keywords') {
         newUsage.lastKeywordGeneration = serverTimestamp();
+      } else if (tool === 'thumbnails') {
+        newUsage.lastThumbnailGeneration = serverTimestamp();
       }
       
       await setDoc(usageDocRef, newUsage);
@@ -155,7 +170,7 @@ export const getNextResetDate = (subscriptionDate: Date): Date => {
 };
 
 // Calculate next reset for free users (24 hours from last generation)
-export const getNext24HourReset = async (uid: string, tool: 'articles' | 'keywords'): Promise<Date | null> => {
+export const getNext24HourReset = async (uid: string, tool: 'articles' | 'keywords' | 'thumbnails'): Promise<Date | null> => {
   const currentMonth = getCurrentMonth();
   const usageDocRef = doc(db, 'usage', `${uid}_${currentMonth}`);
   
@@ -184,7 +199,7 @@ export const getNext24HourReset = async (uid: string, tool: 'articles' | 'keywor
 export const getResetInfo = async (
   uid: string,
   subscriptionTier: SubscriptionTier,
-  tool: 'articles' | 'keywords'
+  tool: 'articles' | 'keywords' | 'thumbnails'
 ): Promise<{
   resetText: string;
   canGenerateNow: boolean;
@@ -253,8 +268,9 @@ const getOrdinalSuffix = (day: number): string => {
 export const canPerformAction = async (
   uid: string,
   subscriptionTier: SubscriptionTier,
-  tool: 'articles' | 'keywords',
-  currentUsage: UserUsage
+  tool: 'articles' | 'keywords' | 'thumbnails',
+  currentUsage: UserUsage,
+  requestedCount: number = 1 // NEW: Support for bulk requests
 ): Promise<{ canPerform: boolean; remaining: number | 'unlimited'; reason?: string; upgradeMessage?: string }> => {
   const limits = SUBSCRIPTION_LIMITS[subscriptionTier];
   const toolLimit = limits[tool];
@@ -267,7 +283,18 @@ export const canPerformAction = async (
   
   // For free users, check 24-hour limit
   if (subscriptionTier === 'free') {
-    const lastGenField = tool === 'articles' ? 'lastArticleGeneration' : 'lastKeywordGeneration';
+    // Free users cannot do bulk generation (more than 1)
+    if (requestedCount > 1) {
+      return {
+        canPerform: false,
+        remaining: 0,
+        reason: `🚀 Bulk generation requires a paid plan. Upgrade to generate ${requestedCount} articles at once!`,
+        upgradeMessage: 'Upgrade to Kickstart for 15 articles per month and bulk generation!'
+      };
+    }
+    
+    const lastGenField = tool === 'articles' ? 'lastArticleGeneration' : 
+                          tool === 'keywords' ? 'lastKeywordGeneration' : 'lastThumbnailGeneration';
     const lastGeneration = currentUsage[lastGenField];
     
     if (lastGeneration) {
@@ -294,7 +321,8 @@ export const canPerformAction = async (
   // For paid users, check monthly limits
   const remaining = Math.max(0, toolLimit - used);
   
-  if (remaining === 0) {
+  // Check if they have enough remaining for the bulk request
+  if (requestedCount > remaining) {
     const upgradeMessages = {
       kickstart: 'Upgrade to SEO Takeover for 40 articles and 30 keywords per month!',
       seo_takeover: 'Upgrade to Agency for unlimited articles and keywords!',
@@ -302,12 +330,21 @@ export const canPerformAction = async (
       admin: 'You have unlimited access.'
     };
     
-    return {
-      canPerform: false,
-      remaining: 0,
-      reason: `📈 Monthly ${tool} limit reached for ${subscriptionTier} plan.`,
-      upgradeMessage: upgradeMessages[subscriptionTier as keyof typeof upgradeMessages]
-    };
+    if (remaining === 0) {
+      return {
+        canPerform: false,
+        remaining: 0,
+        reason: `📈 Monthly ${tool} limit reached for ${subscriptionTier} plan.`,
+        upgradeMessage: upgradeMessages[subscriptionTier as keyof typeof upgradeMessages]
+      };
+    } else {
+      return {
+        canPerform: false,
+        remaining,
+        reason: `📊 Requested ${requestedCount} ${tool} but only ${remaining} remaining in your ${subscriptionTier} plan.`,
+        upgradeMessage: `You can generate ${remaining} more this month, or ` + upgradeMessages[subscriptionTier as keyof typeof upgradeMessages]
+      };
+    }
   }
   
   return {
@@ -319,7 +356,7 @@ export const canPerformAction = async (
 // Get usage display information
 export const getUsageDisplay = (
   subscriptionTier: SubscriptionTier,
-  tool: 'articles' | 'keywords',
+  tool: 'articles' | 'keywords' | 'thumbnails',
   currentUsage: UserUsage
 ): {
   used: number;

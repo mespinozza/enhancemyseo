@@ -143,7 +143,18 @@ export default function ArticleDetailPage() {
               </h3>
               <div className="mt-4 prose prose-sm max-w-none">
                 <div
-                  dangerouslySetInnerHTML={{ __html: article.html_content }}
+                  dangerouslySetInnerHTML={{ 
+                    __html: article.html_content.replace(
+                      /<img[^>]*>/g, 
+                      (match) => {
+                        // Remove problematic images or add error handling
+                        if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
+                          return ''; // Remove problematic images
+                        }
+                        return match.replace(/>$/, ' onerror="this.style.display=\'none\'" style="max-width: 100%; height: auto;">')
+                      }
+                    )
+                  }}
                 />
               </div>
             </div>

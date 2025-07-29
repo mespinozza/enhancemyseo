@@ -99,7 +99,7 @@ def generate_content(system_prompt, user_prompt, api_key):
         try:
             print("Generating content...")
             with client.messages.stream(
-                model="claude-3-opus-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=4000,
                 system=system_prompt,
                 messages=[

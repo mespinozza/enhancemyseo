@@ -30,7 +30,7 @@ type PasswordFormData = z.infer<typeof passwordSchema>;
 
 export default function SettingsPage() {
   const { user, refreshSubscriptionStatus } = useAuth();
-  const { refreshAllUsage } = useUsageRefresh();
+  const { refreshAllUsage, refreshSidebar } = useUsageRefresh();
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [isGoogleLinked, setIsGoogleLinked] = useState(false);
@@ -564,6 +564,33 @@ export default function SettingsPage() {
                       {isRefreshingStatus ? 'Refreshing...' : 'Refresh Status'}
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {/* Debug Sidebar Refresh */}
+              <div className="border-t border-gray-200 pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Debug Sidebar History</h4>
+                    <p className="text-sm text-gray-600">
+                      Manually refresh the sidebar recent items to test history updates
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        console.log('Manual sidebar refresh triggered from admin settings');
+                        await refreshSidebar();
+                        toast.success('Sidebar history refreshed successfully!');
+                      } catch (error) {
+                        console.error('Sidebar refresh error:', error);
+                        toast.error('Failed to refresh sidebar');
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                  >
+                    🔄 Refresh Sidebar
+                  </button>
                 </div>
               </div>
 

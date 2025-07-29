@@ -8,7 +8,7 @@ import { BarChart3, Crown, Zap, TrendingUp, Sparkles, X, ArrowUp, Clock } from '
 import Link from 'next/link';
 
 interface UsageTrackerProps {
-  tool: 'articles' | 'keywords';
+  tool: 'articles' | 'keywords' | 'thumbnails';
   className?: string;
 }
 
@@ -226,7 +226,7 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
           <div className="flex items-center space-x-2">
             <TierIcon className="w-4 h-4 text-gray-600" />
             <span className="text-sm font-medium text-gray-900">
-              {tool === 'articles' ? 'Article Generation' : 'Keyword Generation'}
+              {tool === 'articles' ? 'Article Generation' : tool === 'keywords' ? 'Keyword Generation' : 'Thumbnail Generation'}
             </span>
           </div>
           <div className={`px-2 py-1 rounded-full text-xs font-medium border ${tierColors[subscription_status as keyof typeof tierColors]}`}>

@@ -1,4 +1,4 @@
-import { FileText, Key, Package, LayoutGrid, LucideIcon } from 'lucide-react';
+import { FileText, Key, Package, LayoutGrid, Image, LucideIcon } from 'lucide-react';
 
 // All subscription tiers in the system
 export type SubscriptionTier = 'free' | 'kickstart' | 'seo_takeover' | 'agency' | 'admin';
@@ -22,6 +22,12 @@ export const navigationItems: NavigationItem[] = [
     href: '/dashboard/keywords', 
     icon: Key,
     requiredSubscription: ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'] // Available to all users
+  },
+  { 
+    name: 'Generate Thumbnail', 
+    href: '/dashboard/generate-thumbnail', 
+    icon: Image,
+    requiredSubscription: ['admin'] // Admin only
   },
   { 
     name: 'Optimize Collections', 

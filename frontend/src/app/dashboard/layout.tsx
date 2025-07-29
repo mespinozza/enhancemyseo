@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { FileText, Key, LogOut, History, ChevronRight, ExternalLink, Package, Search } from 'lucide-react';
 import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, historyOperations, HistoryItem, initializeUserCollections } from '@/lib/firebase/firestore';
 import { getFilteredNavigation } from '@/config/navigation';
@@ -24,6 +25,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, logout, subscription_status, loading } = useAuth();
+  const { registerSidebarRefreshFunction, unregisterSidebarRefreshFunction } = useUsageRefresh();
   const router = useRouter();
   const pathname = usePathname();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -149,6 +151,104 @@ export default function DashboardLayout({
       setTimeout(loadRecentItems, 500);
     }
   }, [user?.uid, isUserDataLoaded, loading]);
+
+  // Register sidebar refresh function
+  useEffect(() => {
+    if (user?.uid && isUserDataLoaded && !loading) {
+      const refreshSidebar = async () => {
+        const isAdmin = subscription_status === 'admin';
+        if (isAdmin) console.log('Sidebar refresh triggered');
+        
+        // Trigger a re-load of recent items by forcing a re-render
+        setRecentItems([]);
+        setIsLoadingRecents(true);
+        
+        try {
+          await user.getIdToken();
+          await initializeUserCollections(user.uid);
+          
+          if (isAdmin) console.log('Fetching fresh data for sidebar...');
+          const [blogs, products, historyItems] = await Promise.all([
+            blogOperations.getAll(user.uid).catch(() => []),
+            (async () => {
+              try {
+                return await generatedProductOperations.getAll(user.uid);
+              } catch (error: any) {
+                if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+                  return [];
+                }
+                return [];
+              }
+            })(),
+            historyOperations.getAll(user.uid).catch(() => [])
+          ]);
+
+          if (isAdmin) {
+            console.log('Sidebar refresh data fetched:', {
+              blogs: blogs.length,
+              products: products.length,
+              historyItems: historyItems.length,
+              latestBlog: blogs[0]?.title || 'None'
+            });
+          }
+
+          const allItems: RecentItem[] = [
+            ...blogs.map((blog: Blog) => ({
+              id: blog.id!,
+              type: 'blog' as const,
+              title: blog.title,
+              createdAt: blog.createdAt,
+              icon: FileText,
+              tabLink: `blogs&highlight=${blog.id}`
+            })),
+            ...products.map((product: GeneratedProduct) => ({
+              id: product.id!,
+              type: 'product' as const,
+              title: product.productName,
+              createdAt: product.createdAt,
+              icon: Package,
+              tabLink: `products&highlight=${product.id}`
+            })),
+            ...historyItems.map((item: HistoryItem) => ({
+              id: item.id!,
+              type: 'history' as const,
+              title: item.title,
+              createdAt: item.createdAt,
+              icon: item.type === 'keywords' ? Search : History,
+              tabLink: item.type === 'keywords' ? `keywords&highlight=${item.id}` : `collections&highlight=${item.id}`
+            }))
+          ];
+
+          const sortedItems = allItems.sort((a, b) => {
+            const dateA = a.createdAt?.toDate?.() || new Date(0);
+            const dateB = b.createdAt?.toDate?.() || new Date(0);
+            return dateB.getTime() - dateA.getTime();
+          });
+
+          if (isAdmin) {
+            console.log('Sidebar setting recent items:', sortedItems.slice(0, 8).map(item => ({ 
+              title: item.title, 
+              type: item.type,
+              date: item.createdAt?.toDate?.()?.toLocaleDateString() 
+            })));
+          }
+          
+          setRecentItems(sortedItems.slice(0, 8));
+        } catch (error) {
+          console.warn('Error refreshing sidebar:', error);
+          setRecentItems([]);
+        } finally {
+          setIsLoadingRecents(false);
+        }
+      };
+
+      registerSidebarRefreshFunction(refreshSidebar);
+      
+      return () => {
+        unregisterSidebarRefreshFunction();
+      };
+    }
+  }, [user?.uid, isUserDataLoaded, loading, registerSidebarRefreshFunction, unregisterSidebarRefreshFunction]);
 
   // Close user menu when clicking outside
   useEffect(() => {

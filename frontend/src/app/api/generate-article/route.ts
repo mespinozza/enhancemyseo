@@ -2554,7 +2554,7 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
     try {
       console.log('Calling Claude API for article generation');
     const message = await anthropic.messages.create({
-        model: "claude-3-7-sonnet-20250219",
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 8192,
       messages: [
         {
