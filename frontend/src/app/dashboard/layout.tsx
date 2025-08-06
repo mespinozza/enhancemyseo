@@ -16,6 +16,23 @@ import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, his
 import { getFilteredNavigation } from '@/config/navigation';
 import { Timestamp } from 'firebase/firestore';
 
+// Helper function to format subscription status for display
+const formatSubscriptionStatus = (status: string): string => {
+  switch (status) {
+    case 'kickstart':
+      return 'Kickstart';
+    case 'seo_takeover':
+      return 'SEO Takeover';
+    case 'agency':
+      return 'Agency';
+    case 'admin':
+      return 'Admin';
+    case 'free':
+    default:
+      return 'Free';
+  }
+};
+
 // Combined interface for recent items
 interface RecentItem {
   id: string;
@@ -297,7 +314,7 @@ export default function DashboardLayout({
                   {displayName}
                 </p>
                 <p className="text-xs text-gray-600 capitalize">
-                  {subscription_status} Plan
+                  {formatSubscriptionStatus(subscription_status)} Plan
                 </p>
               </div>
               <svg

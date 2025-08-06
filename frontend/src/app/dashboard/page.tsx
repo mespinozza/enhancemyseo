@@ -3,15 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
-import { ArrowRight, TrendingUp, Users, BarChart3, Plus } from 'lucide-react';
-
-// Define descriptions for each navigation item
-const navDescriptions: Record<string, string> = {
-  'Optimize Products': 'Optimize your Shopify product titles and descriptions with AI-powered SEO recommendations.',
-  'Optimize Collections': 'Enhance your Shopify collection pages with SEO-optimized titles and descriptions.',
-  'Generate Keywords': 'Discover relevant keywords and topics to target in your content. Get insights into search volume and competition.',
-  'Generate Article': 'Create SEO-optimized articles tailored to your brand\'s voice and style. Choose from various content types and let AI do the heavy lifting.',
-};
+import { ArrowRight } from 'lucide-react';
 
 // Quick Feature Request Form Component
 function FeatureRequestForm() {
@@ -106,7 +98,7 @@ function FeatureRequestForm() {
           onClick={() => setIsOpen(true)}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
         >
-          <Plus className="w-4 h-4" />
+          <ArrowRight className="w-4 h-4" />
           <span>Request Feature</span>
         </button>
       </div>
@@ -202,14 +194,6 @@ function FeatureRequestForm() {
 
 export default function DashboardHome() {
   const { subscription_status } = useAuth();
-  
-  // Get filtered navigation based on user's subscription status
-  const availableFeatures = [
-    { name: 'Optimize Products', href: '/optimize-products', icon: TrendingUp, requiredSubscription: ['admin', 'free'] },
-    { name: 'Optimize Collections', href: '/optimize-collections', icon: Users, requiredSubscription: ['admin', 'free'] },
-    { name: 'Generate Keywords', href: '/generate-keywords', icon: BarChart3, requiredSubscription: ['admin', 'free'] },
-    { name: 'Generate Article', href: '/generate-article', icon: ArrowRight, requiredSubscription: ['admin', 'free'] },
-  ];
 
   return (
     <div className="p-8">
@@ -228,149 +212,132 @@ export default function DashboardHome() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-green-800">
-                Admin Subscription Active - You have access to all features including Products, Collections, and Keywords optimization.
+                Admin Subscription Active - You have access to enhanced features and analytics.
               </p>
             </div>
           </div>
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Dynamic Feature Cards based on user access */}
-        {availableFeatures.map((feature) => (
-          <Link 
-            key={feature.name}
-            href={feature.href}
-            className="block p-6 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group"
-          >
-            <div className="flex items-center mb-4">
-              <feature.icon className="w-6 h-6 text-blue-600 mr-3 group-hover:text-blue-700" />
-              <h2 className="text-xl font-semibold">{feature.name}</h2>
-              {feature.requiredSubscription?.includes('admin') && !feature.requiredSubscription.includes('free') && (
-                <span className="ml-2 px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
-                  Admin
-                </span>
-              )}
+      {/* Main Feature Cards - Full Width Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Generate Article Card */}
+        <Link 
+          href="/dashboard/articles"
+          className="block p-8 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group"
+        >
+          <div className="flex items-center mb-6">
+            <ArrowRight className="w-8 h-8 text-blue-600 mr-4 group-hover:text-blue-700" />
+            <h2 className="text-2xl font-semibold">Generate Article</h2>
+          </div>
+          <p className="text-gray-600 mb-6 text-lg">
+            Create SEO-optimized articles tailored to your brand&apos;s voice and style. Choose from various content types and let AI do the heavy lifting.
+          </p>
+          
+          {/* Visual Elements for Generate Article */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg">
+            <div className="flex items-center text-sm text-gray-700 mb-3">
+              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+              <span className="font-medium">AI-Powered Content Creation</span>
             </div>
-            <p className="text-gray-600 mb-4">
-              {navDescriptions[feature.name] || 'Advanced feature for enhanced SEO optimization.'}
-            </p>
-            
-            {/* Visual Elements for Generate Article */}
-            {feature.name === 'Generate Article' && (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg">
-                <div className="flex items-center text-sm text-gray-700 mb-3">
-                  <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                  <span className="font-medium">AI-Powered Content Creation</span>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
-                  <div className="flex items-center">
-                    <span className="mr-2">📝</span>
-                    <span>SEO Optimized</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-2">🎯</span>
-                    <span>Brand Voice</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-2">⚡</span>
-                    <span>Fast Generation</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-2">🔍</span>
-                    <span>Keyword Rich</span>
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
+              <div className="flex items-center">
+                <span className="mr-2">📝</span>
+                <span>SEO Optimized</span>
               </div>
-            )}
-
-            {/* Visual Elements for Generate Keywords */}
-            {feature.name === 'Generate Keywords' && (
-              <div className="space-y-3">
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg">
-                  <div className="flex items-center text-sm text-gray-700 mb-3">
-                    <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                    <span className="font-medium">Smart Keyword Research</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
-                    <div className="flex items-center">
-                      <span className="mr-2">📊</span>
-                      <span>Search Volume</span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="mr-2">🏆</span>
-                      <span>Competition</span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="mr-2">💡</span>
-                      <span>Suggestions</span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="mr-2">🎯</span>
-                      <span>Relevance</span>
-                    </div>
-                  </div>
-                </div>
-                {/* Sample keyword tags preview */}
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">seo tools</span>
-                  <span className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">content marketing</span>
-                  <span className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-sm">+ 50 more</span>
-                </div>
+              <div className="flex items-center">
+                <span className="mr-2">🎯</span>
+                <span>Brand Voice</span>
               </div>
-            )}
-
-            {/* Default visual for other features */}
-            {feature.name !== 'Generate Article' && feature.name !== 'Generate Keywords' && (
-              <div className="mt-4 text-center">
-                <div className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-full text-sm font-medium group-hover:bg-blue-700 transition-colors">
-                  <span>Get Started →</span>
-                </div>
+              <div className="flex items-center">
+                <span className="mr-2">⚡</span>
+                <span>Fast Generation</span>
               </div>
-            )}
-          </Link>
-        ))}
+              <div className="flex items-center">
+                <span className="mr-2">🔍</span>
+                <span>Keyword Rich</span>
+              </div>
+            </div>
+          </div>
+        </Link>
 
         {/* Help Us Improve Card */}
-        <div className="p-6 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group">
-          <div className="flex items-center mb-4">
-            <Plus className="w-6 h-6 text-blue-600 mr-3 group-hover:text-blue-700" />
-            <h2 className="text-xl font-semibold">Help Us Improve</h2>
+        <div className="p-8 bg-white rounded-lg border border-gray-200 hover:border-purple-500 transition-colors">
+          <div className="flex items-center mb-6">
+            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
+              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-semibold">Help Us Improve</h2>
           </div>
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 mb-6 text-lg">
             Share your ideas, report bugs, or suggest improvements. Your feedback helps us build exactly what you need.
           </p>
-          <div className="space-y-2">
+          <div className="space-y-3">
             <button
               onClick={() => {
                 // Create and dispatch a custom event to open the feature request form
                 const event = new CustomEvent('openFeatureRequest', { detail: { type: 'feature' } });
                 window.dispatchEvent(event);
+                
+                // Smooth scroll to the feature request section
+                setTimeout(() => {
+                  const featureSection = document.querySelector('[data-feature-request-section]');
+                  if (featureSection) {
+                    featureSection.scrollIntoView({ 
+                      behavior: 'smooth', 
+                      block: 'start' 
+                    });
+                  }
+                }, 100);
               }}
-              className="w-full text-left px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors flex items-center"
+              className="w-full text-left px-4 py-3 text-sm bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors flex items-center"
             >
-              <span className="w-4 h-4 mr-2">💡</span>
-              Request a Feature
+              <span className="w-5 h-5 mr-3 text-lg">💡</span>
+              <span className="font-medium">Request a Feature</span>
             </button>
             <button
               onClick={() => {
                 const event = new CustomEvent('openFeatureRequest', { detail: { type: 'bug' } });
                 window.dispatchEvent(event);
+                
+                // Smooth scroll to the feature request section
+                setTimeout(() => {
+                  const featureSection = document.querySelector('[data-feature-request-section]');
+                  if (featureSection) {
+                    featureSection.scrollIntoView({ 
+                      behavior: 'smooth', 
+                      block: 'start' 
+                    });
+                  }
+                }, 100);
               }}
-              className="w-full text-left px-3 py-2 text-sm bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors flex items-center"
+              className="w-full text-left px-4 py-3 text-sm bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors flex items-center"
             >
-              <span className="w-4 h-4 mr-2">🐛</span>
-              Report a Bug
+              <span className="w-5 h-5 mr-3 text-lg">🐛</span>
+              <span className="font-medium">Report a Bug</span>
             </button>
             <button
               onClick={() => {
                 const event = new CustomEvent('openFeatureRequest', { detail: { type: 'improvement' } });
                 window.dispatchEvent(event);
+                
+                // Smooth scroll to the feature request section
+                setTimeout(() => {
+                  const featureSection = document.querySelector('[data-feature-request-section]');
+                  if (featureSection) {
+                    featureSection.scrollIntoView({ 
+                      behavior: 'smooth', 
+                      block: 'start' 
+                    });
+                  }
+                }, 100);
               }}
-              className="w-full text-left px-3 py-2 text-sm bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg transition-colors flex items-center"
+              className="w-full text-left px-4 py-3 text-sm bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg transition-colors flex items-center"
             >
-              <span className="w-4 h-4 mr-2">⚡</span>
-              Suggest Improvement
+              <span className="w-5 h-5 mr-3 text-lg">⚡</span>
+              <span className="font-medium">Suggest Improvement</span>
             </button>
           </div>
         </div>
@@ -379,7 +346,7 @@ export default function DashboardHome() {
       {/* Shopify Connection Guide */}
       <div className="mt-12">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">How to Connect with EnhanceMySEO</h2>
+          <h2 className="text-xl font-semibold text-gray-900">How to Connect your Shopify Store</h2>
           <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
             💡 Save these details in your Brand Profile settings
           </div>
@@ -507,7 +474,10 @@ export default function DashboardHome() {
 
       {/* Feature Request Section for Non-Admin Users */}
       {subscription_status !== 'admin' && (
-        <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+        <div 
+          data-feature-request-section
+          className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6"
+        >
           <div className="flex items-start space-x-4">
             <div className="flex-shrink-0">
               <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
