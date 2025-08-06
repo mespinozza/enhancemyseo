@@ -137,7 +137,7 @@ export default function FeatureRequestPage() {
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-2">Bug Reports</h3>
               <p className="text-gray-600">
-                Found something that's not working as expected? Let us know so we can fix it quickly.
+                Found something that&apos;s not working as expected? Let us know so we can fix it quickly.
               </p>
             </div>
 
@@ -156,7 +156,7 @@ export default function FeatureRequestPage() {
           <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-12">
             <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6">
               <h2 className="text-2xl font-semibold text-white mb-2">Submit Your Feedback</h2>
-              <p className="text-blue-100">We'd love to hear your thoughts, ideas, and suggestions!</p>
+              <p className="text-blue-100">We&apos;d love to hear your thoughts, ideas, and suggestions!</p>
             </div>
 
             <div className="p-8">
@@ -167,7 +167,7 @@ export default function FeatureRequestPage() {
                   </div>
                   <h3 className="text-2xl font-semibold text-gray-900 mb-2">Thank You!</h3>
                   <p className="text-gray-600 mb-6">
-                    Your feedback has been submitted successfully. We'll review it and get back to you if needed.
+                    Your feedback has been submitted successfully. We&apos;ll review it and get back to you if needed.
                   </p>
                   <button
                     onClick={resetForm}

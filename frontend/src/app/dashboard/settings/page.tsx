@@ -10,6 +10,12 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential, User, updateProfile } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
+import { createCustomerPortalSession } from '@/lib/stripe';
+
+// Interface for debug functions attached to window
+interface WindowWithDebug extends Window {
+  setMeAsAdmin?: () => Promise<void>;
+}
 
 const profileSchema = z.object({
   displayName: z.string().min(1, 'Display name is required'),
@@ -37,6 +43,7 @@ export default function SettingsPage() {
   const [isResettingUsage, setIsResettingUsage] = useState(false);
   const [targetUserEmail, setTargetUserEmail] = useState('');
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
+  const [isOpeningBillingPortal, setIsOpeningBillingPortal] = useState(false);
 
   // Monitor Firebase auth user for provider data
   useEffect(() => {
@@ -96,9 +103,10 @@ export default function SettingsPage() {
       });
 
       toast.success('Profile updated successfully!');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Profile update error:', error);
-      toast.error(error.message || 'Failed to update profile');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update profile';
+      toast.error(errorMessage);
     }
   };
 
@@ -125,18 +133,21 @@ export default function SettingsPage() {
       toast.success('Password updated successfully!');
       resetPasswordForm();
       setIsChangingPassword(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Password update error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update password';
       
-      // Handle specific Firebase errors
-      if (error.code === 'auth/wrong-password') {
-        toast.error('Current password is incorrect');
-      } else if (error.code === 'auth/weak-password') {
-        toast.error('New password is too weak');
-      } else if (error.code === 'auth/requires-recent-login') {
-        toast.error('Please log out and log back in before changing your password');
+      // Handle specific Firebase auth errors
+      if (error instanceof Error) {
+        if (error.message.includes('wrong-password')) {
+          toast.error('Current password is incorrect');
+        } else if (error.message.includes('weak-password')) {
+          toast.error('New password is too weak');
+        } else {
+          toast.error(errorMessage);
+        }
       } else {
-        toast.error(error.message || 'Failed to update password');
+        toast.error('Failed to update password');
       }
     }
   };
@@ -199,9 +210,10 @@ export default function SettingsPage() {
       // Clear the target email field
       setTargetUserEmail('');
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error resetting usage:', error);
-      toast.error(error.message || 'Failed to reset usage data');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to reset usage data';
+      toast.error(errorMessage);
     } finally {
       setIsResettingUsage(false);
     }
@@ -212,9 +224,10 @@ export default function SettingsPage() {
     try {
       await refreshSubscriptionStatus();
       toast.success('Subscription status refreshed successfully!');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error refreshing subscription status:', error);
-      toast.error('Failed to refresh subscription status');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to refresh subscription status';
+      toast.error(errorMessage);
     } finally {
       setIsRefreshingStatus(false);
     }
@@ -257,9 +270,29 @@ export default function SettingsPage() {
         toast.success('Debug info logged to console');
       }
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Debug error:', error);
-      toast.error('Debug failed');
+      const errorMessage = error instanceof Error ? error.message : 'Debug failed';
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleOpenBillingPortal = async () => {
+    if (!user) {
+      toast.error('You must be logged in');
+      return;
+    }
+
+    try {
+      setIsOpeningBillingPortal(true);
+      const userToken = await user.getIdToken();
+      await createCustomerPortalSession(userToken);
+    } catch (error: unknown) {
+      console.error('Error opening billing portal:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to open billing portal';
+      toast.error(errorMessage);
+    } finally {
+      setIsOpeningBillingPortal(false);
     }
   };
 
@@ -488,6 +521,104 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Free User Upgrade Section */}
+        {user?.subscription_status === 'free' && (
+          <div className="bg-white shadow sm:rounded-lg overflow-hidden border border-blue-200">
+            <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-blue-200 bg-blue-50">
+              <h3 className="text-base sm:text-lg font-medium leading-6 text-blue-900">
+                Your Subscription
+              </h3>
+              <p className="mt-1 text-sm text-blue-700">
+                You&apos;re currently on the Free plan with 2 articles per month.
+              </p>
+            </div>
+            <div className="px-4 sm:px-6 py-4 sm:py-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900">Upgrade for More Features</h4>
+                  <p className="text-sm text-gray-600">
+                    Get more articles, advanced features, and priority support
+                  </p>
+                </div>
+                <Link
+                  href="/#pricing"
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  View Plans
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Billing & Subscription Management */}
+        {user?.subscription_status !== 'free' && (
+          <div className="bg-white shadow sm:rounded-lg overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-gray-200 bg-gray-50">
+              <h3 className="text-base sm:text-lg font-medium leading-6 text-gray-900">
+                Billing & Subscription
+              </h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Manage your subscription, payment methods, and billing history.
+              </p>
+            </div>
+            <div className="px-4 sm:px-6 py-4 sm:py-6 space-y-6">
+              {/* Current Subscription Info */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Current Plan</h4>
+                                         <p className="text-sm text-gray-600">
+                       You&apos;re currently on the{' '}
+                       <span className="font-medium capitalize">
+                         {user?.subscription_status === 'kickstart' ? 'Kickstart' : 
+                          user?.subscription_status === 'seo_takeover' ? 'SEO Takeover' : 
+                          user?.subscription_status === 'agency' ? 'Agency' : 
+                          'Free'} plan
+                       </span>
+                     </p>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                      Active
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Billing Portal Access */}
+              <div className="border-t border-gray-200 pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Billing Management</h4>
+                    <p className="text-sm text-gray-600">
+                      Update your payment method, view invoices, and manage your subscription
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleOpenBillingPortal}
+                    disabled={isOpeningBillingPortal}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isOpeningBillingPortal ? 'Opening...' : 'Manage Billing'}
+                  </button>
+                </div>
+                <div className="mt-3 text-xs text-gray-500">
+                  <p>
+                    You&apos;ll be redirected to a secure billing portal where you can:
+                  </p>
+                  <ul className="mt-1 ml-4 list-disc space-y-1">
+                    <li>Update your payment method</li>
+                    <li>Download invoices and receipts</li>
+                    <li>Update billing information</li>
+                    <li>Cancel or modify your subscription</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Admin Tools - Only visible to admin users */}
         {user?.subscription_status === 'admin' && (
           <div className="bg-white shadow sm:rounded-lg overflow-hidden border border-blue-200">
@@ -539,17 +670,18 @@ export default function SettingsPage() {
                       onClick={async () => {
                         try {
                           // Use the browser debug function to set admin status
-                          if (typeof (window as any).setMeAsAdmin === 'function') {
-                            await (window as any).setMeAsAdmin();
+                          if (typeof (window as WindowWithDebug).setMeAsAdmin === 'function') {
+                            await (window as WindowWithDebug).setMeAsAdmin!();
                             setTimeout(() => {
                               handleRefreshSubscriptionStatus();
                             }, 1000);
                           } else {
                             toast.error('Admin setter function not available');
                           }
-                        } catch (error) {
+                        } catch (error: unknown) {
                           console.error('Error fixing admin status:', error);
-                          toast.error('Failed to fix admin status');
+                          const errorMessage = error instanceof Error ? error.message : 'Failed to fix admin status';
+                          toast.error(errorMessage);
                         }
                       }}
                       className="px-3 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
@@ -582,9 +714,10 @@ export default function SettingsPage() {
                         console.log('Manual sidebar refresh triggered from admin settings');
                         await refreshSidebar();
                         toast.success('Sidebar history refreshed successfully!');
-                      } catch (error) {
+                      } catch (error: unknown) {
                         console.error('Sidebar refresh error:', error);
-                        toast.error('Failed to refresh sidebar');
+                        const errorMessage = error instanceof Error ? error.message : 'Failed to refresh sidebar';
+                        toast.error(errorMessage);
                       }
                     }}
                     className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
@@ -597,9 +730,9 @@ export default function SettingsPage() {
               {/* Reset Other User's Usage */}
               <div className="border-t border-gray-200 pt-6">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">Reset Another User's Usage</h4>
+                  <h4 className="text-sm font-medium text-gray-900">Reset Another User&apos;s Usage</h4>
                   <p className="text-sm text-gray-600 mb-4">
-                    Enter a user's email to reset their usage data (admin only)
+                    Enter a user&apos;s email to reset their usage data (admin only)
                   </p>
                   
                   <div className="flex space-x-3">

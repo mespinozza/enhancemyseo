@@ -21,7 +21,7 @@ export const navigationItems: NavigationItem[] = [
     name: 'Generate Keywords', 
     href: '/dashboard/keywords', 
     icon: Key,
-    requiredSubscription: ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'] // Available to all users
+    requiredSubscription: ['admin'] // Admin only
   },
   { 
     name: 'Generate Thumbnail', 

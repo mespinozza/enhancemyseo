@@ -5,10 +5,10 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useRouter } from 'next/navigation';
 import { useShopify } from '@/contexts/ShopifyContext';
 import { ApolloProvider } from '@apollo/client';
-import { Lock, Store, AlertCircle, Settings, Check, X, Download, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Check, X, AlertCircle, Download, ExternalLink, Store } from 'lucide-react';
 import ProductSelector from '@/components/products/ProductSelector';
 import { Product } from '@/lib/apollo/queries';
-import { generatedProductOperations, GeneratedProduct } from '@/lib/firebase/firestore';
+import { generatedProductOperations, GeneratedProduct, BrandProfile } from '@/lib/firebase/firestore';
 
 interface ToastNotification {
   show: boolean;
@@ -78,11 +78,12 @@ export default function ProductsPage() {
         const products = await generatedProductOperations.getAll(user.uid);
         console.log('Successfully loaded products:', products.length);
         setOptimizationHistory(products);
-      } catch (error: any) {
-        console.error('Error loading optimization history:', error);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        console.error('Error loading optimization history:', errorMessage);
         
         // Handle permission errors gracefully for new users
-        if (error?.code === 'permission-denied' || (error instanceof Error && error.message.includes('permission'))) {
+        if ((error && typeof error === 'object' && 'code' in error && error.code === 'permission-denied') || (error instanceof Error && error.message.includes('permission'))) {
           console.log('No products found for this user yet (this is normal for new users)');
           setOptimizationHistory([]); // Set empty array for new users
         } else {
@@ -96,7 +97,7 @@ export default function ProductsPage() {
       // Add delay to ensure Firestore rules have been applied
       setTimeout(loadOptimizationHistory, 500);
     }
-  }, [user?.uid, authLoading]);
+  }, [user, authLoading]);
 
   // Handle brand profile selection
   const handleBrandSelect = (brandId: string) => {
@@ -223,7 +224,7 @@ export default function ProductsPage() {
   };
 
   // Fallback optimization function
-  const generateOptimizedProduct = (product: Product, brand: any) => {
+  const generateOptimizedProduct = (product: Product, brand: BrandProfile) => {
     const keywords = [
       brand.brandName.toLowerCase(),
       brand.businessType.toLowerCase(),
@@ -293,7 +294,7 @@ export default function ProductsPage() {
     return (
       <div className="p-8">
         <div className="max-w-md mx-auto text-center">
-          <Lock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <ArrowLeft className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin Subscription Required</h1>
           <p className="text-gray-600 mb-6">
             This feature is only available with an admin subscription. Contact your administrator for access.

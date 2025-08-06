@@ -1,13 +1,28 @@
 import { SubscriptionTier } from '@/config/navigation';
-import { FieldValue } from 'firebase-admin/firestore';
-import { SUBSCRIPTION_LIMITS } from './usage-limits';
+import { FieldValue, Firestore } from 'firebase-admin/firestore';
+import { USAGE_LIMITS as SUBSCRIPTION_LIMITS } from './usage-limits';
+
+interface UsageCheckResult {
+  canPerform: boolean;
+  reason?: string;
+  currentUsage?: {
+    articles: number;
+    keywords: number;
+    thumbnails: number;
+  };
+  upgradeInfo?: {
+    nextTier: string | null;
+    message: string;
+    urgency: string;
+  };
+}
 
 // Tier upgrade suggestions mapping
 const UPGRADE_SUGGESTIONS = {
   free: {
     nextTier: 'kickstart',
     message: 'Upgrade to Kickstart for 15 articles and 10 keywords per month',
-    urgency: 'Get unlimited daily access with a paid plan!'
+    urgency: 'Get 7.5x more articles with a paid plan!'
   },
   kickstart: {
     nextTier: 'seo_takeover',
@@ -44,8 +59,8 @@ export const serverSideUsageUtils = {
     uid: string,
     subscriptionTier: SubscriptionTier,
     tool: 'articles' | 'keywords',
-    adminFirestore: any // Firebase Admin Firestore instance
-  ): Promise<{ canPerform: boolean; reason?: string; currentUsage?: any; upgradeInfo?: any }> => {
+    adminFirestore: Firestore
+  ): Promise<UsageCheckResult> => {
     try {
       const currentMonth = serverSideUsageUtils.getCurrentMonth();
       const usageDocRef = adminFirestore.collection('usage').doc(`${uid}_${currentMonth}`);
@@ -56,13 +71,14 @@ export const serverSideUsageUtils = {
         currentMonth,
         articles: 0,
         keywords: 0,
+        thumbnails: 0,
         lastUpdated: null,
         lastArticleGeneration: null,
         lastKeywordGeneration: null,
       };
       
       if (usageDoc.exists) {
-        currentUsage = usageDoc.data();
+        currentUsage = { ...currentUsage, ...usageDoc.data() };
       }
       
       const limits = SUBSCRIPTION_LIMITS[subscriptionTier];
@@ -75,31 +91,7 @@ export const serverSideUsageUtils = {
       
       const used = currentUsage[tool] || 0;
       
-      // For free users, check 24-hour limit
-      if (subscriptionTier === 'free') {
-        const lastGenField = tool === 'articles' ? 'lastArticleGeneration' : 'lastKeywordGeneration';
-        const lastGeneration = currentUsage[lastGenField];
-        
-        if (lastGeneration) {
-          const lastGenTime = (lastGeneration as any).toDate ? (lastGeneration as any).toDate() : new Date((lastGeneration as any)._seconds ? (lastGeneration as any)._seconds * 1000 : lastGeneration);
-          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-          
-          if (lastGenTime > twentyFourHoursAgo) {
-            const timeUntilReset = lastGenTime.getTime() + (24 * 60 * 60 * 1000) - Date.now();
-            const hoursLeft = Math.ceil(timeUntilReset / (1000 * 60 * 60));
-            return { 
-              canPerform: false, 
-              reason: `⏰ Free users can generate once every 24 hours. Please wait ${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''} or upgrade for unlimited daily access!`,
-              currentUsage,
-              upgradeInfo
-            };
-          }
-        }
-        
-        return { canPerform: true, currentUsage, upgradeInfo };
-      }
-      
-      // For paid users, check monthly limits
+      // For all users (including free), check monthly limits
       const remaining = Math.max(0, toolLimit - used);
       
       if (remaining === 0) {
@@ -132,13 +124,13 @@ export const serverSideUsageUtils = {
   incrementUsage: async (
     uid: string,
     tool: 'articles' | 'keywords',
-    adminFirestore: any // Firebase Admin Firestore instance
+    adminFirestore: Firestore
   ): Promise<void> => {
     try {
       const currentMonth = serverSideUsageUtils.getCurrentMonth();
       const usageDocRef = adminFirestore.collection('usage').doc(`${uid}_${currentMonth}`);
       
-      const updateData: any = {
+      const updateData: Record<string, unknown> = {
         [tool]: FieldValue.increment(1),
         lastUpdated: FieldValue.serverTimestamp(),
       };
@@ -163,4 +155,4 @@ export const serverSideUsageUtils = {
   getUpgradeSuggestion: (subscriptionTier: SubscriptionTier) => {
     return UPGRADE_SUGGESTIONS[subscriptionTier];
   }
-}; 
+};

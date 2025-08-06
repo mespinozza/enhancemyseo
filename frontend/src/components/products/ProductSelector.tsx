@@ -18,7 +18,7 @@ import {
 
 interface ProductSelectorProps {
   onProductsSelect: (products: Product[]) => void;
-  selectedProducts?: Product[];
+  selectedProducts: Product[];
   maxSelection?: number;
   allowMultiple?: boolean;
 }
@@ -52,7 +52,6 @@ export default function ProductSelector({
   
   const [showFilters, setShowFilters] = useState(false);
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'CREATED_AT' | 'UPDATED_AT' | 'TITLE' | 'VENDOR'>('CREATED_AT');
   const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('DESC');
 
@@ -287,7 +286,7 @@ export default function ProductSelector({
               <label className="block text-sm font-medium text-gray-700 mb-2">Sort by</label>
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
+                onChange={(e) => setSortBy(e.target.value as 'CREATED_AT' | 'UPDATED_AT' | 'TITLE' | 'VENDOR')}
                 className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="CREATED_AT">Created Date</option>
@@ -300,7 +299,7 @@ export default function ProductSelector({
               <label className="block text-sm font-medium text-gray-700 mb-2">Order</label>
               <select
                 value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value as any)}
+                onChange={(e) => setSortOrder(e.target.value as 'ASC' | 'DESC')}
                 className="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="DESC">Newest first</option>

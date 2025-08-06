@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { useRouter } from 'next/navigation';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
-import { getUserUsage, canPerformAction, incrementUsage } from '@/lib/usage-limits';
-import { ArrowLeft, ArrowRight, Send, Lock } from 'lucide-react';
+import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
+import { ArrowLeft, ArrowRight, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Keyword {
@@ -31,29 +31,35 @@ export default function KeywordsPage() {
   const [generatedKeywords, setGeneratedKeywords] = useState<Keyword[]>([]);
   const [currentKeywordIndex, setCurrentKeywordIndex] = useState(0);
 
+  // Access control - only admin users can access this page
   useEffect(() => {
-    if (user) {
-      loadBrandProfiles();
+    if (!loading && user && subscription_status !== 'admin') {
+      router.push('/dashboard');
     }
-  }, [user]);
+  }, [user, subscription_status, loading, router]);
 
-  const loadBrandProfiles = async () => {
+  const loadBrandProfiles = useCallback(async () => {
     if (!user) return;
     setIsLoadingProfiles(true);
     try {
       const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
       
-      // If there's only one profile, select it automatically
+      // Auto-select first profile if only one exists
       if (profiles.length === 1) {
         setSelectedBrandId(profiles[0].id || '');
       }
     } catch (error) {
       console.error('Error loading brand profiles:', error);
+      toast.error('Failed to load brand profiles');
     } finally {
       setIsLoadingProfiles(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    loadBrandProfiles();
+  }, [loadBrandProfiles]);
 
   const handleGenerateKeywords = async () => {
     if (!selectedBrandId || !baseKeyword || !user) return;
@@ -137,7 +143,7 @@ export default function KeywordsPage() {
     }
   };
 
-  const handleBrandSave = async (profile: BrandProfile) => {
+  const handleBrandSave = async () => {
     await loadBrandProfiles();
     setShowBrandForm(false);
   };
@@ -147,6 +153,18 @@ export default function KeywordsPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-gray-600">Loading...</div>
+      </div>
+    );
+  }
+
+  // Only admin users can access this page
+  if (subscription_status !== 'admin') {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="text-gray-600 mb-4">Access Restricted</div>
+          <div className="text-sm text-gray-500">This feature is only available to administrators.</div>
+        </div>
       </div>
     );
   }
@@ -181,7 +199,11 @@ export default function KeywordsPage() {
       {/* Left Panel - Keyword Generation Form */}
       <div className="w-full md:w-1/2 p-4 md:p-6 border-r border-gray-200 overflow-y-auto h-full flex-shrink-0">
         <div className="max-w-xl mx-auto">
-          <h2 className="text-2xl font-bold mb-6">Generate Keywords</h2>
+          <h1 className="text-3xl font-bold text-gray-900 mb-6">Keyword Research & Analysis</h1>
+          <p className="text-gray-600 mb-8">
+            Generate high-performing keywords for your content. Our AI analyzes your topic and suggests 
+            SEO-optimized keywords with search volumes and competition metrics.
+          </p>
           {subscription_status === 'admin' && (
             <div className="mb-6">
               <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full">
@@ -271,7 +293,7 @@ export default function KeywordsPage() {
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                   </svg>
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-                    Enter a keyword to build upon. We'll generate related keywords and variations.
+                    Enter a keyword to build upon. We&apos;ll generate related keywords and variations.
                   </div>
                 </div>
               </div>
@@ -331,7 +353,7 @@ export default function KeywordsPage() {
               <div className="text-center">
                 <p className="text-lg font-medium text-gray-700 mb-2">Generating keywords...</p>
                 <p className="text-sm text-gray-500 max-w-md">
-                  Please give the tool 2-5 minutes to generate your keywords. We're analyzing search data and creating relevant keyword suggestions for your brand.
+                  Please give the tool 2-5 minutes to generate your keywords. We&apos;re analyzing search data and creating relevant keyword suggestions for your brand.
                 </p>
               </div>
             </div>

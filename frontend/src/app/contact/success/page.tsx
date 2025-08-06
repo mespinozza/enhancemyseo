@@ -16,8 +16,8 @@ export default function ContactSuccess() {
           <h1 className="text-3xl font-bold text-gray-900 mb-3">
             Message Sent Successfully
           </h1>
-          <p className="text-lg text-gray-600">
-            Thank you for reaching out! We'll get back to you within 24 hours.
+          <p className="text-lg text-gray-600 mb-8">
+            Thanks for reaching out! We&apos;ll get back to you within 24 hours.
           </p>
         </div>
         <button

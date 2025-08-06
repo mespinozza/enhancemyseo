@@ -41,13 +41,11 @@ function generateOptimizedProduct(data: {
   businessType: string;
   brandGuidelines: string;
 }) {
-  const { productName, originalTitle, originalDescription, brandName, businessType, brandGuidelines } = data;
+  const { productName, originalDescription, brandName, businessType } = data;
 
   // Extract keywords from various sources
-  const descWords = originalDescription.toLowerCase().match(/\b\w+\b/g) || [];
   const brandWords = brandName.toLowerCase().split(/\s+/);
   const businessWords = businessType.toLowerCase().split(/\s+/);
-  const guidelineWords = brandGuidelines.toLowerCase().match(/\b\w+\b/g) || [];
 
   // Common SEO keywords for products
   const commonKeywords = ['premium', 'quality', 'best', 'professional', 'authentic', 'reliable', 'superior', 'exclusive'];
@@ -80,7 +78,6 @@ Choose ${brandName} for your ${productName.toLowerCase()} needs and experience t
 
   // Calculate SEO score based on various factors
   const titleLength = optimizedTitle.length;
-  const descLength = optimizedDescription.length;
   const keywordDensity = keywords.length;
   const hasStructuredContent = optimizedDescription.includes('✓');
   const hasBrandMentions = (optimizedDescription.match(new RegExp(brandName, 'gi')) || []).length;

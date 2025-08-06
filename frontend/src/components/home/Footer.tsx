@@ -3,11 +3,14 @@
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
+import Image from 'next/image';
+import { useState } from 'react';
 
 export default function Footer() {
   const router = useRouter();
   const pathname = usePathname();
   const { user } = useAuth();
+  const [logoError, setLogoError] = useState(false);
 
   // Don't show footer on dashboard pages
   if (pathname.startsWith('/dashboard')) {
@@ -28,8 +31,19 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Logo and Description */}
           <div className="col-span-1 lg:col-span-2">
-            <Link href="/" className="inline-block">
-              <div className="text-2xl font-bold mb-3 hover:text-blue-400 transition-colors">EnhanceMySeo</div>
+            <Link href="/" className="inline-block mb-3">
+              {!logoError ? (
+                <Image
+                  src="/logo.png"
+                  alt="EnhanceMySeo"
+                  width={180}
+                  height={40}
+                  className="h-10 w-auto hover:opacity-80 transition-opacity brightness-0 invert"
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                <div className="text-2xl font-bold hover:text-blue-400 transition-colors">EnhanceMySeo</div>
+              )}
             </Link>
             <p className="text-gray-400 mb-4">
               Try EnhanceMySeo today and start ranking your content like never before
@@ -39,12 +53,12 @@ export default function Footer() {
               <p className="text-gray-400">Follow us on Social Media:</p>
               <div className="flex items-center space-x-3">
                 <a
-                  href="https://www.linkedin.com/company/enhancemyseo"
+                  href="https://x.com/seoenhancement"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-400 hover:text-blue-300 transition-colors"
                 >
-                  LinkedIn
+                  X (Twitter)
                 </a>
               </div>
             </div>
@@ -69,6 +83,11 @@ export default function Footer() {
                 >
                   Start Generating
                 </button>
+              </li>
+              <li>
+                <Link href="/blog" className="text-gray-400 hover:text-white transition-colors">
+                  Our Blog
+                </Link>
               </li>
               <li>
                 <Link href="/feature-request" className="text-gray-400 hover:text-white transition-colors">
@@ -110,7 +129,7 @@ export default function Footer() {
               © {new Date().getFullYear()} EnhanceMySeo. All rights reserved.
             </p>
             <p className="text-gray-400 text-sm mt-2 md:mt-0">
-              Created by{' '}
+              Organized by{' '}
               <a
                 href="https://www.linkedin.com/in/espinozamanny/"
                 target="_blank"

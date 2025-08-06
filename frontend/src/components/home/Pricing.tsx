@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { ArrowRight, Check, Image, BarChart3, FileText, Table, Link2, Search } from 'lucide-react';
-import { createCheckoutSession } from '@/lib/stripe';
+import { createCheckoutSession, getPriceId, getDisplayPrice, getOriginalPrice, getAnnualPrice } from '@/lib/stripe';
 import { useState } from 'react';
 
 interface PricingTier {
@@ -13,7 +13,7 @@ interface PricingTier {
   features: string[];
   buttonText: string;
   popular?: boolean;
-  priceId?: string;
+  priceId?: string | null;
 }
 
 export default function Pricing() {
@@ -21,61 +21,49 @@ export default function Pricing() {
   const { user } = useAuth();
   const [isAnnual, setIsAnnual] = useState(true);
 
-  const getPrice = (monthlyPrice: number, isAnnual: boolean) => {
-    if (isAnnual) {
-      const annualDiscount = 0.20; // 20% discount
-      const discountedMonthly = monthlyPrice * (1 - annualDiscount);
-      return discountedMonthly.toFixed(0);
-    }
-    return monthlyPrice.toString();
-  };
-
   const pricingTiers: PricingTier[] = [
     {
       name: "Free",
       price: "0",
       description: "Perfect for trying out our platform",
       features: [
-        "1 article generation per month",
-        "1 keyword generation per month",
-        "Basic article templates",
+        "2 article generations per month",
+        "Basic article structure & formatting",
+        "Shopify product integration",
         "Community support"
       ],
       buttonText: "Get Started",
+      priceId: getPriceId('free'),
     },
     {
       name: "Kickstart",
-      price: getPrice(29, isAnnual),
+      price: getDisplayPrice('kickstart', isAnnual).toString(),
       description: "Ideal for growing businesses",
       features: [
         "15 article generations per month",
-        "10 keyword generations per month",
-        "Advanced article templates",
-        "Priority email support",
-        "No Ads"
+        "Advanced article customization",
+        "Bulk article generation",
+        "Product & collection integration",
+        "Priority email support"
       ],
       buttonText: "Get Started",
       popular: true,
-      priceId: isAnnual 
-        ? process.env.NEXT_PUBLIC_KICKSTART_ANNUAL_PRICE_ID 
-        : process.env.NEXT_PUBLIC_KICKSTART_PRICE_ID,
+      priceId: getPriceId('kickstart', isAnnual),
     },
     {
       name: "SEO Takeover",
-      price: getPrice(99, isAnnual),
+      price: getDisplayPrice('seo_takeover', isAnnual).toString(),
       description: "For serious content creators",
       features: [
         "40 article generations per month",
-        "30 keyword generations per month",
-        "All article templates",
+        "Premium SEO optimization",
+        "Advanced product selection modes",
+        "Automatic content integration",
         "24/7 Priority support",
-        "Article scheduling",
         "Access to new features first"
       ],
       buttonText: "Get Started",
-      priceId: isAnnual 
-        ? process.env.NEXT_PUBLIC_SEO_TAKEOVER_ANNUAL_PRICE_ID 
-        : process.env.NEXT_PUBLIC_SEO_TAKEOVER_PRICE_ID,
+      priceId: getPriceId('seo_takeover', isAnnual),
     },
   ];
 
@@ -95,7 +83,9 @@ export default function Pricing() {
       if (!tier.priceId) {
         throw new Error('Price ID not found');
       }
-      await createCheckoutSession(tier.priceId);
+      
+      const userToken = await user.getIdToken();
+      await createCheckoutSession(tier.priceId, userToken);
     } catch (error) {
       console.error('Error:', error);
       alert('Something went wrong. Please try again.');
@@ -137,7 +127,7 @@ export default function Pricing() {
             </button>
             <span className={`text-sm ${isAnnual ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
               Annual billing
-              <span className="ml-1.5 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+              <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
                 Save 20%
               </span>
             </span>
@@ -164,12 +154,24 @@ export default function Pricing() {
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{tier.name}</h3>
                 <div className="flex flex-col mb-2">
                   <div className="flex items-baseline">
-                    <span className="text-4xl font-bold text-gray-900">${tier.price}</span>
-                    <span className="text-gray-600 ml-2">/month</span>
+                    {isAnnual && tier.name !== "Free" ? (
+                      <>
+                        <span className="text-2xl font-bold text-gray-400 line-through mr-2">
+                          ${getOriginalPrice(tier.name.toLowerCase().replace(' ', '_'))}
+                        </span>
+                        <span className="text-4xl font-bold text-gray-900">${tier.price}</span>
+                        <span className="text-gray-600 ml-2">/month</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-4xl font-bold text-gray-900">${tier.price}</span>
+                        <span className="text-gray-600 ml-2">/month</span>
+                      </>
+                    )}
                   </div>
-                  {isAnnual && tier.price !== "0" && (
+                  {isAnnual && tier.name !== "Free" && (
                     <span className="text-sm text-blue-600 mt-1">
-                      (Billed at ${(Number(tier.price) * 12).toFixed(0)} per year)
+                      (Billed at ${getAnnualPrice(tier.name.toLowerCase().replace(' ', '_'))} per year)
                     </span>
                   )}
                 </div>
@@ -253,7 +255,7 @@ export default function Pricing() {
               <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
                 <div className="flex items-center mb-4">
                   <div className="p-2 bg-blue-50 rounded-lg">
-                    <Image className="w-6 h-6 text-blue-600" />
+                    <Image className="w-6 h-6 text-blue-600" aria-label="Product images and text feature" />
                   </div>
                   <h3 className="ml-3 font-semibold text-gray-900">Embedded products images & text</h3>
                 </div>
@@ -340,7 +342,7 @@ export default function Pricing() {
           <div className="relative z-10 max-w-7xl mx-auto text-center">
             <div className="inline-flex items-center px-4 py-2 bg-gray-800/50 rounded-full backdrop-blur-sm mb-8">
               <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-              <span className="text-sm text-gray-300">See results from Our tool</span>
+                              <span className="text-sm text-gray-300">Generate Growth</span>
             </div>
 
             <h2 className="text-5xl font-bold mb-4">

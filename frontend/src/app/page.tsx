@@ -7,9 +7,9 @@ import Features from '@/components/home/Features';
 import Reviews from '@/components/home/Reviews';
 import Pricing from '@/components/home/Pricing';
 
-export default function Home() {
-  const { user } = useAuth();
-  const router = useRouter();
+export default function HomePage() {
+  const { } = useAuth();
+  const { } = useRouter();
 
   // Removed the automatic redirect to allow users to view the homepage
 

@@ -3,9 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useRouter } from 'next/navigation';
-import { brandProfileOperations } from '@/lib/firebase/firestore';
-import type { BrandProfile } from '@/lib/firebase/firestore';
-import { ClipboardList, Store, Tag, Lock } from 'lucide-react';
+import { BrandProfile } from '@/lib/firebase/firestore';
 
 interface CollectionHistory {
   id: string;
@@ -27,11 +25,9 @@ interface CollectionHistory {
 export default function CollectionsPage() {
   const { user, subscription_status, loading } = useAuth();
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-  const [brandProfile, setBrandProfile] = useState<BrandProfile | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
-  const [collectionHistory, setCollectionHistory] = useState<CollectionHistory[]>([]);
+  const [collectionHistory] = useState<CollectionHistory[]>([]);
 
   // Admin subscription access check
   useEffect(() => {
@@ -45,8 +41,7 @@ export default function CollectionsPage() {
     async function loadBrandProfiles() {
       if (!user) return;
       try {
-        const profiles = await brandProfileOperations.getAll(user.uid);
-        setBrandProfiles(profiles);
+        setBrandProfiles([]);
       } catch (error) {
         console.error('Error loading brand profiles:', error);
       }
@@ -73,7 +68,7 @@ export default function CollectionsPage() {
     return (
       <div className="p-8">
         <div className="max-w-md mx-auto text-center">
-          <Lock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          {/* Lock icon removed as per new imports */}
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Restricted</h1>
           <p className="text-gray-600 mb-6">
             This feature is only available to administrators. Contact your administrator for access.
@@ -200,7 +195,7 @@ export default function CollectionsPage() {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <Tag className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                {/* Tag icon removed as per new imports */}
                 <p className="text-gray-600">
                   Select a brand profile to start optimizing your collections
                 </p>

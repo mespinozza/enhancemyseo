@@ -39,6 +39,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
+    // CRITICAL: Admin access control - only admin users can suggest keywords
+    // Import the server subscription utils
+    const { getServerUserSubscriptionStatus } = await import('@/lib/firebase/server-admin-utils');
+    const subscriptionStatus = await getServerUserSubscriptionStatus(decodedToken.uid, decodedToken.email || null);
+    
+    if (subscriptionStatus !== 'admin') {
+      console.log('Access denied for non-admin user:', decodedToken.uid, 'Subscription:', subscriptionStatus);
+      return NextResponse.json({ 
+        error: 'Access denied. Keyword suggestions are only available to administrators.' 
+      }, { status: 403 });
+    }
+
     if (!anthropic) {
       return NextResponse.json({ 
         error: 'AI service not available. Please check API configuration.' 
@@ -79,7 +91,7 @@ Example format: keyword one, keyword two, keyword three
 Generate related keywords now:`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+              model: 'claude-sonnet-4-20250514',
       max_tokens: 300,
       temperature: 0.7,
       messages: [

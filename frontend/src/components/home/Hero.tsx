@@ -36,7 +36,7 @@ export default function Hero() {
                   your
                 </span>
                 <br />
-                website's SEO in<br />
+                website&apos;s SEO in<br />
                 just a few clicks!
               </h1>
               
@@ -87,7 +87,12 @@ export default function Hero() {
                 </h3>
                 <ul className="space-y-3 ml-7">
                   <li className="list-disc">AI-powered content optimization in minutes</li>
-                  <li className="list-disc">Smart keyword suggestions and analysis</li>
+                  <li className="flex items-center">
+                    <svg className="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Intelligent product and store integration
+                  </li>
                   <li className="list-disc">Automated SEO-friendly content generation</li>
                 </ul>
               </div>

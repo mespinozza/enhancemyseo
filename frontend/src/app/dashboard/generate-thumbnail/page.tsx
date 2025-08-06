@@ -30,33 +30,7 @@ export default function GenerateThumbnailPage() {
   const { refreshUsage } = useUsageRefresh();
   const router = useRouter();
 
-  // Admin-only access control
-  useEffect(() => {
-    if (user && subscription_status !== 'admin') {
-      router.push('/dashboard/articles');
-    }
-  }, [user, subscription_status, router]);
-
-  // Don't render the page content if user is not admin
-  if (subscription_status !== 'admin') {
-    return (
-      <div className="p-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center py-12">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Restricted</h1>
-            <p className="text-gray-600 mb-6">This feature is only available to administrators.</p>
-            <button
-              onClick={() => router.push('/dashboard/articles')}
-              className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Go to Generate Articles
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // All state hooks must be at the top level
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
@@ -80,32 +54,89 @@ export default function GenerateThumbnailPage() {
 
   const ARTICLES_PER_PAGE = 9;
 
+  // Admin-only access control
   useEffect(() => {
-    if (user) {
-      loadBrandProfiles();
+    if (user && subscription_status !== 'admin') {
+      router.push('/dashboard/articles');
     }
-  }, [user]);
+  }, [user, subscription_status, router]);
 
-  const loadBrandProfiles = async () => {
+  const loadBrandProfiles = useCallback(async () => {
     if (!user) return;
     setIsLoadingProfiles(true);
     try {
       const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
       
-      // If there's only one profile, select it automatically and load articles
+      // If there's only one profile, select it automatically
       if (profiles.length === 1) {
         setSelectedBrandId(profiles[0].id || '');
-        await loadShopifyArticles(profiles[0].id || '');
       }
     } catch (error) {
       console.error('Error loading brand profiles:', error);
     } finally {
       setIsLoadingProfiles(false);
     }
-  };
+  }, [user]);
 
-  const loadShopifyArticles = async (brandId: string, reset = true) => {
+  // Load brand profiles effect
+  useEffect(() => {
+    loadBrandProfiles();
+  }, [loadBrandProfiles]);
+
+  // Auto-load articles when brand is selected
+  useEffect(() => {
+    if (selectedBrandId && brandProfiles.length > 0) {
+      loadShopifyArticles(selectedBrandId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBrandId, brandProfiles.length]);
+
+  // Callback hooks
+  const loadMoreArticles = useCallback(() => {
+    if (isLoadingMore || !hasMore) return;
+    
+    setIsLoadingMore(true);
+    
+    const startIndex = currentPage * ARTICLES_PER_PAGE;
+    const endIndex = startIndex + ARTICLES_PER_PAGE;
+    const newArticles = allShopifyArticles.slice(startIndex, endIndex);
+    
+    setTimeout(() => {
+      setDisplayedArticles(prev => {
+        // Ensure no duplicates by filtering out articles that already exist
+        const existingIds = new Set(prev.map(article => article.id));
+        const filteredNewArticles = newArticles.filter(article => !existingIds.has(article.id));
+        return [...prev, ...filteredNewArticles];
+      });
+      setCurrentPage(prev => prev + 1);
+      setHasMore(endIndex < allShopifyArticles.length);
+      setIsLoadingMore(false);
+    }, 500);
+  }, [allShopifyArticles, currentPage, hasMore, isLoadingMore]);
+
+  const handleScroll = useCallback(() => {
+    const container = articlesContainerRef.current;
+    if (!container || isLoadingMore || !hasMore) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+    
+    if (scrollPercentage > 0.8) {
+      loadMoreArticles();
+    }
+  }, [loadMoreArticles, isLoadingMore, hasMore]);
+
+  // Set up scroll listener effect
+  useEffect(() => {
+    const container = articlesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  const loadShopifyArticles = useCallback(async (brandId: string, reset = true) => {
     const selectedBrand = brandProfiles.find(p => p.id === brandId);
     if (!selectedBrand?.shopifyStoreUrl || !selectedBrand?.shopifyAccessToken) {
       toast.error('Shopify credentials not found. Please update your brand profile.');
@@ -118,7 +149,7 @@ export default function GenerateThumbnailPage() {
       setDisplayedArticles([]);
       setAllShopifyArticles([]);
       setHasMore(false);
-      setSelectedArticleIds([]); // Reset selected articles when changing brands
+      setSelectedArticleIds([]);
     }
 
     try {
@@ -138,7 +169,6 @@ export default function GenerateThumbnailPage() {
         const data = await response.json();
         const articles = data.articles || [];
         
-        // Remove duplicates by ID and ensure unique articles
         const uniqueArticles = articles.filter((article: ShopifyArticle, index: number, self: ShopifyArticle[]) => 
           index === self.findIndex(a => a.id === article.id)
         );
@@ -172,51 +202,7 @@ export default function GenerateThumbnailPage() {
         setIsLoadingArticles(false);
       }
     }
-  };
-
-  const loadMoreArticles = useCallback(() => {
-    if (isLoadingMore || !hasMore) return;
-    
-    setIsLoadingMore(true);
-    
-    const startIndex = currentPage * ARTICLES_PER_PAGE;
-    const endIndex = startIndex + ARTICLES_PER_PAGE;
-    const newArticles = allShopifyArticles.slice(startIndex, endIndex);
-    
-    setTimeout(() => {
-      setDisplayedArticles(prev => {
-        // Ensure no duplicates by filtering out articles that already exist
-        const existingIds = new Set(prev.map(article => article.id));
-        const filteredNewArticles = newArticles.filter(article => !existingIds.has(article.id));
-        return [...prev, ...filteredNewArticles];
-      });
-      setCurrentPage(prev => prev + 1);
-      setHasMore(endIndex < allShopifyArticles.length);
-      setIsLoadingMore(false);
-    }, 500);
-  }, [allShopifyArticles, currentPage, hasMore, isLoadingMore]);
-
-  // Infinite scroll handler
-  const handleScroll = useCallback(() => {
-    const container = articlesContainerRef.current;
-    if (!container || isLoadingMore || !hasMore) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
-    
-    if (scrollPercentage > 0.8) {
-      loadMoreArticles();
-    }
-  }, [loadMoreArticles, isLoadingMore, hasMore]);
-
-  // Set up scroll listener
-  useEffect(() => {
-    const container = articlesContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
-  }, [handleScroll]);
+  }, [brandProfiles, user]);
 
   const handleBrandSelection = async (brandId: string) => {
     setSelectedBrandId(brandId);
@@ -232,7 +218,7 @@ export default function GenerateThumbnailPage() {
     }
   };
 
-  const handleBrandSave = async (profile: BrandProfile) => {
+  const handleBrandSave = async () => {
     setShowBrandForm(false);
     await loadBrandProfiles();
   };
@@ -353,6 +339,26 @@ export default function GenerateThumbnailPage() {
       setGenerationProgress({});
     }
   };
+
+  // Don't render the page content if user is not admin
+  if (subscription_status !== 'admin') {
+    return (
+      <div className="p-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center py-12">
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Restricted</h1>
+            <p className="text-gray-600 mb-6">This feature is only available to administrators.</p>
+            <button
+              onClick={() => router.push('/dashboard/articles')}
+              className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Go to Generate Articles
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8">
@@ -645,7 +651,7 @@ export default function GenerateThumbnailPage() {
               </>
             ) : (
               <div className="text-center py-12">
-                <Image className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <Image className="w-16 h-16 text-gray-300 mx-auto mb-4" aria-label="No articles found" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Articles Found</h3>
                 <p className="text-gray-600">
                   No articles found in your Shopify store. Make sure your store has published blog articles.

@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 
+// Interface for Shopify article structure
+interface ShopifyArticle {
+  id: string;
+  title: string;
+  content: string;
+  summary?: string;
+  author?: string;
+  created_at: string;
+  updated_at: string;
+  tags?: string;
+  status?: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
@@ -77,7 +90,7 @@ export async function POST(request: NextRequest) {
           const articles = articlesData.articles || [];
           
           // Add blog information to each article
-          const articlesWithBlog = articles.map((article: any) => ({
+          const articlesWithBlog = articles.map((article: ShopifyArticle) => ({
             ...article,
             blog_id: blog.id,
             blog_title: blog.title,

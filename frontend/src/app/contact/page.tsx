@@ -113,11 +113,9 @@ export default function Contact() {
       <div className="min-h-screen pt-24 bg-gradient-to-b from-white via-white to-blue-50/50">
         <div className="max-w-2xl mx-auto px-4">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl mb-2">
-              Let's talk about your needs
-            </h1>
-            <p className="text-lg text-gray-600">
-              Fill out the form below and we'll get back to you within 24 hours
+            <h1 className="text-3xl font-bold text-gray-900 mb-6">We&apos;d Love to Hear From You!</h1>
+            <p className="text-lg text-gray-600 mb-8">
+              Whether you have questions, feedback, or just want to say hello, we&apos;re here to help.
             </p>
           </div>
 

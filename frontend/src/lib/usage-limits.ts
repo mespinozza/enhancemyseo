@@ -3,50 +3,44 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, increment } from 'fire
 import { db } from './firebase/config';
 import { getUserSubscriptionDate } from './firebase/admin-users';
 
-export interface UsageLimits {
+export interface UsageData {
   articles: number | 'unlimited';
   keywords: number | 'unlimited';
   thumbnails: number | 'unlimited';
+  lastReset: Date;
 }
 
-export interface UserUsage {
-  uid: string;
-  currentMonth: string; // Format: YYYY-MM
-  articles: number;
-  keywords: number;
-  thumbnails: number;
-  lastUpdated: any;
-  lastArticleGeneration?: any; // For 24-hour tracking
-  lastKeywordGeneration?: any; // For 24-hour tracking
-  lastThumbnailGeneration?: any; // For 24-hour tracking
-}
-
-// Define usage limits for each subscription tier
-export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, UsageLimits> = {
+// Usage limits per subscription tier  
+export const USAGE_LIMITS: Record<string, UsageData> = {
   free: {
-    articles: 1,
+    articles: 2,
     keywords: 1,
     thumbnails: 2,
+    lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   kickstart: {
     articles: 15,
     keywords: 10,
     thumbnails: 20,
+    lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   seo_takeover: {
     articles: 40,
     keywords: 30,
     thumbnails: 50,
+    lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   agency: {
     articles: 'unlimited',
     keywords: 'unlimited',
     thumbnails: 'unlimited',
+    lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   admin: {
     articles: 'unlimited',
     keywords: 'unlimited',
     thumbnails: 'unlimited',
+    lastReset: new Date(2023, 0, 1), // Example last reset date
   },
 };
 
@@ -57,7 +51,7 @@ export const getCurrentMonth = (): string => {
 };
 
 // Get user's current usage for the month
-export const getUserUsage = async (uid: string): Promise<UserUsage> => {
+export const getUserUsage = async (uid: string): Promise<UsageData> => {
   const currentMonth = getCurrentMonth();
   const usageDocRef = doc(db, 'usage', `${uid}_${currentMonth}`);
   
@@ -65,16 +59,14 @@ export const getUserUsage = async (uid: string): Promise<UserUsage> => {
     const usageDoc = await getDoc(usageDocRef);
     
     if (usageDoc.exists()) {
-      return usageDoc.data() as UserUsage;
+      return usageDoc.data() as UsageData;
     } else {
       // Create new usage document for the month
-      const newUsage: UserUsage = {
-        uid,
-        currentMonth,
+      const newUsage: UsageData = {
         articles: 0,
         keywords: 0,
         thumbnails: 0,
-        lastUpdated: serverTimestamp(),
+        lastReset: serverTimestamp() as unknown as Date,
       };
       
       await setDoc(usageDocRef, newUsage);
@@ -84,12 +76,10 @@ export const getUserUsage = async (uid: string): Promise<UserUsage> => {
     console.error('Error getting user usage:', error);
     // Return default usage if error
     return {
-      uid,
-      currentMonth,
       articles: 0,
       keywords: 0,
       thumbnails: 0,
-      lastUpdated: null,
+      lastReset: new Date(),
     };
   }
 };
@@ -104,40 +94,20 @@ export const incrementUsage = async (uid: string, tool: 'articles' | 'keywords' 
     
     if (usageDoc.exists()) {
       // Use atomic increment to prevent race conditions
-      const updateData: any = {
+      const updateData = {
         [tool]: increment(1),
-        lastUpdated: serverTimestamp(),
+        lastReset: serverTimestamp(),
       };
-      
-      // Add specific timestamp for 24-hour tracking
-      if (tool === 'articles') {
-        updateData.lastArticleGeneration = serverTimestamp();
-      } else if (tool === 'keywords') {
-        updateData.lastKeywordGeneration = serverTimestamp();
-      } else if (tool === 'thumbnails') {
-        updateData.lastThumbnailGeneration = serverTimestamp();
-      }
       
       await updateDoc(usageDocRef, updateData);
     } else {
       // Create new document with initial usage
-      const newUsage: UserUsage = {
-        uid,
-        currentMonth,
+      const newUsage: UsageData = {
         articles: tool === 'articles' ? 1 : 0,
         keywords: tool === 'keywords' ? 1 : 0,
         thumbnails: tool === 'thumbnails' ? 1 : 0,
-        lastUpdated: serverTimestamp(),
+        lastReset: serverTimestamp() as unknown as Date,
       };
-      
-      // Add specific timestamp for 24-hour tracking
-      if (tool === 'articles') {
-        newUsage.lastArticleGeneration = serverTimestamp();
-      } else if (tool === 'keywords') {
-        newUsage.lastKeywordGeneration = serverTimestamp();
-      } else if (tool === 'thumbnails') {
-        newUsage.lastThumbnailGeneration = serverTimestamp();
-      }
       
       await setDoc(usageDocRef, newUsage);
     }
@@ -169,60 +139,28 @@ export const getNextResetDate = (subscriptionDate: Date): Date => {
   return nextReset;
 };
 
-// Calculate next reset for free users (24 hours from last generation)
-export const getNext24HourReset = async (uid: string, tool: 'articles' | 'keywords' | 'thumbnails'): Promise<Date | null> => {
-  const currentMonth = getCurrentMonth();
-  const usageDocRef = doc(db, 'usage', `${uid}_${currentMonth}`);
-  
-  try {
-    const usageDoc = await getDoc(usageDocRef);
-    
-    if (usageDoc.exists()) {
-      const data = usageDoc.data();
-      const lastUpdated = data?.lastUpdated;
-      
-      if (lastUpdated && lastUpdated.toDate && data[tool] > 0) {
-        const lastGeneration = lastUpdated.toDate();
-        const nextReset = new Date(lastGeneration.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
-        return nextReset > new Date() ? nextReset : null; // Only return if in future
-      }
-    }
-    
-    return null; // No previous generation or can generate now
-  } catch (error) {
-    console.error('Error getting 24-hour reset:', error);
-    return null;
-  }
-};
+
 
 // Get reset information for display
 export const getResetInfo = async (
   uid: string,
-  subscriptionTier: SubscriptionTier,
-  tool: 'articles' | 'keywords' | 'thumbnails'
+  subscriptionTier: SubscriptionTier
 ): Promise<{
   resetText: string;
   canGenerateNow: boolean;
   nextResetDate?: Date;
 }> => {
+  // All users (including free) now use monthly limits
   if (subscriptionTier === 'free') {
-    const nextReset = await getNext24HourReset(uid, tool);
+    // Free users reset on the 1st of each month
+    const now = new Date();
+    const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1); // 1st of next month
     
-    if (nextReset) {
-      const timeUntilReset = nextReset.getTime() - new Date().getTime();
-      const hoursLeft = Math.ceil(timeUntilReset / (1000 * 60 * 60));
-      
-      return {
-        resetText: `Next generation available in ${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}`,
-        canGenerateNow: false,
-        nextResetDate: nextReset,
-      };
-    } else {
-      return {
-        resetText: 'Generate your free content now',
-        canGenerateNow: true,
-      };
-    }
+    return {
+      resetText: 'Resets monthly on the 1st',
+      canGenerateNow: true,
+      nextResetDate: nextReset,
+    };
   } else {
     // For paid subscriptions
     const subscriptionDate = await getUserSubscriptionDate(uid);
@@ -269,56 +207,30 @@ export const canPerformAction = async (
   uid: string,
   subscriptionTier: SubscriptionTier,
   tool: 'articles' | 'keywords' | 'thumbnails',
-  currentUsage: UserUsage,
+  currentUsage: UsageData,
   requestedCount: number = 1 // NEW: Support for bulk requests
 ): Promise<{ canPerform: boolean; remaining: number | 'unlimited'; reason?: string; upgradeMessage?: string }> => {
-  const limits = SUBSCRIPTION_LIMITS[subscriptionTier];
+  const limits = USAGE_LIMITS[subscriptionTier];
   const toolLimit = limits[tool];
   
   if (toolLimit === 'unlimited') {
     return { canPerform: true, remaining: 'unlimited' };
   }
   
-  const used = currentUsage[tool] || 0;
+  const usageValue = currentUsage[tool];
+  const used = typeof usageValue === 'number' ? usageValue : 0;
   
-  // For free users, check 24-hour limit
-  if (subscriptionTier === 'free') {
-    // Free users cannot do bulk generation (more than 1)
-    if (requestedCount > 1) {
-      return {
-        canPerform: false,
-        remaining: 0,
-        reason: `🚀 Bulk generation requires a paid plan. Upgrade to generate ${requestedCount} articles at once!`,
-        upgradeMessage: 'Upgrade to Kickstart for 15 articles per month and bulk generation!'
-      };
-    }
-    
-    const lastGenField = tool === 'articles' ? 'lastArticleGeneration' : 
-                          tool === 'keywords' ? 'lastKeywordGeneration' : 'lastThumbnailGeneration';
-    const lastGeneration = currentUsage[lastGenField];
-    
-    if (lastGeneration) {
-      // Convert Firestore timestamp to Date
-      const lastGenTime = lastGeneration.toDate ? lastGeneration.toDate() : new Date(lastGeneration.seconds * 1000);
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      
-      if (lastGenTime > twentyFourHoursAgo) {
-        const timeUntilReset = lastGenTime.getTime() + (24 * 60 * 60 * 1000) - Date.now();
-        const hoursLeft = Math.ceil(timeUntilReset / (1000 * 60 * 60));
-        
-        return { 
-          canPerform: false, 
-          remaining: 0,
-          reason: `⏰ Free users can generate once every 24 hours. Please wait ${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}.`,
-          upgradeMessage: 'Upgrade to Kickstart for unlimited daily access and 15 articles per month!'
-        };
-      }
-    }
-    
-    return { canPerform: true, remaining: 1 };
+  // Free users cannot do bulk generation (more than 1)
+  if (subscriptionTier === 'free' && requestedCount > 1) {
+    return {
+      canPerform: false,
+      remaining: 0,
+      reason: `🚀 Bulk generation requires a paid plan. Upgrade to generate ${requestedCount} articles at once!`,
+      upgradeMessage: 'Upgrade to Kickstart for 15 articles per month and bulk generation!'
+    };
   }
   
-  // For paid users, check monthly limits
+  // For all users, check monthly limits
   const remaining = Math.max(0, toolLimit - used);
   
   // Check if they have enough remaining for the bulk request
@@ -357,16 +269,17 @@ export const canPerformAction = async (
 export const getUsageDisplay = (
   subscriptionTier: SubscriptionTier,
   tool: 'articles' | 'keywords' | 'thumbnails',
-  currentUsage: UserUsage
+  currentUsage: UsageData
 ): {
   used: number;
   limit: number | 'unlimited';
   remaining: number | 'unlimited';
   percentage: number;
 } => {
-  const limits = SUBSCRIPTION_LIMITS[subscriptionTier];
+  const limits = USAGE_LIMITS[subscriptionTier];
   const toolLimit = limits[tool];
-  const used = currentUsage[tool] || 0;
+  const usageValue = currentUsage[tool];
+  const used = typeof usageValue === 'number' ? usageValue : 0;
   
   if (toolLimit === 'unlimited') {
     return {

@@ -1,22 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { useRouter } from 'next/navigation';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase/config';
-import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
-import { blogOperations, Blog } from '@/lib/firebase/firestore';
 import Link from 'next/link';
-import { getFilteredNavigation } from '@/config/navigation';
-import { Send, CheckCircle, MessageSquarePlus } from 'lucide-react';
-
-interface BlogPost {
-  id: string;
-  title: string;
-  createdAt: Date;
-  status: 'draft' | 'published';
-}
+import { ArrowRight, TrendingUp, Users, BarChart3, Plus } from 'lucide-react';
 
 // Define descriptions for each navigation item
 const navDescriptions: Record<string, string> = {
@@ -119,15 +106,9 @@ function FeatureRequestForm() {
           onClick={() => setIsOpen(true)}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
         >
-          <MessageSquarePlus className="w-4 h-4" />
+          <Plus className="w-4 h-4" />
           <span>Request Feature</span>
         </button>
-        <Link
-          href="/feature-request"
-          className="text-blue-600 hover:text-blue-800 text-sm underline"
-        >
-          View all requests
-        </Link>
       </div>
     );
   }
@@ -136,7 +117,9 @@ function FeatureRequestForm() {
     <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
       {isSubmitted ? (
         <div className="text-center py-4">
-          <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+          <svg className="w-8 h-8 text-green-600 mx-auto mb-2" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+          </svg>
           <p className="text-green-700 font-medium">Thank you! Your request has been submitted.</p>
         </div>
       ) : (
@@ -207,7 +190,7 @@ function FeatureRequestForm() {
               disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 text-sm"
             >
-              <Send className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4" />
               <span>{isSubmitting ? 'Submitting...' : 'Submit'}</span>
             </button>
           </div>
@@ -221,7 +204,12 @@ export default function DashboardHome() {
   const { subscription_status } = useAuth();
   
   // Get filtered navigation based on user's subscription status
-  const availableFeatures = getFilteredNavigation(subscription_status);
+  const availableFeatures = [
+    { name: 'Optimize Products', href: '/optimize-products', icon: TrendingUp, requiredSubscription: ['admin', 'free'] },
+    { name: 'Optimize Collections', href: '/optimize-collections', icon: Users, requiredSubscription: ['admin', 'free'] },
+    { name: 'Generate Keywords', href: '/generate-keywords', icon: BarChart3, requiredSubscription: ['admin', 'free'] },
+    { name: 'Generate Article', href: '/generate-article', icon: ArrowRight, requiredSubscription: ['admin', 'free'] },
+  ];
 
   return (
     <div className="p-8">
@@ -346,7 +334,7 @@ export default function DashboardHome() {
         {/* Help Us Improve Card */}
         <div className="p-6 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group">
           <div className="flex items-center mb-4">
-            <MessageSquarePlus className="w-6 h-6 text-blue-600 mr-3 group-hover:text-blue-700" />
+            <Plus className="w-6 h-6 text-blue-600 mr-3 group-hover:text-blue-700" />
             <h2 className="text-xl font-semibold">Help Us Improve</h2>
           </div>
           <p className="text-gray-600 mb-4">
@@ -408,7 +396,7 @@ export default function DashboardHome() {
               </div>
               <div className="text-sm text-gray-600 space-y-1">
                 <div>📂 Shopify Admin → <strong>Apps</strong></div>
-                <div>➡️ <strong>"App and sales channel settings"</strong></div>
+                <div>➡️ <strong>&quot;App and sales channel settings&quot;</strong></div>
               </div>
             </div>
 
@@ -419,8 +407,8 @@ export default function DashboardHome() {
                 <h3 className="font-semibold text-gray-900">Create App</h3>
               </div>
               <div className="text-sm text-gray-600 space-y-1">
-                <div>🛠️ <strong>"Develop apps for your store"</strong></div>
-                <div>📝 Name: "EnhanceMySEO Connector"</div>
+                <div>🛠️ <strong>&quot;Develop apps for your store&quot;</strong></div>
+                <div>📝 Name: &quot;EnhanceMySEO Connector&quot;</div>
               </div>
             </div>
 
@@ -431,11 +419,9 @@ export default function DashboardHome() {
                 <h3 className="font-semibold text-gray-900">Set Scopes</h3>
               </div>
               <div className="text-sm text-gray-600 space-y-1">
-                <div>🔐 <strong>"Configure Admin API scopes"</strong></div>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">read_products</code>
-                  <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">write_products</code>
-                </div>
+                <div>🔐 <strong>&quot;Configure Admin API scopes&quot;</strong></div>
+                <div className="text-blue-600 font-medium">✨ Select ALL scopes for full functionality</div>
+                <div className="text-xs text-gray-500">This ensures all tools work to their fullest potential</div>
               </div>
             </div>
 
@@ -446,7 +432,7 @@ export default function DashboardHome() {
                 <h3 className="font-semibold text-gray-900">Install App</h3>
               </div>
               <div className="text-sm text-gray-600 space-y-1">
-                <div>🚀 Go to <strong>"Install app"</strong> tab</div>
+                <div>🚀 Go to <strong>&quot;Install app&quot;</strong> tab</div>
                 <div className="text-red-600 font-medium">⚠️ Copy Access Token immediately!</div>
               </div>
             </div>
@@ -458,7 +444,7 @@ export default function DashboardHome() {
                 <h3 className="font-semibold text-gray-900">Get Credentials</h3>
               </div>
               <div className="text-sm text-gray-600 space-y-1">
-                <div>🔑 <strong>"API credentials"</strong> tab</div>
+                <div>🔑 <strong>&quot;API credentials&quot;</strong> tab</div>
                 <div>✅ API Key, Secret Key, Store URL</div>
               </div>
             </div>
@@ -533,7 +519,7 @@ export default function DashboardHome() {
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Want More Features?</h3>
               <p className="text-gray-600 mb-4">
-                Missing a feature or have an idea to improve EnhanceMySEO? We'd love to hear from you! Your feedback helps us build exactly what you need.
+                Missing a feature or have an idea to improve EnhanceMySEO? We&apos;d love to hear from you! Your feedback helps us build exactly what you need.
               </p>
               
               {/* Quick Feature Request Form */}

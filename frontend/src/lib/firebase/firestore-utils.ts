@@ -1,4 +1,4 @@
-import { onSnapshot, Unsubscribe, DocumentReference, Query, DocumentData, FirestoreError } from 'firebase/firestore';
+import { onSnapshot, Unsubscribe, DocumentReference, Query, DocumentData, FirestoreError, DocumentSnapshot, QuerySnapshot } from 'firebase/firestore';
 
 // Track active listeners to avoid timeout issues
 const activeListeners = new Set<Unsubscribe>();
@@ -19,25 +19,25 @@ export const cleanupAllListeners = () => {
 // Enhanced listener with automatic cleanup - Document overload
 export function createManagedListener(
   target: DocumentReference<DocumentData>,
-  callback: (snapshot: any) => void,
+  callback: (snapshot: DocumentSnapshot<DocumentData> | QuerySnapshot<DocumentData>) => void,
   errorCallback?: (error: FirestoreError) => void
 ): Unsubscribe;
 
 // Enhanced listener with automatic cleanup - Query overload
 export function createManagedListener(
   target: Query<DocumentData>,
-  callback: (snapshot: any) => void,
+  callback: (snapshot: DocumentSnapshot<DocumentData> | QuerySnapshot<DocumentData>) => void,
   errorCallback?: (error: FirestoreError) => void
 ): Unsubscribe;
 
 // Implementation
 export function createManagedListener(
   target: DocumentReference<DocumentData> | Query<DocumentData>,
-  callback: (snapshot: any) => void,
+  callback: (snapshot: DocumentSnapshot<DocumentData> | QuerySnapshot<DocumentData>) => void,
   errorCallback?: (error: FirestoreError) => void
 ): Unsubscribe {
   const unsubscribe = onSnapshot(
-    target as any, // Type assertion needed here
+    target as DocumentReference<DocumentData>,
     callback,
     errorCallback || ((error: FirestoreError) => {
       console.error('Firestore listener error:', error);

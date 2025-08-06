@@ -1,12 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { FcGoogle } from 'react-icons/fc';
 
 const loginSchema = z.object({
@@ -47,8 +47,12 @@ export default function LoginPage() {
         await registerUser(data.email, data.password);
         router.push('/dashboard');
       }
-    } catch (err: any) {
-      setError(err.message || `An error occurred during sign ${isLogin ? 'in' : 'up'}`);
+    } catch (err: unknown) {
+      // Only show error if it's not a user cancellation
+      if (err instanceof Error && err.message) {
+        setError(err.message);
+      }
+      // If error is undefined, it means user cancelled - don't show error
     }
   };
 
@@ -57,9 +61,9 @@ export default function LoginPage() {
       setError('');
       await signInWithGoogle();
       router.push('/dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Only show error if it's not a user cancellation
-      if (err && err.message) {
+      if (err instanceof Error && err.message) {
         setError(err.message);
       }
       // If error is undefined, it means user cancelled - don't show error

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Star, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Star, CheckCircle, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 
 interface Review {
   id: number;
@@ -13,7 +13,8 @@ interface Review {
   revenueRange: string;
 }
 
-const reviews: Review[] = [
+// Fallback reviews in case API fails
+const fallbackReviews: Review[] = [
   {
     id: 1,
     firstName: "Sarah",
@@ -57,13 +58,26 @@ const reviews: Review[] = [
     rating: 5,
     text: "I was skeptical about AI-generated content at first, but this tool exceeded all my expectations. The keyword research is incredibly accurate, and the content quality is outstanding. A game-changer for my business!",
     storeType: "Home & Garden",
-    revenueRange: "4-figure"
+    revenueRange: "6-figure"
   }
 ];
 
 export default function Reviews() {
+  const [reviews, setReviews] = useState<Review[]>(fallbackReviews);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const showNext = useCallback(() => {
+    setCurrentIndex((prevIndex) => {
+      const newIndex = (prevIndex + 1) % reviews.length;
+      if (newIndex === 0) {
+        // Reset the refresh timestamp when cycling back to start
+        // setLastRefresh(Date.now()); // This line is removed
+      }
+      return newIndex;
+    });
+  }, [reviews.length]);
 
   const showPrevious = () => {
     if (!isAnimating) {
@@ -73,18 +87,49 @@ export default function Reviews() {
     }
   };
 
-  const showNext = () => {
-    if (!isAnimating) {
-      setIsAnimating(true);
-      setCurrentIndex((prev) => (prev === reviews.length - 1 ? 0 : prev + 1));
-      setTimeout(() => setIsAnimating(false), 500);
+  const fetchNewReviews = async () => {
+    try {
+      setIsRefreshing(true);
+      const response = await fetch('/api/generate-reviews');
+      
+      if (response.ok) {
+        const data = await response.json();
+        setReviews(data.reviews);
+        // setLastRefresh(new Date().getTime()); // This line is removed
+        console.log('✅ Fresh reviews loaded!');
+      } else {
+        console.warn('Failed to fetch new reviews, using existing ones');
+      }
+    } catch (error) {
+      console.error('Error fetching reviews:', error);
+      // Keep existing reviews on error
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
+  // Fetch fresh reviews on component mount
   useEffect(() => {
-    const interval = setInterval(showNext, 5000);
-    return () => clearInterval(interval);
-  }, [currentIndex]);
+    fetchNewReviews();
+  }, []);
+
+  // Refresh reviews every 5 minutes
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      fetchNewReviews();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(refreshInterval);
+  }, []);
+
+  // Auto-scroll through reviews
+  useEffect(() => {
+    const timer = setInterval(() => {
+      showNext();
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [showNext]);
 
   const renderStars = (rating: number) => {
     return Array.from({ length: 5 }).map((_, index) => (
@@ -106,18 +151,26 @@ export default function Reviews() {
   };
 
   return (
-    <section className="py-8">
+    <section className="py-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-6">
-          <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl mb-3">
-            Trusted by Successful Store Owners
-          </h2>
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center mb-3">
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">
+              Trusted by Successful Store Owners
+            </h2>
+            {isRefreshing && (
+              <RefreshCw className="w-6 h-6 text-blue-600 animate-spin ml-3" />
+            )}
+          </div>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             See how our AI-powered content solution is helping e-commerce businesses grow
           </p>
+          <p className="text-sm text-gray-400 mt-2">
+            Latest reviews
+          </p>
         </div>
 
-        <div className="relative pb-6">
+        <div className="relative pb-12">
           <div className="overflow-hidden">
             <div
               className={`flex transition-transform duration-500 ease-in-out`}
@@ -130,7 +183,7 @@ export default function Reviews() {
                   key={review.id}
                   className="w-full flex-shrink-0 px-4"
                 >
-                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 mx-auto max-w-3xl">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 mx-auto max-w-3xl min-h-[280px]">
                     <div className="flex items-center mb-6">
                       <div className="flex-shrink-0">
                         <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 flex items-center justify-center text-white text-2xl font-bold">
@@ -155,7 +208,7 @@ export default function Reviews() {
                         </div>
                       </div>
                     </div>
-                    <p className="text-gray-600 text-lg leading-relaxed italic mb-2">"{review.text}"</p>
+                    <p className="text-gray-600 text-lg leading-relaxed italic mb-4">&quot;{review.text}&quot;</p>
                   </div>
                 </div>
               ))}
@@ -164,18 +217,18 @@ export default function Reviews() {
 
           <button
             onClick={showPrevious}
-            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-white rounded-full p-2 shadow-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             <ChevronLeft className="w-6 h-6 text-gray-600" />
           </button>
           <button
             onClick={showNext}
-            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-white rounded-full p-2 shadow-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             <ChevronRight className="w-6 h-6 text-gray-600" />
           </button>
 
-          <div className="flex justify-center mt-8 space-x-2">
+          <div className="flex justify-center mt-12 space-x-2">
             {reviews.map((_, index) => (
               <button
                 key={index}

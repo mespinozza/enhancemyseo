@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
+import { toast } from 'react-hot-toast';
 
 export default function BrandsPage() {
   const { user } = useAuth();
@@ -13,26 +14,25 @@ export default function BrandsPage() {
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      loadBrandProfiles();
-    }
-  }, [user]);
-
-  const loadBrandProfiles = async () => {
+  const loadBrandProfiles = useCallback(async () => {
     if (!user) return;
-    
+    setIsLoading(true);
     try {
       const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
     } catch (error) {
       console.error('Error loading brand profiles:', error);
+      toast.error('Failed to load brand profiles');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user]);
 
-  const handleSave = async (profile: BrandProfile) => {
+  useEffect(() => {
+    loadBrandProfiles();
+  }, [loadBrandProfiles]);
+
+  const handleSave = async () => {
     await loadBrandProfiles();
     setShowForm(false);
     setSelectedProfile(null);
@@ -42,7 +42,7 @@ export default function BrandsPage() {
     if (!confirm('Are you sure you want to delete this brand profile?')) return;
     
     try {
-      await brandProfileOperations.delete(profileId);
+      await brandProfileOperations.delete(user!.uid, profileId);
       await loadBrandProfiles();
     } catch (error) {
       console.error('Error deleting brand profile:', error);

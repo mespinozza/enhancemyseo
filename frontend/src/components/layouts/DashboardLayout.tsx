@@ -5,9 +5,8 @@ import {
   DocumentTextIcon,
   HomeIcon,
   CogIcon,
-  XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';

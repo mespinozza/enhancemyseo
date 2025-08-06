@@ -16,6 +16,7 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
     brandName: existingProfile?.brandName || '',
     businessType: existingProfile?.businessType || '',
     brandColor: existingProfile?.brandColor || '#000000',
+    websiteUrl: existingProfile?.websiteUrl || '',
     shopifyStoreUrl: existingProfile?.shopifyStoreUrl || '',
     shopifyAccessToken: existingProfile?.shopifyAccessToken || '',
     shopifyApiKey: existingProfile?.shopifyApiKey || '',
@@ -43,14 +44,17 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
         userId: user.uid,
       } as BrandProfile;
 
-      let savedProfile;
+      let savedProfile: BrandProfile;
       if (existingProfile?.id) {
-        savedProfile = await brandProfileOperations.update(
+        await brandProfileOperations.update(
+          user!.uid,
           existingProfile.id,
           profileData
         );
+        savedProfile = { ...profileData, id: existingProfile.id };
       } else {
-        savedProfile = await brandProfileOperations.create(profileData);
+        const newId = await brandProfileOperations.create(user!.uid, profileData);
+        savedProfile = { ...profileData, id: newId as string };
       }
 
       onSave?.(savedProfile);
@@ -129,8 +133,129 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
           </div>
         </div>
 
+        {/* Website URL Section - NEW */}
+        <div className="border-t border-gray-200 pt-4">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Website URL</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Provide your main website URL. This can be used for content discovery and link organization.
+          </p>
+          
+          <div>
+            <label htmlFor="websiteUrl" className="block text-sm font-medium text-gray-700">
+              Website URL
+            </label>
+            <input
+              type="url"
+              id="websiteUrl"
+              name="websiteUrl"
+              value={formData.websiteUrl}
+              onChange={handleChange}
+              placeholder="https://your-website.com"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+          
+          {/* Integration Status Indicator */}
+          {(() => {
+            const hasCompleteShopify = formData.shopifyStoreUrl && formData.shopifyAccessToken;
+            const hasWebsiteUrl = formData.websiteUrl;
+            
+            if (hasCompleteShopify && hasWebsiteUrl) {
+              return (
+                <div className="mt-2 flex items-center text-sm text-green-600">
+                  <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Both website and Shopify integration configured
+                </div>
+              );
+            } else if (hasCompleteShopify) {
+              return (
+                <div className="mt-2 flex items-center text-sm text-blue-600">
+                  <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  Shopify integration is primary (website URL optional)
+                </div>
+              );
+            }
+            return null;
+          })()}
+        </div>
+
+        {/* Shopify Integration Section */}
+        <div className="border-t border-gray-200 pt-4">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Shopify Integration</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Connect your Shopify store for automatic product, collection, and page integration in articles.
+          </p>
+          
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="shopifyStoreUrl" className="block text-sm font-medium text-gray-700">
+                Shopify Store URL
+              </label>
+              <input
+                type="url"
+                id="shopifyStoreUrl"
+                name="shopifyStoreUrl"
+                value={formData.shopifyStoreUrl}
+                onChange={handleChange}
+                placeholder="https://your-store.myshopify.com"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="shopifyAccessToken" className="block text-sm font-medium text-gray-700">
+                Shopify Access Token
+              </label>
+              <input
+                type="password"
+                id="shopifyAccessToken"
+                name="shopifyAccessToken"
+                value={formData.shopifyAccessToken}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="shopifyApiKey" className="block text-sm font-medium text-gray-700">
+                Shopify API Key
+              </label>
+              <input
+                type="password"
+                id="shopifyApiKey"
+                name="shopifyApiKey"
+                value={formData.shopifyApiKey}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="shopifyApiSecret" className="block text-sm font-medium text-gray-700">
+                Shopify API Secret
+              </label>
+              <input
+                type="password"
+                id="shopifyApiSecret"
+                name="shopifyApiSecret"
+                value={formData.shopifyApiSecret}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Social Media Links Section - Moved to bottom */}
         <div className="border-t border-gray-200 pt-4">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Social Media Links</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Add your social media profiles to enhance your brand presence in articles.
+          </p>
           
           <div className="space-y-4">
             <div>
@@ -256,69 +381,6 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
                 }))}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 placeholder="https://tiktok.com/@your-handle"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-gray-200 pt-4">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Shopify Integration</h3>
-          
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="shopifyStoreUrl" className="block text-sm font-medium text-gray-700">
-                Shopify Store URL
-              </label>
-              <input
-                type="url"
-                id="shopifyStoreUrl"
-                name="shopifyStoreUrl"
-                value={formData.shopifyStoreUrl}
-                onChange={handleChange}
-                placeholder="https://your-store.myshopify.com"
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="shopifyAccessToken" className="block text-sm font-medium text-gray-700">
-                Shopify Access Token
-              </label>
-              <input
-                type="password"
-                id="shopifyAccessToken"
-                name="shopifyAccessToken"
-                value={formData.shopifyAccessToken}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="shopifyApiKey" className="block text-sm font-medium text-gray-700">
-                Shopify API Key
-              </label>
-              <input
-                type="password"
-                id="shopifyApiKey"
-                name="shopifyApiKey"
-                value={formData.shopifyApiKey}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="shopifyApiSecret" className="block text-sm font-medium text-gray-700">
-                Shopify API Secret
-              </label>
-              <input
-                type="password"
-                id="shopifyApiSecret"
-                name="shopifyApiSecret"
-                value={formData.shopifyApiSecret}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               />
             </div>
           </div>

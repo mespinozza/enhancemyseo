@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { ApolloClient } from '@apollo/client';
+import { ApolloClient, NormalizedCacheObject } from '@apollo/client';
 import { createShopifyApolloClient } from '@/lib/apollo/client';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
@@ -10,7 +10,7 @@ interface ShopifyContextType {
   isConnected: boolean;
   shopDomain: string | null;
   accessToken: string | null;
-  apolloClient: ApolloClient<any> | null;
+  apolloClient: ApolloClient<NormalizedCacheObject> | null;
   connect: (domain: string, token: string) => void;
   disconnect: () => void;
   brandProfiles: BrandProfile[];
@@ -38,7 +38,7 @@ export const ShopifyProvider: React.FC<ShopifyProviderProps> = ({ children }) =>
   const [isConnected, setIsConnected] = useState(false);
   const [shopDomain, setShopDomain] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [apolloClient, setApolloClient] = useState<ApolloClient<any> | null>(null);
+  const [apolloClient, setApolloClient] = useState<ApolloClient<NormalizedCacheObject> | null>(null);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [selectedBrandProfile, setSelectedBrandProfile] = useState<BrandProfile | null>(null);
   const [loading, setLoading] = useState(true);

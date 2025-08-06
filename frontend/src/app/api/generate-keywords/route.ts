@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
@@ -15,8 +15,8 @@ const anthropic = new Anthropic({
 
 export async function POST(request: Request) {
   try {
-    // Get the user's ID token from the Authorization header
-    const authHeader = request.headers.get('Authorization');
+    // Verify authentication
+    const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -25,22 +25,25 @@ export async function POST(request: Request) {
     let verifiedUser;
     
     try {
-      // Verify the ID token
       verifiedUser = await getAuth().verifyIdToken(idToken);
-      if (!verifiedUser.uid) {
-        throw new Error('Invalid token');
-      }
-      console.log('User authenticated successfully:', verifiedUser.uid);
     } catch (error) {
-      console.error('Error verifying token:', error);
+      console.error('Error verifying ID token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // CRITICAL: Admin access control - only admin users can generate keywords
+    const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
+    if (subscriptionStatus !== 'admin') {
+      console.log('Access denied for non-admin user:', verifiedUser.uid, 'Subscription:', subscriptionStatus);
+      return NextResponse.json({ 
+        error: 'Access denied. Keyword generation is only available to administrators.' 
+      }, { status: 403 });
     }
 
     // CRITICAL: Server-side usage verification
     console.log('Verifying usage limits for user:', verifiedUser.uid);
     try {
       // Get user's subscription status from Firestore
-      const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
       console.log('User subscription status:', subscriptionStatus);
       
       // Get Firestore admin instance
@@ -110,7 +113,7 @@ export async function POST(request: Request) {
 
     // Generate keywords using Claude
     const message = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+              model: "claude-sonnet-4-20250514",
       max_tokens: 4000,
       messages: [
         {

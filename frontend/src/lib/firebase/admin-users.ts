@@ -1,6 +1,15 @@
-import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp, Timestamp, FieldValue } from 'firebase/firestore';
 import { db } from './config';
 import { SubscriptionTier } from '@/config/navigation';
+
+// Interface for debug functions attached to window
+interface WindowWithDebugFunctions extends Window {
+  setMyTier?: (tier: SubscriptionTier) => Promise<void>;
+  setMeAsAdmin?: () => Promise<void>;
+  setMeAsFree?: () => Promise<void>;
+  validateMySubscription?: () => Promise<void>;
+  checkMyAccess?: () => Promise<void>;
+}
 
 // Define user subscription interface
 export interface UserSubscription {
@@ -9,10 +18,10 @@ export interface UserSubscription {
   subscription_status: SubscriptionTier;
   displayName?: string;
   photoURL?: string;
-  createdAt?: any;
-  updatedAt?: any;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
   addedBy?: string;
-  subscriptionDate?: any; // When they started their current paid subscription
+  subscriptionDate?: Timestamp | FieldValue; // When they started their current paid subscription
 }
 
 // Check if a user has admin subscription by checking the users collection
@@ -229,7 +238,11 @@ export const updateUserSubscription = async (
 ): Promise<void> => {
   try {
     const userDocRef = doc(db, 'users', uid);
-    const updateData: any = {
+    const updateData: {
+      subscription_status: SubscriptionTier;
+      updatedAt: FieldValue;
+      subscriptionDate?: FieldValue | null;
+    } = {
       subscription_status: subscriptionStatus,
       updatedAt: serverTimestamp(),
     };
@@ -334,7 +347,7 @@ export const setUserAsFree = async (email: string): Promise<void> => {
 // Quick function to set current user to any tier (for testing)
 // Call this from browser console: window.setMyTier('kickstart')
 if (typeof window !== 'undefined') {
-  (window as any).setMyTier = async (tier: SubscriptionTier) => {
+  (window as WindowWithDebugFunctions).setMyTier = async (tier: SubscriptionTier) => {
     try {
       const { auth } = await import('./config');
       if (auth.currentUser?.email) {
@@ -352,7 +365,7 @@ if (typeof window !== 'undefined') {
 // Quick function to set current user as admin (for testing)
 // Call this from browser console: window.setMeAsAdmin()
 if (typeof window !== 'undefined') {
-  (window as any).setMeAsAdmin = async () => {
+  (window as WindowWithDebugFunctions).setMeAsAdmin = async () => {
     try {
       const { auth } = await import('./config');
       if (auth.currentUser?.email) {
@@ -368,7 +381,7 @@ if (typeof window !== 'undefined') {
 
   // Quick function to set current user as free (for testing)
   // Call this from browser console: window.setMeAsFree()
-  (window as any).setMeAsFree = async () => {
+  (window as WindowWithDebugFunctions).setMeAsFree = async () => {
     try {
       const { auth } = await import('./config');
       if (auth.currentUser?.email) {
@@ -384,7 +397,7 @@ if (typeof window !== 'undefined') {
 
   // Utility function to validate and fix current user's subscription status
   // Call this from browser console: window.validateMySubscription()
-  (window as any).validateMySubscription = async () => {
+  (window as WindowWithDebugFunctions).validateMySubscription = async () => {
     try {
       const { auth } = await import('./config');
       if (auth.currentUser?.uid && auth.currentUser?.email) {
@@ -408,7 +421,7 @@ if (typeof window !== 'undefined') {
 
   // Simple function to check what features current user should see
   // Call this from browser console: window.checkMyAccess()
-  (window as any).checkMyAccess = async () => {
+  (window as WindowWithDebugFunctions).checkMyAccess = async () => {
     try {
       const { auth } = await import('./config');
       if (auth.currentUser?.uid && auth.currentUser?.email) {
@@ -444,8 +457,8 @@ if (typeof window !== 'undefined') {
 }
 
 // Validate subscription tier
-export const isValidSubscriptionTier = (tier: any): tier is SubscriptionTier => {
-  return ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'].includes(tier);
+export const isValidSubscriptionTier = (tier: unknown): tier is SubscriptionTier => {
+  return ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'].includes(tier as string);
 };
 
 // Utility function to set any subscription tier (can be called from browser console)
@@ -461,7 +474,12 @@ export const setUserSubscription = async (email: string, tier: SubscriptionTier)
       const userDoc = querySnapshot.docs[0];
       const userData = userDoc.data();
       
-      const updateData: any = {
+      const updateData: Record<string, unknown> & {
+        subscription_status: SubscriptionTier;
+        updatedAt: FieldValue;
+        manualSetBy: string;
+        subscriptionDate?: FieldValue | null;
+      } = {
         ...userData,
         subscription_status: tier,
         updatedAt: serverTimestamp(),

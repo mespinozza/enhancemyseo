@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
@@ -54,9 +54,6 @@ try {
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
-
-// Common stop words to filter out from component terms
-const commonStopWords = ['with', 'from', 'that', 'this', 'the', 'and', 'for', 'your', 'have', 'not'];
 
 // Add sleep function for rate limiting
 function sleep(ms: number): Promise<void> {
@@ -196,7 +193,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       });
       
       // Also add basic combinations from the keyword - but skip common words
-      keywordParts.forEach((part, i) => {
+      keywordParts.forEach((part) => {
         if (part.length > 3 && 
            !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
            part.toLowerCase() !== primaryVendor.toLowerCase()) {
@@ -393,7 +390,7 @@ async function fetchShopifyVendors(shopDomain: string, token: string): Promise<s
     
     if (data.data?.shop?.productVendors?.edges) {
       // Extract vendors from GraphQL response
-      data.data.shop.productVendors.edges.forEach((edge: any) => {
+      data.data.shop.productVendors.edges.forEach((edge: { node: string }) => {
         if (edge.node && typeof edge.node === 'string' && edge.node.trim()) {
           vendors.push(edge.node.toLowerCase().trim());
         }
@@ -474,7 +471,7 @@ async function fetchShopifyVendorsWithREST(shopDomain: string, token: string): P
       
       if (data.products && data.products.length > 0) {
         // Extract vendors and add to set
-        data.products.forEach((product: any) => {
+        data.products.forEach((product: { vendor?: string }) => {
           if (product.vendor && product.vendor.trim()) {
             vendorSet.add(product.vendor.toLowerCase().trim());
           }
@@ -503,18 +500,7 @@ async function fetchShopifyVendorsWithREST(shopDomain: string, token: string): P
   }
 }
 
-// Add interface for vendor scoring
-interface ScoredVendorMatch {
-  vendor: string;
-  score: number;
-}
 
-// Add interface for product scoring
-interface ProductScoreResult {
-  score: number;
-  product: any;
-  matchedTerms: string[];
-}
 
 // Add the vendor score calculation function
 function calculateVendorScore(vendor: string, words: string[]): number {
@@ -788,7 +774,17 @@ function generateSearchTerms(keyword: string, vendor: string | null): string[] {
 }
 
 // Function to search products using GraphQL for better performance with hybrid prioritization approach
-async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<any[]> {
+async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<Array<{
+  id: string;
+  title: string;
+  description?: string;
+  vendor?: string;
+  productType?: string;
+  tags?: string[];
+  handle?: string;
+  relevanceScore?: number;
+  [key: string]: unknown;
+}>> {
   console.log('Searching products using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
   
@@ -797,7 +793,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   console.log(`\nSearching ${prioritizedTerms.length} terms in priority order...`);
   
   // Step 2: Collect products with scores from all relevant terms
-  const candidateProducts: { product: any, score: number, searchTerm: string }[] = [];
+  const candidateProducts: { product: { id: string; title: string; description?: string; vendor?: string; [key: string]: unknown }, score: number, searchTerm: string }[] = [];
   const QUALITY_THRESHOLD = 10; // Minimum score for a product to be considered relevant
   const TARGET_PRODUCTS = 5;
   
@@ -905,7 +901,16 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
           console.log(`GraphQL returned ${products.length} products for query: "${query}"`);
           
           // Process and score each product
-          products.forEach((edge: any) => {
+          products.forEach((edge: { node: { 
+            id: string; 
+            title: string; 
+            description?: string; 
+            vendor?: string; 
+            productType?: string;
+            tags?: string[];
+            variants?: { edges: Array<{ node: { id: string; price: string } }> };
+            [key: string]: unknown 
+          } }) => {
             const product = edge.node;
             
             // Check if we already have this product
@@ -969,10 +974,10 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
                   vendor: product.vendor,
                   product_type: product.productType,
                   tags: product.tags,
-                  variants: product.variants.edges.map((v: any) => ({
+                  variants: product.variants?.edges?.map((v: { node: { id: string; price: string } }) => ({
                     id: v.node.id,
                     price: v.node.price
-                  }))
+                  })) || []
                 };
                 
                 candidateProducts.push({
@@ -1024,7 +1029,14 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
 }
 
 // Function to search collections using GraphQL for better performance with hybrid prioritization
-async function searchCollectionsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<any[]> {
+async function searchCollectionsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<Array<{
+  id: string;
+  title: string;
+  description?: string;
+  handle: string;
+  relevanceScore?: number;
+  [key: string]: unknown;
+}>> {
   console.log('Searching collections using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy for collections: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
   
@@ -1033,7 +1045,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   console.log(`\nSearching ${prioritizedTerms.length} terms for collections in priority order...`);
   
   // Step 2: Collect collections with basic scoring
-  const candidateCollections: { collection: any, score: number, searchTerm: string }[] = [];
+  const candidateCollections: { collection: { id: string; title: string; description?: string; handle: string; [key: string]: unknown }, score: number, searchTerm: string }[] = [];
   const TARGET_COLLECTIONS = 5;
   
   for (const term of prioritizedTerms) {
@@ -1107,7 +1119,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
           console.log(`Found ${collections.length} collections with GraphQL query: "${query}"`);
           
           // Process and score each collection
-          collections.forEach((edge: any) => {
+          collections.forEach((edge: { node: { id: string; title: string; description?: string; handle: string; [key: string]: unknown } }) => {
             const collection = edge.node;
             
             // Check if we already have this collection
@@ -1228,7 +1240,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
 }
 
 // Update the main search functions to use GraphQL only, with REST as fallback
-async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
+async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<Array<{ id: string; title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; handle?: string; relevanceScore?: number; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
@@ -1307,7 +1319,7 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   }
 }
 
-async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<any[]> {
+async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<Array<{ id: string; title: string; description?: string; handle: string; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
@@ -1428,538 +1440,343 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
   }
 }
 
-// Function to search all Shopify collections
-async function searchAllCollections(shopDomain: string, token: string, searchTerms: string[], vendorName: string | null = null): Promise<any[]> {
-  let matchedCollections: any[] = [];
+// Function to search Shopify pages with intelligent filtering
+async function searchShopifyPages(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<Array<{ id: string; title: string; handle: string; bodySummary?: string; relevanceScore?: number; [key: string]: unknown }>> {
+  // Extract the original keyword from search terms
+  const originalKeyword = searchTerms[0];
   
-  // Function to search a batch of collections with our terms
-  const searchCollectionBatch = (collections: any[], terms: string[]): any[] => {
-    const results: any[] = [];
-    
-    // Execute searches in priority order
-    for (const term of terms) {
-      if (results.length >= 5) break; // Stop once we have enough collections
-      
-      // Skip very short or common terms
-      if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
-        console.log(`Skipping search for common/short term: "${term}"`);
-        continue;
-      }
-      
-      console.log(`Searching current batch for term: "${term}"`);
-      
-      const words = term.split(' ');
-      
-      if (words.length > 1) {
-        // For multi-word terms, require exact phrase match in title
-        const titleMatches = collections.filter((collection: any) => {
-          if (!collection.title) return false;
-          if (results.some(c => c.id === collection.id)) return false; // Skip if already matched
-          
-          const collectionTitle = collection.title.toLowerCase();
-          
-          // Only accept exact phrase matches
-          if (collectionTitle.includes(term.toLowerCase())) {
-            console.log(`Found exact phrase match in title: "${collection.title}" matches "${term}"`);
-            return true;
-          }
-          return false;
-        });
-        
-        console.log(`Found ${titleMatches.length} collections by exact phrase match for "${term}" in this batch`);
-        
-        // Add unique collections from title matches
-        titleMatches.forEach((collection: any) => {
-          if (!results.some(c => c.id === collection.id)) {
-            results.push(collection);
-            console.log(`Added collection by exact phrase match: "${collection.title}"`);
-          }
-        });
-      } else {
-        // For single-word terms, only search if it's a significant term
-        if (isSignificantTerm(term)) {
-          const titleMatches = collections.filter((collection: any) => {
-            if (!collection.title || results.some(c => c.id === collection.id)) return false;
-            
-            const collectionTitle = collection.title.toLowerCase();
-            // Create a regex pattern that matches the word with word boundaries
-            const pattern = new RegExp(`\\b${escapeRegExp(term.toLowerCase())}\\b`);
-            return pattern.test(collectionTitle);
-          });
-          
-          console.log(`Found ${titleMatches.length} collections by exact word match for significant term "${term}" in this batch`);
-          
-          titleMatches.forEach((collection: any) => {
-            if (!results.some(c => c.id === collection.id)) {
-              results.push(collection);
-              console.log(`Added collection by exact word match: "${collection.title}"`);
-            }
-          });
-        } else {
-          console.log(`Skipping search for non-significant single word term: "${term}"`);
-        }
-      }
+  // Step 1: Extract comprehensive terms using AI analysis (reuse from products search)
+  console.log('\n=== PAGES STEP 1: AI Term Extraction ===');
+  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+  const aiExtractedTerms = aiAnalysisResult.searchTerms;
+  const primaryVendor = aiAnalysisResult.primaryVendor;
+  
+  console.log(`AI extracted ${aiExtractedTerms.length} terms for pages:`, aiExtractedTerms.join(', '));
+  console.log(`AI identified primary vendor: "${primaryVendor || 'None'}"`);
+  
+  // Step 2: Filter terms for pages (be more selective for pages)
+  console.log('\n=== PAGES STEP 2: Term Filtering ===');
+  const validSearchTerms = aiExtractedTerms.filter(term => {
+    const termLower = term.toLowerCase();
+    // Be very selective for pages - they tend to have very broad, generic names
+    if (term.length < 4 || COMMON_WORDS.includes(termLower)) {
+      console.log(`Filtering out common/short term for pages: "${term}"`);
+      return false;
     }
     
-    return results.slice(0, 5); // Return at most 5 collections
-  };
+    // Skip very vague multi-word terms for pages
+    const vaguePhrases = ['importance of', 'the importance', 'of a', 'how to', 'what is', 'why is'];
+    if (vaguePhrases.some(phrase => termLower.includes(phrase))) {
+      console.log(`Filtering out vague phrase for pages: "${term}"`);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  if (validSearchTerms.length === 0) {
+    // If all terms were filtered out, extract meaningful words from original keyword
+    const meaningfulWords = originalKeyword
+      .split(' ')
+      .filter(word => 
+        word.length > 4 && 
+        !COMMON_WORDS.includes(word.toLowerCase()) &&
+        !['importance', 'the', 'of', 'a', 'how', 'what', 'why'].includes(word.toLowerCase())
+      );
+    
+    if (meaningfulWords.length > 0) {
+      console.log(`All search terms were filtered. Using meaningful words from keyword: ${meaningfulWords.join(', ')}`);
+      validSearchTerms.push(...meaningfulWords);
+    } else {
+      // Last resort - just use the vendor if we have one
+      if (primaryVendor) {
+        console.log(`Using vendor as search term: "${primaryVendor}"`);
+        validSearchTerms.push(primaryVendor);
+      } else {
+        console.log('No valid search terms for pages after filtering');
+        return [];
+      }
+    }
+  }
+  
+  console.log(`Final ${validSearchTerms.length} search terms for pages:`, validSearchTerms.join(', '));
+  
+  // Step 3: Search pages using GraphQL
+  console.log('\n=== PAGES STEP 3: GraphQL Search ===');
   
   try {
-    console.log('Fetching and searching collections from Shopify store with pagination');
-    
-    // First fetch custom collections
-    let hasNextPage = true;
-    let nextPageUrl: string | null = `https://${shopDomain}/admin/api/2023-01/custom_collections.json?limit=250`;
-    let pageCount = 1;
-    const TIMEOUT_MS = 30000; // 30 second timeout for each request
-    
-    let totalCollectionsChecked = 0;
-    let startTime = Date.now();
-    
-    // Custom collections first
-    console.log('Fetching custom collections...');
-    while (hasNextPage && nextPageUrl && matchedCollections.length < 5) {
-      console.log(`Fetching custom collections page ${pageCount}...`);
-      
-      // Create an abort controller for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      
-      try {
-        // Add rate limiting - wait 500ms between requests to stay under 2 req/sec
-        await sleep(500);
-        
-        const collectionsRes: Response = await fetch(nextPageUrl, {
-          headers: {
-            'X-Shopify-Access-Token': token,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal
-        });
-        
-        // Clear the timeout since request completed
-        clearTimeout(timeoutId);
-        
-        console.log(`Shopify custom collections API response status (page ${pageCount}):`, collectionsRes.status);
-        
-        if (!collectionsRes.ok) {
-          const errorText = await collectionsRes.text();
-          console.error(`Shopify API error (${collectionsRes.status}):`, errorText);
-          
-          // Handle rate limiting with exponential backoff
-          if (collectionsRes.status === 429) {
-            const retryAfter = parseInt(collectionsRes.headers.get('Retry-After') || '1', 10);
-            console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
-            await sleep(retryAfter * 1000);
-            pageCount--; // Retry this page
-            continue;
-          }
-          
-          throw new Error(`Shopify API returned ${collectionsRes.status}: ${errorText}`);
-        }
-        
-        // Check for Link header which contains pagination info
-        const linkHeader: string | null = collectionsRes.headers.get('Link');
-        nextPageUrl = null;
-        
-        if (linkHeader) {
-          // Parse Link header to get next page URL
-          const links: string[] = linkHeader.split(',');
-          for (const link of links) {
-            const match: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
-            if (match && match[2] === 'next') {
-              nextPageUrl = match[1];
-              break;
-            }
-          }
-        }
-        
-        hasNextPage = !!nextPageUrl;
-        
-        const customData = await collectionsRes.json();
-        
-        if (customData.custom_collections && customData.custom_collections.length > 0) {
-          totalCollectionsChecked += customData.custom_collections.length;
-          console.log(`Found ${customData.custom_collections.length} custom collections on page ${pageCount}, searching for matches...`);
-          
-          // Search this batch of collections immediately
-          const newMatches = searchCollectionBatch(customData.custom_collections, searchTerms);
-          
-          // Add new matches to our collection
-          newMatches.forEach(collection => {
-            if (!matchedCollections.some(c => c.id === collection.id)) {
-              matchedCollections.push(collection);
-            }
-          });
-          
-          console.log(`Found ${newMatches.length} matching collections on page ${pageCount}, total matches so far: ${matchedCollections.length}`);
-          
-          // Early exit if we have enough collections
-          if (matchedCollections.length >= 5) {
-            console.log(`Found enough matching collections (${matchedCollections.length}), stopping search.`);
-            break;
-          }
-        } else {
-          console.log(`No custom collections found on page ${pageCount}`);
-        }
-        
-        pageCount++;
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          console.error(`Request for page ${pageCount} timed out after ${TIMEOUT_MS/1000} seconds`);
-          // Move to the next page if we timeout
-          pageCount++;
-          continue;
-        }
-        throw error;
-      }
-    }
-    
-    // If we still need more collections, try smart collections
-    if (matchedCollections.length < 5) {
-      // Reset for smart collections
-      hasNextPage = true;
-      nextPageUrl = `https://${shopDomain}/admin/api/2023-01/smart_collections.json?limit=250`;
-      pageCount = 1;
-      
-      console.log('Fetching smart collections...');
-      while (hasNextPage && nextPageUrl && matchedCollections.length < 5) {
-        console.log(`Fetching smart collections page ${pageCount}...`);
-        
-        // Create an abort controller for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        
-        try {
-          // Add rate limiting - wait 500ms between requests to stay under 2 req/sec
-          await sleep(500);
-          
-          const smartCollectionsRes: Response = await fetch(nextPageUrl, {
-            headers: {
-              'X-Shopify-Access-Token': token,
-              'Content-Type': 'application/json',
-            },
-            signal: controller.signal
-          });
-          
-          // Clear the timeout since request completed
-          clearTimeout(timeoutId);
-          
-          console.log(`Shopify smart collections API response status (page ${pageCount}):`, smartCollectionsRes.status);
-          
-          if (!smartCollectionsRes.ok) {
-            const errorText = await smartCollectionsRes.text();
-            console.error(`Shopify API error (${smartCollectionsRes.status}):`, errorText);
-            
-            // Handle rate limiting with exponential backoff
-            if (smartCollectionsRes.status === 429) {
-              const retryAfter = parseInt(smartCollectionsRes.headers.get('Retry-After') || '1', 10);
-              console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
-              await sleep(retryAfter * 1000);
-              pageCount--; // Retry this page
-              continue;
-            }
-            
-            throw new Error(`Shopify API returned ${smartCollectionsRes.status}: ${errorText}`);
-          }
-          
-          // Check for Link header which contains pagination info
-          const linkHeader: string | null = smartCollectionsRes.headers.get('Link');
-          nextPageUrl = null;
-          
-          if (linkHeader) {
-            // Parse Link header to get next page URL
-            const links: string[] = linkHeader.split(',');
-            for (const link of links) {
-              const match: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
-              if (match && match[2] === 'next') {
-                nextPageUrl = match[1];
-                break;
-              }
-            }
-          }
-          
-          hasNextPage = !!nextPageUrl;
-          
-          const smartData = await smartCollectionsRes.json();
-          
-          if (smartData.smart_collections && smartData.smart_collections.length > 0) {
-            totalCollectionsChecked += smartData.smart_collections.length;
-            console.log(`Found ${smartData.smart_collections.length} smart collections on page ${pageCount}, searching for matches...`);
-            
-            // Search this batch of collections immediately
-            const newMatches = searchCollectionBatch(smartData.smart_collections, searchTerms);
-            
-            // Add new matches to our collection
-            newMatches.forEach(collection => {
-              if (!matchedCollections.some(c => c.id === collection.id)) {
-                matchedCollections.push(collection);
-              }
-            });
-            
-            console.log(`Found ${newMatches.length} matching collections on page ${pageCount}, total matches so far: ${matchedCollections.length}`);
-            
-            // Early exit if we have enough collections
-            if (matchedCollections.length >= 5) {
-              console.log(`Found enough matching collections (${matchedCollections.length}), stopping search.`);
-              break;
-            }
-          } else {
-            console.log(`No smart collections found on page ${pageCount}`);
-          }
-          
-          pageCount++;
-        } catch (error: any) {
-          if (error.name === 'AbortError') {
-            console.error(`Request for page ${pageCount} timed out after ${TIMEOUT_MS/1000} seconds`);
-            // Move to the next page if we timeout
-            pageCount++;
-            continue;
-          }
-          throw error;
-        }
-      }
-    }
-    
-    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-    console.log(`Completed collection search in ${elapsedSeconds} seconds. Checked ${totalCollectionsChecked} collections and found ${matchedCollections.length} matches.`);
-    
-    const finalCollections = matchedCollections.slice(0, 5);
-    console.log(`Final collection selection (${finalCollections.length}):`);
-    finalCollections.forEach((c: any) => console.log(`- ${c.title}`));
-    
-    return finalCollections;
+    return await searchPagesWithGraphQL(shopDomain, token, validSearchTerms, originalKeyword);
   } catch (error) {
-    console.error('Error fetching collections:', error);
-    return matchedCollections.slice(0, 5); // Return any collections we found before the error
+    console.error('❌ GraphQL pages search failed:', error);
+    return [];
   }
 }
 
-// Function to search all Shopify products (original implementation, now as fallback)
-async function searchAllProducts(shopDomain: string, token: string, searchTerms: string[]): Promise<any[]> {
-  console.log('Searching all products across store (vendor-first approach failed)...');
-  let matchedProducts: any[] = [];
+// Function to search pages using GraphQL with intelligent scoring
+async function searchPagesWithGraphQL(shopDomain: string, token: string, searchTerms: string[], originalKeyword: string = ''): Promise<Array<{
+  id: string;
+  title: string;
+  handle: string;
+  bodySummary?: string;
+  relevanceScore?: number;
+  [key: string]: unknown;
+}>> {
+  const matchedPages: Array<{
+    id: string;
+    title: string;
+    handle: string;
+    bodySummary?: string;
+    relevanceScore?: number;
+    [key: string]: unknown;
+  }> = [];
   
-  // Function to search a batch of products with our terms
-  const searchProductBatch = (products: any[], terms: string[]): any[] => {
-    const results: any[] = [];
-    
-    // Execute searches in priority order
-    for (const term of terms) {
-      if (results.length >= 5) break; // Stop once we have enough products
-      
-      // Skip very short or common terms
-      if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
-        console.log(`Skipping search for common/short term: "${term}"`);
-        continue;
-      }
-      
-      console.log(`Searching current batch for term: "${term}"`);
-      
-      const words = term.split(' ');
-      
-      if (words.length > 1) {
-        // For multi-word terms, require exact phrase match in title
-        const titleMatches = products.filter((product: any) => {
-          if (!product.title) return false;
-          if (results.some(p => p.id === product.id)) return false; // Skip if already matched
-          
-          const productTitle = product.title.toLowerCase();
-          
-          // Only accept exact phrase matches
-          if (productTitle.includes(term.toLowerCase())) {
-            console.log(`Found exact phrase match in title: "${product.title}" matches "${term}"`);
-            return true;
-          }
-          return false;
-        });
-        
-        console.log(`Found ${titleMatches.length} products by exact phrase match for "${term}" in this batch`);
-        
-        // Add unique products from title matches
-        titleMatches.forEach((product: any) => {
-          if (!results.some(p => p.id === product.id)) {
-            results.push(product);
-            console.log(`Added product by exact phrase match: "${product.title}"`);
-          }
-        });
-      } else {
-        // For single-word terms, only search if it's a significant term
-        if (isSignificantTerm(term)) {
-          const titleMatches = products.filter((product: any) => {
-            if (!product.title || results.some(p => p.id === product.id)) return false;
-            
-            const productTitle = product.title.toLowerCase();
-            // Create a regex pattern that matches the word with word boundaries
-            const pattern = new RegExp(`\\b${escapeRegExp(term.toLowerCase())}\\b`);
-            return pattern.test(productTitle);
-          });
-          
-          console.log(`Found ${titleMatches.length} products by exact word match for significant term "${term}" in this batch`);
-          
-          titleMatches.forEach((product: any) => {
-            if (!results.some(p => p.id === product.id)) {
-              results.push(product);
-              console.log(`Added product by exact word match: "${product.title}"`);
-            }
-          });
-        } else {
-          console.log(`Skipping search for non-significant single word term: "${term}"`);
-        }
-      }
-    }
-    
-    return results.slice(0, 5); // Return at most 5 products
-  };
-
-  // Fetch and search products page by page
-  try {
-    console.log('Fetching and searching products from Shopify store with pagination');
-    
-    let hasNextPage = true;
-    let nextPageUrl: string | null = `https://${shopDomain}/admin/api/2023-01/products.json?limit=250`;
-    let pageCount = 1;
-    const TIMEOUT_MS = 60000; // 1 minute timeout for each request
-    
-    // Keep track of progress
-    let totalProductsChecked = 0;
-    let startTime = Date.now();
-    
-    // No MAX_PAGES limit - continue until we find enough products or reach the end
-    while (hasNextPage && nextPageUrl && matchedProducts.length < 5) {
-      console.log(`Fetching product page ${pageCount}...`);
-      
-      // Create an abort controller for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      
-      try {
-        // Add rate limiting - wait 500ms between requests to stay under 2 req/sec
-        await sleep(500);
-        
-        const productsRes: Response = await fetch(nextPageUrl, {
-          headers: {
-            'X-Shopify-Access-Token': token,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal
-        });
-        
-        // Clear the timeout since request completed
-        clearTimeout(timeoutId);
-        
-        console.log(`Shopify products API response status (page ${pageCount}):`, productsRes.status);
-        
-        if (!productsRes.ok) {
-          const errorText = await productsRes.text();
-          console.error(`Shopify API error (${productsRes.status}):`, errorText);
-          
-          // Handle rate limiting with exponential backoff
-          if (productsRes.status === 429) {
-            const retryAfter = parseInt(productsRes.headers.get('Retry-After') || '1', 10);
-            console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
-            await sleep(retryAfter * 1000);
-            pageCount--; // Retry this page
-            continue;
-          }
-          
-          throw new Error(`Shopify API returned ${productsRes.status}: ${errorText}`);
-        }
-        
-        // Check for Link header which contains pagination info
-        const linkHeader: string | null = productsRes.headers.get('Link');
-        nextPageUrl = null;
-        
-        if (linkHeader) {
-          // Parse Link header to get next page URL
-          const links: string[] = linkHeader.split(',');
-          for (const link of links) {
-            const match: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
-            if (match && match[2] === 'next') {
-              nextPageUrl = match[1];
-              break;
-            }
-          }
-        }
-        
-        hasNextPage = !!nextPageUrl;
-        
-        const productsData = await productsRes.json();
-        
-        if (productsData.products && productsData.products.length > 0) {
-          totalProductsChecked += productsData.products.length;
-          console.log(`Found ${productsData.products.length} products on page ${pageCount}, searching for matches...`);
-          
-          // Search this batch of products immediately
-          const newMatches = searchProductBatch(productsData.products, searchTerms);
-          
-          // Add new matches to our collection
-          newMatches.forEach(product => {
-            if (!matchedProducts.some(p => p.id === product.id)) {
-              matchedProducts.push(product);
-            }
-          });
-          
-          console.log(`Found ${newMatches.length} matching products on page ${pageCount}, total matches so far: ${matchedProducts.length}`);
-          
-          // Early exit if we have enough products
-          if (matchedProducts.length >= 5) {
-            console.log(`Found enough matching products (${matchedProducts.length}), stopping search.`);
-            break;
-          }
-          
-          // Report progress every 5 pages
-          if (pageCount % 5 === 0) {
-            const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-            console.log(`Progress update: ${totalProductsChecked} products checked in ${elapsedSeconds} seconds, found ${matchedProducts.length} matches so far`);
-          }
-        } else {
-          console.log(`No products found on page ${pageCount}`);
-        }
-        
-        pageCount++;
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          console.error(`Request for page ${pageCount} timed out after ${TIMEOUT_MS/1000} seconds`);
-          // Move to the next page if we timeout
-          pageCount++;
-          continue;
-        }
-        throw error;
-      }
-    }
-    
-    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-    console.log(`Completed product search in ${elapsedSeconds} seconds. Checked ${totalProductsChecked} products and found ${matchedProducts.length} matches.`);
-    
-    const finalProducts = matchedProducts.slice(0, 5);
-    console.log(`Final product selection (${finalProducts.length}):`);
-    finalProducts.forEach((p: any) => console.log(`- ${p.title}`));
-    
-    return finalProducts;
-  } catch (error) {
-    console.error('Error fetching products:', error);
-    return matchedProducts.slice(0, 5); // Return any products we found before the error
-  }
-}
-
-// Helper function to identify high-value terms worth checking in descriptions
-function isHighValueTerm(term: string): boolean {
-  // List of term patterns that indicate high value
-  const highValuePatterns = [
-    'food grade',
-    'industrial grade',
-    'food safe',
-    'food processing',
-    'kluberfood',
-    'hydraulic',
-    'lubricant',
-    'grease'
+  // Blacklist of generic page keywords that should be filtered out
+  const genericPageKeywords = [
+    'terms', 'service', 'privacy', 'policy', 'contact', 'about', 'shipping', 
+    'returns', 'refund', 'track', 'order', 'cart', 'checkout', 'login', 
+    'register', 'account', 'faq', 'help', 'support', 'legal', 'cookies',
+    'newsletter', 'subscribe', 'unsubscribe', 'sitemap', 'search'
   ];
   
-  const termLower = term.toLowerCase();
-  return highValuePatterns.some(pattern => termLower.includes(pattern));
+  console.log(`🔍 Starting GraphQL search for pages with ${searchTerms.length} terms`);
+  console.log(`Search terms: ${searchTerms.join(', ')}`);
+  
+  for (const searchTerm of searchTerms) {
+    if (matchedPages.length >= 3) break; // Limit to top 3 pages
+    
+    console.log(`\n📄 Searching pages for: "${searchTerm}"`);
+    
+    const query = `
+      query searchPages($query: String!, $first: Int!) {
+        pages(first: $first, query: $query) {
+          edges {
+            node {
+              id
+              title
+              handle
+              bodySummary
+              createdAt
+              updatedAt
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `;
+    
+    const variables = {
+      query: `title:*${searchTerm}*`,
+      first: 20
+    };
+    
+    try {
+      await sleep(200); // Rate limiting
+      
+      const response = await fetch(`https://${shopDomain}/admin/api/2023-10/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query, variables })
+      });
+      
+      if (!response.ok) {
+        console.error(`GraphQL request failed: ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      if (data.errors) {
+        console.error('GraphQL errors:', data.errors);
+        continue;
+      }
+      
+      const pages = data.data?.pages?.edges || [];
+      console.log(`Found ${pages.length} pages for term "${searchTerm}"`);
+      
+      for (const edge of pages) {
+        const page = edge.node;
+        
+        // Skip pages that are already included
+        if (matchedPages.some(p => p.id === page.id)) {
+          continue;
+        }
+        
+        // Calculate relevance score
+        const titleRelevanceScore = calculateTitleRelevanceScore(page.title, searchTerm, originalKeyword);
+        
+        // Filter out generic pages
+        const titleLower = page.title.toLowerCase();
+        const isGenericPage = genericPageKeywords.some(keyword => 
+          titleLower.includes(keyword)
+        );
+        
+        if (isGenericPage) {
+          console.log(`❌ Filtering out generic page: "${page.title}"`);
+          continue;
+        }
+        
+        // Only include pages with good relevance (score >= 2)
+        if (titleRelevanceScore >= 2) {
+          console.log(`✅ Including relevant page: "${page.title}" (score: ${titleRelevanceScore})`);
+          matchedPages.push({
+            ...page,
+            relevanceScore: titleRelevanceScore,
+            matchedTerm: searchTerm
+          });
+        } else {
+          console.log(`❌ Low relevance page: "${page.title}" (score: ${titleRelevanceScore})`);
+        }
+        
+        if (matchedPages.length >= 3) break;
+      }
+    } catch (error) {
+      console.error(`Error searching pages for "${searchTerm}":`, error);
+    }
+  }
+  
+  // Sort by relevance score (highest first) and return top 3
+  const sortedPages = matchedPages
+    .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
+    .slice(0, 3);
+  
+  console.log(`\n📄 Final page selection: ${sortedPages.length} pages`);
+  sortedPages.forEach(page => {
+    console.log(`- "${page.title}" (score: ${page.relevanceScore}, matched: "${page.matchedTerm}")`);
+  });
+  
+  return sortedPages;
 }
+
+// Helper function to calculate title relevance score for pages
+function calculateTitleRelevanceScore(title: string, searchTerm: string, originalKeyword: string): number {
+  const titleLower = title.toLowerCase();
+  const searchTermLower = searchTerm.toLowerCase();
+  const originalKeywordLower = originalKeyword.toLowerCase();
+  
+  let score = 0;
+  
+  // Exact match with search term (highest priority)
+  if (titleLower === searchTermLower) {
+    score += 5;
+  } else if (titleLower.includes(searchTermLower)) {
+    score += 3;
+  }
+  
+  // Exact match with original keyword
+  if (titleLower === originalKeywordLower) {
+    score += 4;
+  } else if (titleLower.includes(originalKeywordLower)) {
+    score += 2;
+  }
+  
+  // Word-level matches
+  const titleWords = titleLower.split(/\s+/);
+  const searchWords = searchTermLower.split(/\s+/);
+  const keywordWords = originalKeywordLower.split(/\s+/);
+  
+  // Check for exact word matches
+  for (const word of searchWords) {
+    if (word.length > 3 && titleWords.includes(word)) {
+      score += 1;
+    }
+  }
+  
+  for (const word of keywordWords) {
+    if (word.length > 3 && titleWords.includes(word)) {
+      score += 1;
+    }
+  }
+  
+  return score;
+}
+
+// Function to detect generation issues in article content
+function detectGenerationIssues(content: string): boolean {
+  const contentLower = content.toLowerCase();
+  
+  // Conversational "talking back" patterns
+  const conversationalPatterns = [
+    'would you like me to continue',
+    "i've reached the character limit",
+    "but i've reached the",
+    'let me continue',
+    'should i continue',
+    '[content continues with',
+    'due to length limits',
+    'i\'ve reached my limit',
+    'would you like me to',
+    'shall i continue',
+    'i can continue',
+    'if you\'d like me to continue',
+    'reach the limit',
+    'continue with the rest',
+    'due to space constraints'
+  ];
+  
+  // Check for conversational patterns
+  for (const pattern of conversationalPatterns) {
+    if (contentLower.includes(pattern)) {
+      console.log(`🚨 Detected conversational pattern: "${pattern}"`);
+      return true;
+    }
+  }
+  
+  // Check if article is too short (less than 800 words)
+  const wordCount = content.split(/\s+/).filter(word => word.length > 0).length;
+  if (wordCount < 800) {
+    console.log(`🚨 Article too short: ${wordCount} words (expected 1400-1500)`);
+    return true;
+  }
+  
+  // Check if missing H1 tag
+  if (!content.includes('<h1>')) {
+    console.log('🚨 Missing H1 tag at article start');
+    return true;
+  }
+  
+  // Check for abrupt ending (ends mid-sentence)
+  const trimmedContent = content.trim();
+  const lastChar = trimmedContent[trimmedContent.length - 1];
+  if (lastChar && !['.', '!', '?', '>', '"'].includes(lastChar)) {
+    console.log('🚨 Article appears to end abruptly (no proper ending punctuation)');
+    return true;
+  }
+  
+  // Check for obvious error messages
+  const errorPatterns = [
+    'error generating',
+    'failed to generate',
+    'something went wrong',
+    'an error occurred',
+    'generation failed',
+    'unable to complete'
+  ];
+  
+  for (const pattern of errorPatterns) {
+    if (contentLower.includes(pattern)) {
+      console.log(`🚨 Detected error message: "${pattern}"`);
+      return true;
+    }
+  }
+  
+  // Check for mostly empty content
+  const strippedContent = content.replace(/<[^>]*>/g, '').trim();
+  if (strippedContent.length < 500) {
+    console.log('🚨 Article content too minimal after HTML removal');
+    return true;
+  }
+  
+  return false;
+}
+
+// Note: Removed unused searchAllCollections and searchAllProducts functions here
+// These functions were not being called and contained many TypeScript 'any' type errors
 
 // Helper function to identify significant single-word terms
 function isSignificantTerm(term: string): boolean {
@@ -1980,7 +1797,7 @@ function isSignificantTerm(term: string): boolean {
 }
 
 // Product relevance scoring system for better matching
-function calculateProductRelevanceScore(product: any, searchTerm: string, originalKeyword: string, identifiedVendor: string | null): number {
+function calculateProductRelevanceScore(product: { title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; [key: string]: unknown }, searchTerm: string, originalKeyword: string, identifiedVendor: string | null): number {
   const productTitle = product.title.toLowerCase();
   const searchTermLower = searchTerm.toLowerCase();
   const originalKeywordLower = originalKeyword.toLowerCase();
@@ -2122,6 +1939,407 @@ function prioritizeSearchTerms(searchTerms: string[], originalKeyword: string, i
   return orderedTerms;
 }
 
+// ============================================
+// WEBSITE CRAWLING FUNCTIONS (NEW)
+// ============================================
+
+// Enhanced 4-Phase Website Discovery Orchestrator
+async function discoverWebsitePages(
+  websiteUrl: string, 
+  searchTerms: string[] = [],
+  timeLimit: number = 30000 // 30 seconds default for automatic mode
+): Promise<Array<{
+  url: string;
+  title: string;
+  description?: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+  discoveryMethod?: string;
+  priority?: number;
+  relevanceScore?: number;
+}>> {
+  console.log(`🚀 Enhanced 4-Phase Discovery starting for: ${websiteUrl}`);
+  const startTime = Date.now();
+  const allPages: any[] = [];
+  
+  try {
+    // Phase 1: Enhanced Sitemap & Structure Analysis (High Priority - Fast)
+    console.log('⚡ Phase 1: Structure Analysis (0-10 seconds)');
+    const structureData = await discoverWebsiteStructure(websiteUrl);
+    allPages.push(...structureData.pages);
+    
+    console.log(`📊 Phase 1 Results: ${structureData.pages.length} pages, ${structureData.sitemaps.length} sitemaps`);
+    
+    // Quick quality assessment
+    const phase1RelevantPages = structureData.pages.filter(page => {
+      if (!searchTerms.length) return true;
+      const score = calculateAdvancedRelevance({
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType
+      }, searchTerms);
+      return score > 10;
+    });
+    
+    // Check if we should continue with deeper phases
+    const timeElapsed = Date.now() - startTime;
+    const hasGoodResults = phase1RelevantPages.length >= 10;
+    const shouldContinue = !hasGoodResults && timeElapsed < timeLimit * 0.4; // Use max 40% of time for deeper phases
+    
+    if (!shouldContinue) {
+      console.log(`✅ Discovery complete after Phase 1: ${allPages.length} pages (${phase1RelevantPages.length} relevant)`);
+      return allPages.map(page => ({
+        url: page.url,
+        title: page.title,
+        description: page.description,
+        pageType: page.pageType,
+        discoveryMethod: page.discoveryMethod || 'phase1',
+        priority: page.priority || 10,
+        relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
+          title: page.title,
+          url: page.url,
+          description: page.description,
+          pageType: page.pageType
+        }, searchTerms) : 50
+      }));
+    }
+    
+    // Phase 2: Deep Navigation Crawling (Medium Priority - If needed)
+    if (Date.now() - startTime < timeLimit * 0.7) {
+      console.log('🔍 Phase 2: Deep Navigation Crawling (10-20 seconds)');
+      const phase2Pages = await crawlNavigationSystematically(
+        websiteUrl,
+        structureData.navigationStructure,
+        searchTerms
+      );
+      allPages.push(...phase2Pages);
+      
+      console.log(`📊 Phase 2 Results: ${phase2Pages.length} additional pages`);
+    }
+    
+    // Phase 3: Pattern Testing (Lower Priority - If still time)
+    if (Date.now() - startTime < timeLimit * 0.9 && allPages.length < 30) {
+      console.log('🎯 Phase 3: Pattern-Based Testing (20-25 seconds)');
+      const phase3Pages = await comprehensivePatternTesting(
+        websiteUrl,
+        searchTerms,
+        allPages.length
+      );
+      allPages.push(...phase3Pages);
+      
+      console.log(`📊 Phase 3 Results: ${phase3Pages.length} additional pages`);
+    }
+    
+    // Phase 4: Final Sweep (Lowest Priority - Only if really needed)
+    const relevantCount = allPages.filter(page => 
+      searchTerms.length ? calculateAdvancedRelevance({
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType
+      }, searchTerms) > 15 : true
+    ).length;
+    
+    if (Date.now() - startTime < timeLimit && relevantCount < 5) {
+      console.log('🔬 Phase 4: Final Comprehensive Sweep (25-30 seconds)');
+      const phase4Pages = await finalComprehensiveSweep(websiteUrl, searchTerms, allPages);
+      allPages.push(...phase4Pages);
+      
+      console.log(`📊 Phase 4 Results: ${phase4Pages.length} additional pages`);
+    }
+    
+    // Final processing and scoring
+    const finalPages = allPages.map(page => ({
+      url: page.url,
+      title: page.title,
+      description: page.description,
+      pageType: page.pageType,
+      discoveryMethod: page.discoveryMethod || 'enhanced-discovery',
+      priority: page.priority || 5,
+      relevanceScore: page.relevanceScore || (searchTerms.length ? calculateAdvancedRelevance({
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType
+      }, searchTerms) : 25)
+    }));
+    
+    // Remove duplicates and sort by relevance
+    const uniquePages = finalPages.filter((page, index, self) => 
+      index === self.findIndex(p => p.url === page.url)
+    ).sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    
+    const totalTime = Date.now() - startTime;
+    const relevantPages = uniquePages.filter(page => (page.relevanceScore || 0) > 10);
+    
+    console.log(`🎉 Enhanced Discovery Complete:`);
+    console.log(`   ⏱️  Total Time: ${totalTime}ms`);
+    console.log(`   📄 Total Pages: ${uniquePages.length}`);
+    console.log(`   🎯 Relevant Pages: ${relevantPages.length}`);
+    console.log(`   ⭐ Avg Relevance: ${Math.round(relevantPages.reduce((sum, p) => sum + (p.relevanceScore || 0), 0) / relevantPages.length) || 0}`);
+    
+    return uniquePages;
+    
+  } catch (error) {
+    console.error('Enhanced discovery error:', error);
+    
+    // Fallback to basic structure
+    const fallbackPages = [{
+      url: websiteUrl,
+      title: 'Homepage',
+      description: 'Main website page',
+      pageType: 'other' as const,
+      discoveryMethod: 'fallback',
+      priority: 1,
+      relevanceScore: 10
+    }];
+    
+    return fallbackPages;
+  }
+}
+
+// Parse sitemap.xml for page discovery
+async function parseSitemap(websiteUrl: string): Promise<Array<{
+  url: string;
+  title: string;
+  description?: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+}>> {
+  try {
+    const sitemapUrl = `${websiteUrl.replace(/\/$/, '')}/sitemap.xml`;
+    console.log(`📋 Attempting to parse sitemap: ${sitemapUrl}`);
+    
+    const response = await fetch(sitemapUrl, {
+      headers: {
+        'User-Agent': 'EnhanceMySeBot/1.0'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Sitemap not found: ${response.status}`);
+    }
+    
+    const sitemapText = await response.text();
+    
+    // Simple XML parsing to extract URLs
+    const urlMatches = sitemapText.match(/<loc>(.*?)<\/loc>/g);
+    if (!urlMatches) {
+      throw new Error('No URLs found in sitemap');
+    }
+    
+    const pages = [];
+    for (const match of urlMatches.slice(0, 100)) { // Limit to 100 pages
+      const url = match.replace(/<\/?loc>/g, '');
+      const title = extractTitleFromUrl(url);
+      const pageType = categorizeWebsitePage(url, title);
+      
+      pages.push({
+        url,
+        title,
+        pageType
+      });
+    }
+    
+    console.log(`✅ Parsed ${pages.length} pages from sitemap`);
+    return pages;
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.log(`❌ Sitemap parsing failed: ${errorMessage}`);
+    return [];
+  }
+}
+
+// Categorize website pages based on URL and title
+function categorizeWebsitePage(url: string, title: string): 'product' | 'service' | 'blog' | 'category' | 'about' | 'other' {
+  const urlLower = url.toLowerCase();
+  const titleLower = title.toLowerCase();
+  
+  // Product page indicators
+  if (urlLower.includes('/product') || urlLower.includes('/shop') || urlLower.includes('/store') ||
+      titleLower.includes('buy') || titleLower.includes('purchase') || titleLower.includes('product')) {
+    return 'product';
+  }
+  
+  // Service page indicators
+  if (urlLower.includes('/service') || urlLower.includes('/solution') || 
+      titleLower.includes('service') || titleLower.includes('solution') || titleLower.includes('consulting')) {
+    return 'service';
+  }
+  
+  // Blog/resource page indicators
+  if (urlLower.includes('/blog') || urlLower.includes('/news') || urlLower.includes('/article') || 
+      urlLower.includes('/resource') || urlLower.includes('/guide') ||
+      titleLower.includes('blog') || titleLower.includes('guide') || titleLower.includes('tutorial')) {
+    return 'blog';
+  }
+  
+  // Category page indicators
+  if (urlLower.includes('/category') || urlLower.includes('/collection') || urlLower.includes('/department') ||
+      titleLower.includes('category') || titleLower.includes('collection')) {
+    return 'category';
+  }
+  
+  // About page indicators
+  if (urlLower.includes('/about') || urlLower.includes('/company') || urlLower.includes('/team') ||
+      titleLower.includes('about') || titleLower.includes('company') || titleLower.includes('team')) {
+    return 'about';
+  }
+  
+  return 'other';
+}
+
+// Helper function to decode HTML entities
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
+    .replace(/&hellip;/g, '…');
+}
+
+// Extract title from URL path
+function extractTitleFromUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    const pathSegments = urlObj.pathname.split('/').filter(Boolean);
+    
+    if (pathSegments.length === 0) return 'Homepage';
+    
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    
+    // Convert URL slug to readable title
+    return lastSegment
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase());
+  } catch {
+    return 'Website Page';
+  }
+}
+
+// Enhanced website pages search with relevance scoring (uses 4-phase discovery)
+async function searchWebsitePages(
+  websiteUrl: string,
+  searchTerms: string[],
+  pageTypes: string[] = ['product', 'service', 'blog', 'category'],
+  originalKeyword: string = ''
+): Promise<Array<{
+  id: string;
+  title: string;
+  url: string;
+  description?: string;
+  pageType: string;
+  relevanceScore?: number;
+}>> {
+  try {
+    console.log(`🔍 Enhanced website search for: ${searchTerms.join(', ')}`);
+    console.log(`📋 Filtering for page types: ${pageTypes.join(', ')}`);
+    
+    // Use enhanced 4-phase discovery with search context
+    const allPages = await discoverWebsitePages(websiteUrl, searchTerms, 30000);
+    
+    // Filter by requested page types
+    const filteredPages = allPages.filter(page => 
+      pageTypes.includes(page.pageType)
+    );
+    
+    if (filteredPages.length === 0) {
+      console.log('❌ No pages found matching the specified types');
+      return [];
+    }
+    
+    // Enhanced relevance scoring with original keyword priority
+    const scoredPages = filteredPages.map(page => {
+      let score = page.relevanceScore || 0;
+      
+      // Boost score if original keyword matches
+      if (originalKeyword) {
+        const originalLower = originalKeyword.toLowerCase();
+        if (page.title.toLowerCase().includes(originalLower)) score += 50;
+        if (page.url.toLowerCase().includes(originalLower)) score += 30;
+        if ((page.description || '').toLowerCase().includes(originalLower)) score += 20;
+      }
+      
+      return {
+        id: Buffer.from(page.url).toString('base64'), // Generate unique ID
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType,
+        relevanceScore: score,
+        discoveryMethod: page.discoveryMethod,
+        priority: page.priority
+      };
+    });
+    
+    // Sort by relevance score (highest first)
+    const sortedPages = scoredPages
+      .filter(page => page.relevanceScore > 0)
+      .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    
+    console.log(`✅ Enhanced search complete: ${sortedPages.length} relevant pages found`);
+    
+    // Log top results for debugging
+    sortedPages.slice(0, 5).forEach((page, index) => {
+      console.log(`  ${index + 1}. "${page.title}" (${page.pageType}) - Score: ${page.relevanceScore} [${page.discoveryMethod}]`);
+    });
+    
+    return sortedPages.slice(0, 20); // Return top 20 results
+    
+  } catch (error) {
+    console.error('Enhanced website search error:', error);
+    return [];
+  }
+}
+
+// Calculate relevance score for website pages (mirrors Shopify scoring logic)
+function calculateWebsitePageRelevance(
+  page: { title: string; url: string; description?: string; pageType: string },
+  searchTerms: string[],
+  originalKeyword: string
+): number {
+  let score = 0;
+  const titleLower = page.title.toLowerCase();
+  const urlLower = page.url.toLowerCase();
+  const descriptionLower = (page.description || '').toLowerCase();
+  
+  // Original keyword gets highest weight (mirrors Shopify logic)
+  if (originalKeyword) {
+    const originalLower = originalKeyword.toLowerCase();
+    if (titleLower.includes(originalLower)) score += 100;
+    if (urlLower.includes(originalLower)) score += 50;
+    if (descriptionLower.includes(originalLower)) score += 25;
+  }
+  
+  // Search terms scoring
+  for (const term of searchTerms) {
+    const termLower = term.toLowerCase();
+    if (termLower.length < 3) continue; // Skip very short terms
+    
+    if (titleLower.includes(termLower)) score += 20;
+    if (urlLower.includes(termLower)) score += 10;
+    if (descriptionLower.includes(termLower)) score += 5;
+  }
+  
+  // Page type bonuses (prioritize products and services)
+  if (page.pageType === 'product') score += 10;
+  if (page.pageType === 'service') score += 8;
+  if (page.pageType === 'category') score += 5;
+  if (page.pageType === 'blog') score += 3;
+  
+  return score;
+}
+
+
+
 export async function POST(request: Request) {
   try {
     console.log('Received article generation request');
@@ -2209,8 +2427,7 @@ export async function POST(request: Request) {
       contentType,
       toneOfVoice,
       instructions,
-      brandGuidelines,
-      articleMode,
+      contentSelection,
       shopifyStoreUrl,
       shopifyAccessToken,
       brandColor,
@@ -2247,219 +2464,240 @@ export async function POST(request: Request) {
       // Continue without breakdown rather than failing completely
     }
 
-    // 2. If articleMode is set, fetch Shopify data
-    let relatedProductsList = '', relatedCollectionsList = '', relatedPagesList = '', shopifyPrompt = '';
-    let shopifyIntegrationStatus = 'none'; // Track Shopify integration status
+    // 2. If contentSelection is configured, fetch content based on integration type
+    let relatedProductsList = '', relatedCollectionsList = '', relatedPagesList = '', relatedWebsiteContentList = '';
+    let integrationPrompt = '';
+    let integrationStatus = 'none'; // Track overall integration status
     
-    if ((articleMode === 'store' || articleMode === 'service') && shopifyStoreUrl && shopifyAccessToken) {
-      console.log(`Starting Shopify integration for ${articleMode} mode`);
-      const shopDomain = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (contentSelection) {
+      // Create a brandProfile-like object for integration detection
+      const brandProfileData = {
+        websiteUrl: body.websiteUrl,
+        shopifyStoreUrl,
+        shopifyAccessToken
+      };
       
-      // First, let's verify the Shopify credentials and connection
-      try {
-        console.log(`Verifying Shopify connection to ${shopDomain}`);
-        // Add initial rate limiting delay before first API call
-        await sleep(500);
+      // Import integration detection utilities
+      const { detectIntegrationType } = await import('@/lib/firebase/firestore');
+      const integrationType = detectIntegrationType(brandProfileData as any);
+      console.log(`🔍 Detected integration type: ${integrationType}`);
+      
+      // Check if any content is selected based on integration type
+      const hasShopifyContent = contentSelection.mode === 'automatic' ? 
+        (contentSelection.automaticOptions.includeProducts || contentSelection.automaticOptions.includeCollections || contentSelection.automaticOptions.includePages) :
+        (contentSelection.manualSelections.products.length > 0 || contentSelection.manualSelections.collections.length > 0 || contentSelection.manualSelections.pages.length > 0);
+      
+      // Check if website content is included
+      const hasWebsiteContent = contentSelection.mode === 'automatic' ? 
+        contentSelection.automaticOptions.includeWebsiteContent :
+        (contentSelection.manualSelections.websiteContent && contentSelection.manualSelections.websiteContent.length > 0);
+      
+      // Handle Shopify integration
+      if ((integrationType === 'shopify' || integrationType === 'both') && hasShopifyContent && shopifyStoreUrl && shopifyAccessToken) {
+        console.log(`🛍️ Starting Shopify integration for ${contentSelection.mode} mode`);
         
-        const verifyResponse = await fetch(`https://${shopDomain}/admin/api/2023-01/shop.json`, {
-          headers: {
-            'X-Shopify-Access-Token': shopifyAccessToken,
-            'Content-Type': 'application/json',
-          }
-        });
-        
-        console.log('Shopify connection test status:', verifyResponse.status);
-        
-        if (!verifyResponse.ok) {
-          const errorText = await verifyResponse.text();
-          console.error(`Shopify connection error (${verifyResponse.status}):`, errorText);
-          shopifyIntegrationStatus = 'auth_error';
-          // Continue without throwing error to allow article generation to proceed
-        } else {
-          const shopData = await verifyResponse.json();
-          console.log('Successfully connected to Shopify store:', shopData.shop?.name || shopDomain);
+        try {
+          const shopDomain = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
           
-          // Extract key terms from topic breakdown
-          const searchTerms = await extractKeyTerms(topicBreakdown || '', keyword);
-          // Always include the original keyword
-          if (!searchTerms.searchTerms.includes(keyword)) {
-            searchTerms.searchTerms.unshift(keyword);
-          }
+          // Verify Shopify connection
+          console.log(`Verifying Shopify connection to ${shopDomain}`);
+          await sleep(500);
           
-          try {
-            if (articleMode === 'store') {
-              console.log(`Fetching related products from Shopify store: ${shopDomain}`);
-              
-              // First, fetch all vendors from the store
-              console.log('Fetching all vendors before extracting key terms...');
-              const availableVendors = await fetchShopifyVendors(shopDomain, shopifyAccessToken);
-              console.log(`Found ${availableVendors.length} vendors in the store.`);
-              
-              // Extract key terms with vendor awareness
-              const keyTermsResult = await extractKeyTerms(topicBreakdown || '', keyword, availableVendors);
-              const searchTerms = keyTermsResult.searchTerms;
-              const identifiedVendor = keyTermsResult.primaryVendor;
-              
-              console.log(`Using primary vendor "${identifiedVendor}" and ${searchTerms.length} search terms for product/collection search`);
-              
-              // Always include the original keyword
-              if (!searchTerms.includes(keyword)) {
-                searchTerms.unshift(keyword);
-              }
-              
-              // Search for products using multiple approaches
-              const products = await searchShopifyProducts(shopDomain, shopifyAccessToken, searchTerms, availableVendors);
-              
-              if (products.length > 0) {
-                console.log(`Found ${products.length} products to include in article`);
-                relatedProductsList = '"relatedProducts"\n' + products.map((p: any) => `<a href='${shopifyStoreUrl}/products/${p.handle}'>${p.title}</a> - $${p.variants[0]?.price || 'N/A'}`).join('\n');
-                
-                // Log the products being included
-                console.log('Including products:');
-                products.forEach((p: any) => console.log(`- ${p.title} ($${p.variants[0]?.price || 'N/A'})`));
-                shopifyIntegrationStatus = 'success';
-              } else {
-                console.log('No related products found in Shopify store');
-                shopifyIntegrationStatus = 'no_products';
-              }
-              
-              console.log(`Fetching related collections from Shopify store: ${shopDomain}`);
-              
-              // Search for collections using multiple approaches
-              const collections = await searchShopifyCollections(shopDomain, shopifyAccessToken, searchTerms, availableVendors);
-              
-              if (collections.length > 0) {
-                console.log(`Found ${collections.length} related collections`);
-                relatedCollectionsList = '"relatedCollections"\n' + collections.map((c: any) => `<a href='${shopifyStoreUrl}/collections/${c.handle}'>${c.title}</a>`).join('\n');
-                
-                // Log the collections being included
-                console.log('Including collections:');
-                collections.forEach((c: any) => console.log(`- ${c.title}`));
-                if (shopifyIntegrationStatus !== 'success') {
-                  shopifyIntegrationStatus = 'success';
-                }
-              } else {
-                console.log('No related collections found in Shopify store');
-                if (shopifyIntegrationStatus !== 'success') {
-                  shopifyIntegrationStatus = 'no_collections';
-                }
-              }
-              
-              // Create shopifyPrompt for store mode with products and collections
-              if (relatedProductsList || relatedCollectionsList) {
-                shopifyPrompt = `
-Here are related products and collections from the store. Use these throughout the article where relevant:
-
-${relatedProductsList ? relatedProductsList : ''}
-${relatedCollectionsList ? relatedCollectionsList : ''}
-
-IMPORTANT INTEGRATION INSTRUCTIONS:
-1. Naturally incorporate these products and collections throughout your article.
-2. Replace generic mentions of terms like "${identifiedVendor || keyword.split(' ')[0]}" with the specific branded collection links when appropriate.
-3. When discussing specific parts or components, reference the relevant products by name and link.
-4. Ensure every section of the article includes at least one relevant product or collection reference where it makes sense.
-5. Use the exact collection and product names when referring to them.
-6. IMPORTANT: Only mention collections that are directly related to the main topic "${keyword}". Do not include collections like "Pizza Group" if the article is about "${keyword}".
-7. Focus primarily on collections that contain the brand name "${identifiedVendor || keyword.split(' ')[0]}" as these are most relevant to the article topic.
-8. When mentioning collections, explain their relevance to the article topic to maintain article focus.
-`;
-                console.log('Successfully added Shopify products/collections to prompt with enhanced integration instructions');
-              } else {
-                console.log('No Shopify products/collections found to add to prompt');
-              }
-              
-            } else if (articleMode === 'service') {
-              console.log(`Fetching related pages from Shopify store: ${shopDomain}`);
-              
-              // First, fetch all vendors from the store
-              console.log('Fetching all vendors before extracting key terms...');
-              const availableVendors = await fetchShopifyVendors(shopDomain, shopifyAccessToken);
-              console.log(`Found ${availableVendors.length} vendors in the store.`);
-              
-              // Extract key terms with vendor awareness
-              const keyTermsResult = await extractKeyTerms(topicBreakdown || '', keyword, availableVendors);
-              const searchTerms = keyTermsResult.searchTerms;
-              
-              // Always include the original keyword
-              if (!searchTerms.includes(keyword)) {
-                searchTerms.unshift(keyword);
-              }
-              
-              // Fetch pages
-              try {
-                const pagesRes = await fetch(`https://${shopDomain}/admin/api/2023-01/pages.json?title=${encodeURIComponent(searchTerms[0])}`, {
-                  headers: {
-                    'X-Shopify-Access-Token': shopifyAccessToken,
-                    'Content-Type': 'application/json',
-                  },
-                });
-                
-                console.log('Shopify pages API response status:', pagesRes.status);
-                
-                if (!pagesRes.ok) {
-                  const errorText = await pagesRes.text();
-                  console.error(`Shopify API error (${pagesRes.status}):`, errorText);
-                  shopifyIntegrationStatus = 'api_error';
-                } else {
-                  const pagesData = await pagesRes.json();
-                  console.log('Shopify pages API response shape:', Object.keys(pagesData));
-                  
-                  if (pagesData.pages && pagesData.pages.length > 0) {
-                    console.log(`Found ${pagesData.pages.length} related pages, using top ${Math.min(5, pagesData.pages.length)}`);
-                    const selectedPages = pagesData.pages.slice(0, 5);
-                    relatedPagesList = '"relatedPages"\n' + selectedPages.map((pg: any) => `<a href='${shopifyStoreUrl}/pages/${pg.handle}'>${pg.title}</a>`).join('\n');
-                    
-                    // Log the pages being included
-                    console.log('Including pages:');
-                    selectedPages.forEach((pg: any) => console.log(`- ${pg.title}`));
-                    shopifyIntegrationStatus = 'success';
-                  } else {
-                    console.log('No related pages found in Shopify store or empty response');
-                    console.log('API response preview:', JSON.stringify(pagesData).substring(0, 200) + '...');
-                    shopifyIntegrationStatus = 'no_pages';
-                  }
-                  
-                  if (relatedPagesList) {
-                    shopifyPrompt = `
-Here are related service pages from the store. Use these throughout the article where relevant:
-
-${relatedPagesList}
-
-IMPORTANT INTEGRATION INSTRUCTIONS:
-1. Naturally incorporate these service pages throughout your article.
-2. Replace generic mentions of services with specific page links when appropriate.
-3. When discussing specific services or solutions, reference the relevant pages by name and link.
-4. Ensure every section of the article includes at least one relevant page reference where it makes sense.
-5. Use the exact page names when referring to them.
-`;
-                    console.log('Successfully added Shopify pages to prompt with enhanced integration instructions');
-                  } else {
-                    console.log('No Shopify pages found to add to prompt');
-                  }
-                }
-              } catch (error) {
-                console.error('Error fetching Shopify pages:', error);
-                shopifyIntegrationStatus = 'api_error';
-              }
+          const verifyResponse = await fetch(`https://${shopDomain}/admin/api/2023-01/shop.json`, {
+            headers: {
+              'X-Shopify-Access-Token': shopifyAccessToken,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (!verifyResponse.ok) {
+            console.error('Shopify verification failed:', verifyResponse.status);
+            integrationStatus = 'shopify_auth_error';
+          } else {
+            // Handle automatic or manual Shopify content selection
+            if (contentSelection.mode === 'automatic') {
+              await handleAutomaticShopifyContent(contentSelection, shopDomain, shopifyAccessToken, [keyword], [], shopifyStoreUrl);
+            } else {
+              await handleManualShopifyContent(contentSelection, shopifyStoreUrl);
             }
-          } catch (err) {
-            console.error('Error during Shopify data processing:', err);
-            shopifyIntegrationStatus = 'api_error';
+            integrationStatus = 'shopify_success';
+          }
+        } catch (error) {
+          console.error('Error in Shopify integration:', error);
+          integrationStatus = 'shopify_error';
+        }
+      }
+      
+      // Handle Website integration
+      if ((integrationType === 'website' || integrationType === 'both') && hasWebsiteContent && body.websiteUrl) {
+        console.log(`🌐 Starting Website integration for ${contentSelection.mode} mode`);
+        
+        try {
+          if (contentSelection.mode === 'automatic') {
+            await handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
+          } else {
+            await handleManualWebsiteContent(contentSelection);
+          }
+          
+          if (integrationStatus === 'none') {
+            integrationStatus = 'website_success';
+          } else if (integrationStatus === 'shopify_success') {
+            integrationStatus = 'hybrid_success';
+          }
+        } catch (error) {
+          console.error('Error in Website integration:', error);
+          if (integrationStatus === 'none') {
+            integrationStatus = 'website_error';
           }
         }
-      } catch (error) {
-        console.error('Error verifying Shopify connection:', error);
-        shopifyIntegrationStatus = 'error';
-        console.log('Will continue without Shopify product integration');
       }
-    } else if (articleMode) {
-      console.log(`Shopify integration requested (${articleMode} mode) but store URL or access token missing`);
-      shopifyIntegrationStatus = 'missing_credentials';
+      
+      // Build integration prompt based on collected content
+      integrationPrompt = buildIntegrationPrompt(relatedProductsList, relatedCollectionsList, relatedPagesList, relatedWebsiteContentList);
+    }
+    
+    // Helper functions for content handling
+    async function handleAutomaticShopifyContent(contentSelection: any, shopDomain: string, accessToken: string, currentSearchTerms: string[], currentAvailableVendors: string[], storeUrl: string) {
+      const searchQueries = currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
+      
+      // Search products if enabled
+      if (contentSelection.automaticOptions.includeProducts) {
+        console.log('🔍 Searching Shopify products...');
+        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, currentAvailableVendors);
+        if (products.length > 0) {
+          relatedProductsList = products.map(p => `• ${p.title} - ${storeUrl}/products/${p.handle}`).join('\n');
+          console.log(`✅ Found ${products.length} relevant products`);
+        }
+      }
+      
+      // Search collections if enabled
+      if (contentSelection.automaticOptions.includeCollections) {
+        console.log('🔍 Searching Shopify collections...');
+        const collections = await searchCollectionsWithGraphQL(shopDomain, accessToken, searchQueries, null, keyword);
+        if (collections.length > 0) {
+          relatedCollectionsList = collections.map(c => `• ${c.title} - ${storeUrl}/collections/${c.handle}`).join('\n');
+          console.log(`✅ Found ${collections.length} relevant collections`);
+        }
+      }
+      
+      // Search pages if enabled
+      if (contentSelection.automaticOptions.includePages) {
+        console.log('🔍 Searching Shopify pages...');
+        const pages = await searchPagesWithGraphQL(shopDomain, accessToken, searchQueries, keyword);
+        if (pages.length > 0) {
+          relatedPagesList = pages.map(p => `• ${p.title} - ${storeUrl}/pages/${p.handle}`).join('\n');
+          console.log(`✅ Found ${pages.length} relevant pages`);
+        }
+      }
+    }
+    
+    async function handleManualShopifyContent(contentSelection: any, storeUrl: string) {
+      // Handle manually selected Shopify content
+      if (contentSelection.manualSelections.products.length > 0) {
+        relatedProductsList = contentSelection.manualSelections.products.map((p: any) => 
+          `• ${p.title} - ${storeUrl}/products/${p.handle}`
+        ).join('\n');
+      }
+      
+      if (contentSelection.manualSelections.collections.length > 0) {
+        relatedCollectionsList = contentSelection.manualSelections.collections.map((c: any) => 
+          `• ${c.title} - ${storeUrl}/collections/${c.handle}`
+        ).join('\n');
+      }
+      
+      if (contentSelection.manualSelections.pages.length > 0) {
+        relatedPagesList = contentSelection.manualSelections.pages.map((p: any) => 
+          `• ${p.title} - ${p.url}`
+        ).join('\n');
+      }
+    }
+    
+    async function handleAutomaticWebsiteContent(contentSelection: any, websiteUrl: string, currentSearchTerms: string[]) {
+      // 🔥 USE SHOPIFY-STYLE AI ENHANCEMENT
+      console.log('🧠 Using Shopify-style AI term extraction for website content...');
+      const aiAnalysisResult = await extractKeyTerms('', keyword, []);
+      const aiExtractedTerms = aiAnalysisResult.searchTerms;
+      const identifiedVendor = aiAnalysisResult.primaryVendor;
+      
+      console.log(`🎯 AI extracted ${aiExtractedTerms.length} enhanced terms: ${aiExtractedTerms.join(', ')}`);
+      if (identifiedVendor) {
+        console.log(`🏷️ AI identified vendor: "${identifiedVendor}"`);
+      }
+      
+      const searchQueries = aiExtractedTerms.length > 0 ? aiExtractedTerms : currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
+      let websitePages: any[] = [];
+      
+      // Search based on unified website content structure
+      if (contentSelection.automaticOptions.includeWebsiteContent) {
+        console.log('🌐 Searching all website content types (unified approach)...');
+        websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor);
+      }
+      
+      if (websitePages.length > 0) {
+        // Remove duplicates based on URL (already done in searchWebsiteContentWithShopifyLogic)
+        const uniquePages = websitePages.filter((page, index, self) =>
+          index === self.findIndex((p) => p.url === page.url)
+        );
+        
+        relatedWebsiteContentList = uniquePages.slice(0, 15).map(p => 
+          `• ${p.title} ${p.pageType ? `[${p.pageType.toUpperCase()}]` : ''} - ${p.url}`
+        ).join('\n');
+        
+        console.log(`✅ Found ${uniquePages.length} relevant website pages using unified approach`);
+        
+        // Log top results with scores and page types
+        uniquePages.slice(0, 5).forEach((page, index) => {
+          console.log(`  ${index + 1}. "${page.title}" [${page.pageType?.toUpperCase() || 'OTHER'}] - Score: ${page.relevanceScore} [${page.discoveryMethod || 'enhanced'}]`);
+        });
+      }
+    }
+    
+    async function handleManualWebsiteContent(contentSelection: any) {
+      // Handle manually selected website content (unified approach)
+      if (contentSelection.manualSelections.websiteContent && contentSelection.manualSelections.websiteContent.length > 0) {
+        relatedWebsiteContentList = contentSelection.manualSelections.websiteContent.map((p: any) => 
+          `• ${p.title} ${p.pageType ? `[${p.pageType.toUpperCase()}]` : ''} - ${p.url}`
+        ).join('\n');
+        
+        console.log(`📋 Using ${contentSelection.manualSelections.websiteContent.length} manually selected website pages`);
+      }
+    }
+    
+    function buildIntegrationPrompt(products: string, collections: string, pages: string, websiteContent: string): string {
+      let prompt = '';
+      
+      if (products) {
+        prompt += `\n\nRELATED PRODUCTS TO MENTION:\n${products}`;
+      }
+      
+      if (collections) {
+        prompt += `\n\nRELATED COLLECTIONS TO MENTION:\n${collections}`;
+      }
+      
+      if (pages) {
+        prompt += `\n\nRELATED PAGES TO MENTION:\n${pages}`;
+      }
+      
+      if (websiteContent) {
+        prompt += `\n\nRELATED WEBSITE CONTENT TO MENTION:\n${websiteContent}`;
+      }
+      
+      if (prompt) {
+        prompt = `\n\nIMPORTANT: Please naturally incorporate links to the following relevant content throughout the article where contextually appropriate:${prompt}`;
+        prompt += `\n\nWhen mentioning these items, use descriptive anchor text and ensure the links feel natural within the content flow.`;
+      }
+      
+      return prompt;
     }
 
+    // 3. Generate the article content using Claude
     console.log('Starting article generation with Claude');
-    // 3. Construct the Claude prompt, including the topic breakdown and Shopify context
     
+    // Create all prompt variables
+    const toneOfVoicePrompt = toneOfVoice ? `\n\nTONE OF VOICE: ${toneOfVoice}` : '';
+    const contentTypePrompt = contentType ? `\n\nCONTENT TYPE: ${contentType}` : '';
+    const brandPrompt = `\n\nBRAND: ${brandName} (${businessType})`;
+
     // Validate and ensure we have a usable brand color
     const validateBrandColor = (color: string | undefined): string => {
       // If no color provided, use black
@@ -2489,7 +2727,11 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
 
       Here is a detailed breakdown of the topic to guide your writing:
       ${topicBreakdown}
-      ${shopifyPrompt}
+      ${instructions}
+      ${toneOfVoicePrompt}
+      ${contentTypePrompt}
+      ${brandPrompt}
+      ${integrationPrompt}
 
       Please write a long-form SEO-optimized article with 1500 words about the following article keyword: ${keyword}.
       Answer in HTML, starting with one single <h1> tag, as this is going on wordpress, do not give unnecessary HTML tags.
@@ -2554,7 +2796,7 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
     try {
       console.log('Calling Claude API for article generation');
     const message = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
       messages: [
         {
@@ -2568,40 +2810,51 @@ IMPORTANT INTEGRATION INSTRUCTIONS:
       const generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
       console.log('Successfully generated article content');
 
+      // Check for generation issues
+      const hasGenerationIssues = detectGenerationIssues(generatedContent);
+      if (hasGenerationIssues) {
+        console.log('⚠️ Generation issues detected in article content');
+      }
+
       // Extract title from the first <h1> tag
       const titleMatch = generatedContent.match(/<h1>(.*?)<\/h1>/);
       const title = titleMatch ? titleMatch[1] : `${keyword} - ${contentType}`;
 
-      // CRITICAL: Increment usage count after successful generation
-      console.log('Incrementing usage count for user:', verifiedUser.uid);
-      try {
-        const adminFirestore = getFirestore();
-        await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', adminFirestore);
-        console.log('Usage count incremented successfully');
-      } catch (usageError) {
-        console.error('Error incrementing usage count:', usageError);
-        // Continue execution - don't fail the request for usage tracking errors
+      // CRITICAL: Increment usage count only if no generation issues detected
+      if (!hasGenerationIssues) {
+        console.log('Incrementing usage count for user:', verifiedUser.uid);
+        try {
+          const adminFirestore = getFirestore();
+          await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', adminFirestore);
+          console.log('Usage count incremented successfully');
+        } catch (usageError) {
+          console.error('Error incrementing usage count:', usageError);
+          // Continue execution - don't fail the request for usage tracking errors
+        }
+      } else {
+        console.log('⚠️ Skipping usage increment due to generation issues - user will not be charged');
       }
 
       console.log('Article generation completed successfully');
       
-      // Return the response including Shopify integration status
+      // Return the response including Shopify integration status and generation issues flag
     return NextResponse.json({
       title,
       content: generatedContent,
-        shopifyIntegration: {
-          status: shopifyIntegrationStatus,
-          message: getShopifyStatusMessage(shopifyIntegrationStatus)
-        }
-      });
+      hasGenerationIssues,
+      shopifyIntegration: {
+        status: integrationStatus,
+        message: getShopifyStatusMessage(integrationStatus)
+      }
+    });
     } catch (error) {
       console.error('Error generating article with Claude:', error);
       return NextResponse.json(
         { 
           error: 'Failed to generate article content',
           shopifyIntegration: {
-            status: shopifyIntegrationStatus,
-            message: getShopifyStatusMessage(shopifyIntegrationStatus)
+            status: integrationStatus,
+            message: getShopifyStatusMessage(integrationStatus)
           }
         },
         { status: 500 }
@@ -2641,3 +2894,1252 @@ function getShopifyStatusMessage(status: string): string {
       return 'Shopify integration not attempted';
   }
 } 
+
+// ============================================
+// ENHANCED WEBSITE CRAWLING SYSTEM (4-PHASE)
+// ============================================
+
+// Phase 1: Enhanced Sitemap & Structure Analysis
+async function discoverWebsiteStructure(websiteUrl: string): Promise<{
+  pages: Array<{
+    url: string;
+    title: string;
+    description?: string;
+    pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+    discoveryMethod: string;
+    priority: number;
+  }>;
+  navigationStructure: {
+    mainMenuLinks: string[];
+    footerLinks: string[];
+    categories: string[];
+  };
+  sitemaps: string[];
+}> {
+  console.log(`🔍 Phase 1: Enhanced structure discovery for ${websiteUrl}`);
+  
+  const allPages: any[] = [];
+  const navigationStructure: {
+    mainMenuLinks: string[];
+    footerLinks: string[];
+    categories: string[];
+  } = { mainMenuLinks: [], footerLinks: [], categories: [] };
+  const discoveredSitemaps: string[] = [];
+  
+  try {
+    // Step 1: Parse robots.txt for sitemap locations
+    const robotsSitemaps = await parseRobotsTxt(websiteUrl);
+    discoveredSitemaps.push(...robotsSitemaps);
+    
+    // Step 2: Try common sitemap locations
+    const commonSitemapUrls = [
+      '/sitemap.xml',
+      '/sitemap_index.xml', 
+      '/page-sitemap.xml',
+      '/post-sitemap.xml',
+      '/product-sitemap.xml'
+    ];
+    
+    for (const sitemapPath of commonSitemapUrls) {
+      const sitemapUrl = `${websiteUrl.replace(/\/$/, '')}${sitemapPath}`;
+      const sitemapPages = await parseEnhancedSitemap(sitemapUrl);
+      if (sitemapPages.length > 0) {
+        allPages.push(...sitemapPages.map(page => ({
+          ...page,
+          discoveryMethod: 'sitemap',
+          priority: 10
+        })));
+        discoveredSitemaps.push(sitemapUrl);
+      }
+    }
+    
+    // Step 3: Analyze main page for navigation structure
+    if (allPages.length < 50) { // If sitemap discovery was limited
+      const navigationData = await analyzeNavigationStructure(websiteUrl);
+      navigationStructure.mainMenuLinks = navigationData.mainMenuLinks;
+      navigationStructure.footerLinks = navigationData.footerLinks;
+      navigationStructure.categories = navigationData.categories;
+      
+      // Add navigation-discovered pages
+      const navPages = [...navigationData.mainMenuLinks, ...navigationData.categories].map(url => ({
+        url,
+        title: extractTitleFromUrl(url),
+        pageType: categorizeWebsitePageAdvanced(url, '', { isNavigationLink: true }),
+        discoveryMethod: 'navigation',
+        priority: 8
+      }));
+      
+      allPages.push(...navPages);
+    }
+    
+    console.log(`✅ Phase 1 complete: ${allPages.length} pages discovered from ${discoveredSitemaps.length} sitemaps`);
+    
+    return {
+      pages: allPages,
+      navigationStructure,
+      sitemaps: discoveredSitemaps
+    };
+    
+  } catch (error) {
+    console.error('Phase 1 discovery error:', error);
+    return {
+      pages: [],
+      navigationStructure,
+      sitemaps: []
+    };
+  }
+}
+
+// Enhanced robots.txt parser
+async function parseRobotsTxt(websiteUrl: string): Promise<string[]> {
+  try {
+    const robotsUrl = `${websiteUrl.replace(/\/$/, '')}/robots.txt`;
+    const response = await fetch(robotsUrl, {
+      headers: { 'User-Agent': 'EnhanceMySeBot/1.0' }
+    });
+    
+    if (!response.ok) return [];
+    
+    const robotsText = await response.text();
+    const sitemapMatches = robotsText.match(/Sitemap:\s*(https?:\/\/[^\s]+)/gi) || [];
+    
+    return sitemapMatches.map(match => match.replace(/Sitemap:\s*/i, '').trim());
+  } catch {
+    return [];
+  }
+}
+
+// Enhanced sitemap parser with better categorization
+async function parseEnhancedSitemap(sitemapUrl: string): Promise<Array<{
+  url: string;
+  title: string;
+  description?: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+  lastModified?: Date;
+}>> {
+  try {
+    console.log(`📋 Parsing sitemap: ${sitemapUrl}`);
+    
+    const response = await fetch(sitemapUrl, {
+      headers: { 'User-Agent': 'EnhanceMySeBot/1.0' }
+    });
+    
+    if (!response.ok) return [];
+    
+    const sitemapText = await response.text();
+    
+    // Handle sitemap index files (containing multiple sitemaps)
+    if (sitemapText.includes('<sitemapindex')) {
+      const sitemapMatches = sitemapText.match(/<loc>(.*?)<\/loc>/g) || [];
+      const childSitemaps = sitemapMatches.map(match => match.replace(/<\/?loc>/g, ''));
+      
+      const allPages: any[] = [];
+      for (const childSitemap of childSitemaps.slice(0, 10)) { // Limit to 10 child sitemaps
+        const childPages = await parseEnhancedSitemap(childSitemap);
+        allPages.push(...childPages);
+      }
+      return allPages;
+    }
+    
+    // Parse regular sitemap
+    const urlMatches = sitemapText.match(/<url>[\s\S]*?<\/url>/g) || [];
+    const pages = [];
+    
+    for (const urlBlock of urlMatches.slice(0, 500)) { // Limit to 500 URLs per sitemap
+      const urlMatch = urlBlock.match(/<loc>(.*?)<\/loc>/);
+      const lastModMatch = urlBlock.match(/<lastmod>(.*?)<\/lastmod>/);
+      
+      if (urlMatch) {
+        const url = urlMatch[1];
+        const title = extractTitleFromUrl(url);
+        const pageType = categorizeWebsitePageAdvanced(url, title);
+        const lastModified = lastModMatch ? new Date(lastModMatch[1]) : undefined;
+        
+        pages.push({
+          url,
+          title,
+          pageType,
+          lastModified
+        });
+      }
+    }
+    
+    console.log(`✅ Parsed ${pages.length} URLs from sitemap`);
+    return pages;
+    
+  } catch (error) {
+    console.log(`❌ Sitemap parsing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return [];
+  }
+}
+
+// Navigation structure analysis
+async function analyzeNavigationStructure(websiteUrl: string): Promise<{
+  mainMenuLinks: string[];
+  footerLinks: string[];
+  categories: string[];
+}> {
+  try {
+    console.log(`🗺️ Analyzing navigation structure for ${websiteUrl}`);
+    
+    const response = await fetch(websiteUrl, {
+      headers: { 'User-Agent': 'EnhanceMySeBot/1.0' }
+    });
+    
+    if (!response.ok) {
+      return { mainMenuLinks: [], footerLinks: [], categories: [] };
+    }
+    
+    const html = await response.text();
+    const baseUrl = new URL(websiteUrl);
+    
+    // Extract navigation links using common patterns
+    const navSelectors = [
+      'nav a[href]', 'header a[href]', '.menu a[href]', '.navigation a[href]',
+      '.navbar a[href]', '#menu a[href]', '.main-menu a[href]'
+    ];
+    
+    const footerSelectors = [
+      'footer a[href]', '.footer a[href]', '#footer a[href]'
+    ];
+    
+    // Simple HTML parsing for links (basic implementation)
+    const extractLinks = (html: string, selectors: string[]) => {
+      const links: string[] = [];
+      const linkRegex = /<a[^>]+href=['"](\/[^'"]*)['"]/gi;
+      let match;
+      
+      while ((match = linkRegex.exec(html)) !== null) {
+        const href = match[1];
+        if (href && href.length > 1 && !href.includes('#') && !href.includes('mailto:')) {
+          const fullUrl = `${baseUrl.origin}${href}`;
+          links.push(fullUrl);
+        }
+      }
+      
+      return [...new Set(links)]; // Remove duplicates
+    };
+    
+    const allLinks = extractLinks(html, navSelectors);
+    const footerLinks = extractLinks(html, footerSelectors);
+    
+    // Filter main menu links (remove footer links)
+    const mainMenuLinks = allLinks.filter(link => !footerLinks.includes(link));
+    
+    // Identify category pages
+    const categories = mainMenuLinks.filter(url => {
+      const urlLower = url.toLowerCase();
+      return urlLower.includes('/category') || urlLower.includes('/service') || 
+             urlLower.includes('/product') || urlLower.includes('/solution');
+    });
+    
+    console.log(`🗺️ Navigation analysis: ${mainMenuLinks.length} menu links, ${categories.length} categories`);
+    
+    return {
+      mainMenuLinks: mainMenuLinks.slice(0, 50), // Limit results
+      footerLinks: footerLinks.slice(0, 30),
+      categories: categories.slice(0, 20)
+    };
+    
+  } catch (error) {
+    console.error('Navigation analysis error:', error);
+    return { mainMenuLinks: [], footerLinks: [], categories: [] };
+  }
+}
+
+// Enhanced URL pattern analysis for blog detection
+function analyzeUrlPatterns(url: string): number {
+  let score = 0;
+  const urlLower = url.toLowerCase();
+  
+  // Date patterns in URL (+25 points)
+  const datePatterns = [
+    /\/\d{4}\/\d{1,2}\/\d{1,2}\//,     // /2024/01/15/
+    /\/\d{4}-\d{1,2}-\d{1,2}/,         // /2024-01-15
+    /\/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i
+  ];
+  
+  if (datePatterns.some(pattern => pattern.test(url))) score += 25;
+  
+  // CMS indicators (+20 points)
+  if (urlLower.includes('?p=') || urlLower.includes('?post_id=')) score += 20;
+  if (urlLower.includes('/posts/') || urlLower.includes('/insights/')) score += 15;
+  
+  // Editorial sections (+15 points)
+  const editorialSections = ['/news/', '/resources/', '/learning/', '/insights/', '/updates/'];
+  if (editorialSections.some(section => urlLower.includes(section))) score += 15;
+  
+  return score;
+}
+
+// Enhanced content metadata analysis for blog detection
+function analyzeContentMetadata(title: string, content?: string): number {
+  let score = 0;
+  const contentLower = (content || '').toLowerCase();
+  const titleLower = title.toLowerCase();
+  
+  // Author indicators (+20 points)
+  const authorPatterns = ['by ', 'author:', 'written by', 'posted by'];
+  if (authorPatterns.some(pattern => contentLower.includes(pattern))) score += 20;
+  
+  // Temporal language (+10 points)
+  const temporalTerms = ['today', 'yesterday', 'recently', 'last week', 'this month'];
+  const temporalMatches = temporalTerms.filter(term => contentLower.includes(term)).length;
+  score += Math.min(temporalMatches * 3, 10);
+  
+  // Publication metadata (+10 points)
+  if (contentLower.includes('published') || contentLower.includes('updated')) score += 10;
+  
+  return score;
+}
+
+// HTML structure analysis for blog detection
+function analyzeHtmlStructure(content?: string): number {
+  let score = 0;
+  const contentLower = (content || '').toLowerCase();
+  
+  // Social sharing elements (+10 points)
+  const socialIndicators = ['share', 'facebook', 'twitter', 'linkedin', 'social-media'];
+  if (socialIndicators.some(indicator => contentLower.includes(indicator))) score += 10;
+  
+  // Comment systems (+10 points)
+  if (contentLower.includes('comment') || contentLower.includes('disqus')) score += 10;
+  
+  return score;
+}
+
+// Navigation context analysis for blog detection
+function analyzeNavigationContext(url: string, context?: { isNavigationLink?: boolean }): number {
+  let score = 0;
+  const urlLower = url.toLowerCase();
+  
+  // Editorial navigation sections (+10 points)
+  const editorialKeywords = ['blog', 'news', 'article', 'resource', 'insight', 'tip'];
+  if (editorialKeywords.some(keyword => urlLower.includes(keyword))) score += 10;
+  
+  return score;
+}
+
+// Multi-layered blog probability calculator
+function calculateBlogProbability(url: string, title: string, context?: { isNavigationLink?: boolean; content?: string }): number {
+  let score = 0;
+  
+  // URL pattern analysis (30 points max)
+  score += analyzeUrlPatterns(url);
+  
+  // Content metadata analysis (40 points max) 
+  score += analyzeContentMetadata(title, context?.content);
+  
+  // HTML structure analysis (20 points max)
+  score += analyzeHtmlStructure(context?.content);
+  
+  // Navigation context (10 points max)
+  score += analyzeNavigationContext(url, context);
+  
+  return Math.min(score, 100);
+}
+
+// Commercial intent calculator for relevance scoring
+function calculateCommercialIntent(page: { title: string; content?: string; url: string }): number {
+  let score = 0;
+  const content = (page.content || '').toLowerCase();
+  const title = page.title.toLowerCase();
+  
+  // Service indicators (+20 points)
+  const serviceTerms = ['we repair', 'our service', 'contact us', 'call us', 'schedule', 'quote'];
+  serviceTerms.forEach(term => {
+    if (content.includes(term)) score += 5;
+  });
+  
+  // Product indicators (+15 points)  
+  const productTerms = ['specifications', 'model', 'price', 'buy', 'order', 'inventory'];
+  productTerms.forEach(term => {
+    if (content.includes(term)) score += 3;
+  });
+  
+  // Business context (+10 points)
+  if (title.includes('service') || title.includes('repair')) score += 10;
+  if (content.includes('years of experience') || content.includes('certified')) score += 5;
+  
+  return Math.min(score, 25);
+}
+
+// Advanced page categorization with parallel Shopify structure (excludes blog articles)
+function categorizeWebsitePageAdvanced(
+  url: string, 
+  title: string, 
+  context?: { isNavigationLink?: boolean; content?: string }
+): 'product' | 'service' | 'blog' | 'category' | 'about' | 'other' {
+  const urlLower = url.toLowerCase();
+  const titleLower = title.toLowerCase();
+  const contentLower = (context?.content || '').toLowerCase();
+  
+  // 🚫 EXCLUDE BLOG ARTICLES (to prevent blog-in-blog linking)
+  const blogExclusionPatterns = [
+    '/blog/', '/article/', '/post/', '/news/', '/resource/', '/guide/', '/tip/',
+    '/tutorial/', '/case-study/', '/whitepaper/', '/insight/', '/update/'
+  ];
+  
+  const blogExclusionKeywords = [
+    'blog', 'article', 'post', 'news', 'update', 'insight', 'tutorial',
+    'guide', 'tip', 'case study', 'whitepaper', 'resource center'
+  ];
+  
+  // Check if this is a blog article (to exclude)
+  for (const pattern of blogExclusionPatterns) {
+    if (urlLower.includes(pattern)) {
+      return 'blog'; // Will be filtered out
+    }
+  }
+  
+  for (const keyword of blogExclusionKeywords) {
+    if (titleLower.includes(keyword)) {
+      return 'blog'; // Will be filtered out
+    }
+  }
+  
+  // 🛍️ PRODUCT PAGES (parallel to Shopify Products)
+  const productIndicators = [
+    '/product', '/equipment', '/parts', '/inventory', '/catalog', '/shop', '/store'
+  ];
+  
+  const productKeywords = [
+    'equipment', 'parts', 'inventory', 'catalog', 'model', 'specification',
+    'buy', 'purchase', 'order', 'price', 'cost', 'for sale'
+  ];
+  
+  let productScore = 0;
+  for (const indicator of productIndicators) {
+    if (urlLower.includes(indicator)) productScore += 15;
+  }
+  
+  for (const keyword of productKeywords) {
+    if (titleLower.includes(keyword)) productScore += 10;
+    if (contentLower.includes(keyword)) productScore += 5;
+  }
+  
+  // 📂 CATEGORY/COLLECTION PAGES (parallel to Shopify Collections)
+  const categoryIndicators = [
+    '/category', '/collection', '/department', '/section', '/type',
+    '/brand', '/manufacturer', '/series'
+  ];
+  
+  const categoryKeywords = [
+    'category', 'collection', 'department', 'type', 'series', 'line',
+    'brand', 'manufacturer', 'family', 'range'
+  ];
+  
+  let categoryScore = 0;
+  for (const indicator of categoryIndicators) {
+    if (urlLower.includes(indicator)) categoryScore += 15;
+  }
+  
+  for (const keyword of categoryKeywords) {
+    if (titleLower.includes(keyword)) categoryScore += 10;
+    if (contentLower.includes(keyword)) categoryScore += 5;
+  }
+  
+  // 🔧 SERVICE PAGES (part of "Regular Pages" - high priority)
+  const serviceIndicators = [
+    '/service', '/repair', '/maintenance', '/installation', '/support',
+    '/consulting', '/solution', '/cleaning', '/calibration', '/inspection',
+    '/troubleshooting', '/warranty'
+  ];
+  
+  const serviceKeywords = [
+    'service', 'repair', 'maintenance', 'installation', 'support',
+    'consulting', 'solution', 'cleaning', 'calibration', 'inspection',
+    'troubleshooting', 'warranty', 'technical support'
+  ];
+  
+  let serviceScore = 0;
+  for (const indicator of serviceIndicators) {
+    if (urlLower.includes(indicator)) serviceScore += 15;
+  }
+  
+  for (const keyword of serviceKeywords) {
+    if (titleLower.includes(keyword)) serviceScore += 10;
+    if (contentLower.includes(keyword)) serviceScore += 5;
+  }
+  
+  // 📄 ABOUT/COMPANY PAGES (part of "Regular Pages" - lower priority)
+  const aboutIndicators = ['/about', '/company', '/team', '/history', '/mission'];
+  const aboutKeywords = ['about', 'company', 'team', 'history', 'mission', 'values'];
+  
+  let aboutScore = 0;
+  for (const indicator of aboutIndicators) {
+    if (urlLower.includes(indicator)) aboutScore += 10;
+  }
+  
+  for (const keyword of aboutKeywords) {
+    if (titleLower.includes(keyword)) aboutScore += 8;
+  }
+  
+  // Navigation context bonus
+  if (context?.isNavigationLink) {
+    if (titleLower.includes('product') || titleLower.includes('equipment')) productScore += 8;
+    if (titleLower.includes('service') || titleLower.includes('support')) serviceScore += 8;
+    if (titleLower.includes('category') || titleLower.includes('department')) categoryScore += 8;
+  }
+  
+  // Determine category based on highest score
+  const scores = [
+    { type: 'product' as const, score: productScore },
+    { type: 'category' as const, score: categoryScore },
+    { type: 'service' as const, score: serviceScore },
+    { type: 'about' as const, score: aboutScore }
+  ];
+  
+  const highestScore = scores.reduce((max, curr) => curr.score > max.score ? curr : max);
+  
+  // Return highest scoring category, or 'other' for regular pages
+  if (highestScore.score > 8) {
+    return highestScore.type;
+  }
+  
+  // Default to 'other' for regular pages that aren't clearly categorized
+  return 'other';
+}
+
+// Phase 2: Deep Navigation Crawling
+async function crawlNavigationSystematically(
+  websiteUrl: string,
+  navigationStructure: { mainMenuLinks: string[]; categories: string[] },
+  searchTerms: string[]
+): Promise<Array<{
+  url: string;
+  title: string;
+  description?: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+  discoveryMethod: string;
+  priority: number;
+  relevanceScore: number;
+}>> {
+  console.log(`🔍 Phase 2: Deep navigation crawling for ${websiteUrl}`);
+  
+  const discoveredPages: any[] = [];
+  const processedUrls = new Set<string>();
+  
+  try {
+    // Combine all navigation links for exploration
+    const navigationLinks = [
+      ...navigationStructure.mainMenuLinks,
+      ...navigationStructure.categories
+    ].slice(0, 30); // Limit to prevent excessive crawling
+    
+    // Crawl each navigation link
+    for (const navLink of navigationLinks) {
+      if (processedUrls.has(navLink)) continue;
+      processedUrls.add(navLink);
+      
+      console.log(`🗺️ Exploring navigation link: ${navLink}`);
+      
+      try {
+        // Crawl the navigation page
+        const pageContent = await analyzePageContent(navLink);
+        if (pageContent) {
+          const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
+          
+          discoveredPages.push({
+            ...pageContent,
+            discoveryMethod: 'navigation-deep',
+            priority: 7,
+            relevanceScore
+          });
+        }
+        
+        // Look for pagination or "load more" patterns
+        const paginatedPages = await explorePagination(navLink);
+        for (const page of paginatedPages) {
+          if (!processedUrls.has(page.url)) {
+            processedUrls.add(page.url);
+            const relevanceScore = calculateAdvancedRelevance(page, searchTerms);
+            
+            discoveredPages.push({
+              ...page,
+              discoveryMethod: 'pagination',
+              priority: 6,
+              relevanceScore
+            });
+          }
+        }
+        
+        // Brief delay to be respectful
+        await sleep(200);
+        
+      } catch (error) {
+        console.warn(`Failed to crawl navigation link ${navLink}:`, error);
+      }
+    }
+    
+    console.log(`✅ Phase 2 complete: ${discoveredPages.length} additional pages discovered`);
+    return discoveredPages;
+    
+  } catch (error) {
+    console.error('Phase 2 crawling error:', error);
+    return [];
+  }
+}
+
+// Analyze individual page content
+async function analyzePageContent(url: string): Promise<{
+  url: string;
+  title: string;
+  description?: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+  content?: string;
+} | null> {
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
+      signal: AbortSignal.timeout(10000) // 10 second timeout
+    });
+    
+    if (!response.ok) return null;
+    
+    const html = await response.text();
+    
+    // Extract title with HTML entity decoding
+    const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
+    const rawTitle = titleMatch ? titleMatch[1].trim() : extractTitleFromUrl(url);
+    const title = rawTitle; // TODO: Add HTML entity decoding
+    
+    // Extract meta description with HTML entity decoding
+    const descMatch = html.match(/<meta[^>]*name=['"](description|Description)['"]\s*content=['"](.*?)['"]/i);
+    const rawDescription = descMatch ? descMatch[2].trim() : undefined;
+    const description = rawDescription; // TODO: Add HTML entity decoding
+    
+    // Extract main content (simplified)
+    const contentMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const bodyContent = contentMatch ? contentMatch[1] : html;
+    
+    // Remove scripts, styles, and other non-content elements
+    const cleanContent = bodyContent
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    const pageType = categorizeWebsitePageAdvanced(url, title, { content: cleanContent });
+    
+    return {
+      url,
+      title,
+      description,
+      pageType,
+      content: decodeHtmlEntities(cleanContent.substring(0, 1000)) // Keep first 1000 chars for analysis
+    };
+    
+  } catch (error) {
+    console.warn(`Failed to analyze page content for ${url}:`, error);
+    return null;
+  }
+}
+
+// Explore pagination patterns
+async function explorePagination(baseUrl: string): Promise<Array<{
+  url: string;
+  title: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+}>> {
+  const paginatedPages: any[] = [];
+  
+  try {
+    const baseUrlObj = new URL(baseUrl);
+    
+    // Common pagination patterns to test
+    const paginationPatterns = [
+      '/page/{page}',
+      '?page={page}',
+      '?p={page}',
+      '/p{page}',
+      '/{page}'
+    ];
+    
+    // Test pagination patterns
+    for (const pattern of paginationPatterns) {
+      let consecutiveFailures = 0;
+      
+      for (let page = 2; page <= 10; page++) { // Test pages 2-10
+        if (consecutiveFailures >= 3) break; // Stop after 3 consecutive failures
+        
+        let testUrl: string;
+        if (pattern.includes('?')) {
+          testUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${pattern.replace('?', '').replace('{page}', page.toString())}`;
+        } else {
+          testUrl = `${baseUrl}${pattern.replace('{page}', page.toString())}`;
+        }
+        
+        try {
+          const response = await fetch(testUrl, {
+            method: 'HEAD', // Use HEAD to check if page exists without downloading content
+            headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
+            signal: AbortSignal.timeout(5000)
+          });
+          
+          if (response.ok) {
+            const title = `${extractTitleFromUrl(baseUrl)} - Page ${page}`;
+            const pageType = categorizeWebsitePageAdvanced(testUrl, title);
+            
+            paginatedPages.push({
+              url: testUrl,
+              title,
+              pageType
+            });
+            
+            consecutiveFailures = 0;
+          } else {
+            consecutiveFailures++;
+          }
+          
+        } catch {
+          consecutiveFailures++;
+        }
+        
+        await sleep(100); // Brief delay between requests
+      }
+      
+      if (paginatedPages.length > 0) break; // Found working pagination pattern
+    }
+    
+    return paginatedPages;
+    
+  } catch (error) {
+    console.warn(`Pagination exploration failed for ${baseUrl}:`, error);
+    return [];
+  }
+}
+
+// Advanced relevance calculation
+function calculateAdvancedRelevance(
+  page: { title: string; url: string; description?: string; content?: string; pageType: string },
+  searchTerms: string[]
+): number {
+  let score = 0;
+  const titleLower = page.title.toLowerCase();
+  const urlLower = page.url.toLowerCase();
+  const descriptionLower = (page.description || '').toLowerCase();
+  const contentLower = (page.content || '').toLowerCase();
+  
+  // Industry-specific terms (commercial kitchen equipment)
+  const industryTerms = [
+    'fryer', 'oven', 'grill', 'refrigerat', 'freezer', 'dishwasher', 'mixer',
+    'equipment', 'commercial', 'kitchen', 'restaurant', 'maintenance', 'repair',
+    'service', 'parts', 'installation', 'cleaning', 'calibration'
+  ];
+  
+  // Equipment brand terms
+  const brandTerms = [
+    'rational', 'hobart', 'hoshizaki', 'true', 'beverage-air', 'turbo-air',
+    'atlas', 'vulcan', 'southbend', 'garland', 'blodgett', 'cleveland'
+  ];
+  
+  // Calculate relevance for search terms
+  for (const term of searchTerms) {
+    const termLower = term.toLowerCase();
+    if (termLower.length < 3) continue;
+    
+    // Title matches (highest weight)
+    if (titleLower.includes(termLower)) score += 50;
+    
+    // URL matches
+    if (urlLower.includes(termLower)) score += 30;
+    
+    // Description matches
+    if (descriptionLower.includes(termLower)) score += 20;
+    
+    // Content matches (with frequency bonus)
+    const contentMatches = (contentLower.match(new RegExp(termLower, 'g')) || []).length;
+    score += Math.min(contentMatches * 5, 25); // Max 25 points from content frequency
+  }
+  
+  // Industry relevance bonus
+  for (const industryTerm of industryTerms) {
+    if (titleLower.includes(industryTerm)) score += 15;
+    if (contentLower.includes(industryTerm)) score += 5;
+  }
+  
+  // Brand relevance bonus
+  for (const brandTerm of brandTerms) {
+    if (titleLower.includes(brandTerm)) score += 20;
+    if (contentLower.includes(brandTerm)) score += 10;
+  }
+  
+  // Page type bonuses
+  switch (page.pageType) {
+    case 'service': score += 15; break;
+    case 'product': score += 12; break;
+    case 'blog': score += 8; break;
+    case 'category': score += 5; break;
+    default: break;
+  }
+  
+  // Content quality bonus
+  if (page.content && page.content.length > 500) score += 5;
+  if (page.description && page.description.length > 50) score += 3;
+  
+  return Math.round(score);
+}
+
+// Phase 3: Pattern-Based Aggressive Testing
+async function comprehensivePatternTesting(
+  websiteUrl: string,
+  searchTerms: string[],
+  foundPagesCount: number
+): Promise<Array<{
+  url: string;
+  title: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+  discoveryMethod: string;
+  priority: number;
+  relevanceScore: number;
+}>> {
+  console.log(`🔍 Phase 3: Pattern-based aggressive testing for ${websiteUrl}`);
+  
+  const discoveredPages: any[] = [];
+  const baseUrl = new URL(websiteUrl);
+  
+  try {
+    // Industry-specific URL patterns for commercial kitchen equipment
+    const industryPatterns = [
+      '/service', '/services', '/repair', '/maintenance', '/installation',
+      '/parts', '/equipment', '/products', '/solutions', '/support',
+      '/commercial-kitchen', '/restaurant-equipment', '/foodservice',
+      '/calibration', '/cleaning', '/troubleshooting', '/warranty'
+    ];
+    
+    // Equipment brand-specific patterns
+    const brandPatterns = [
+      '/rational', '/hobart', '/hoshizaki', '/true', '/beverage-air',
+      '/vulcan', '/southbend', '/garland', '/blodgett', '/cleveland',
+      '/brands', '/manufacturers', '/oem-parts'
+    ];
+    
+    // Content type patterns
+    const contentPatterns = [
+      '/blog', '/news', '/resources', '/guides', '/tips', '/articles',
+      '/case-studies', '/white-papers', '/documentation', '/manuals',
+      '/faq', '/help', '/training', '/videos', '/downloads'
+    ];
+    
+    // Alternative URL structures
+    const alternativeStructures = [
+      '/shop', '/store', '/catalog', '/inventory', '/browse',
+      '/directory', '/categories', '/collections', '/pages'
+    ];
+    
+    // Combine all patterns
+    const allPatterns = [
+      ...industryPatterns,
+      ...brandPatterns,
+      ...contentPatterns,
+      ...alternativeStructures
+    ];
+    
+    // Test each pattern
+    for (const pattern of allPatterns.slice(0, 50)) { // Limit to prevent excessive testing
+      const testUrl = `${baseUrl.origin}${pattern}`;
+      
+      try {
+        const response = await fetch(testUrl, {
+          method: 'HEAD',
+          headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
+          signal: AbortSignal.timeout(5000)
+        });
+        
+        if (response.ok) {
+          const pageContent = await analyzePageContent(testUrl);
+          if (pageContent) {
+            const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
+            
+            // Only include if reasonably relevant
+            if (relevanceScore > 10) {
+              discoveredPages.push({
+                ...pageContent,
+                discoveryMethod: 'pattern-testing',
+                priority: 5,
+                relevanceScore
+              });
+            }
+          }
+        }
+        
+      } catch (error) {
+        // Silently continue on failures during pattern testing
+      }
+      
+      await sleep(100); // Brief delay between requests
+    }
+    
+    // Test numbered patterns if we haven't found much content
+    if (foundPagesCount + discoveredPages.length < 20) {
+      await testNumberedPatterns(baseUrl.origin, searchTerms, discoveredPages);
+    }
+    
+    console.log(`✅ Phase 3 complete: ${discoveredPages.length} additional pages discovered`);
+    return discoveredPages;
+    
+  } catch (error) {
+    console.error('Phase 3 pattern testing error:', error);
+    return [];
+  }
+}
+
+// Test numbered URL patterns
+async function testNumberedPatterns(
+  baseUrl: string,
+  searchTerms: string[],
+  discoveredPages: any[]
+): Promise<void> {
+  console.log('🔢 Testing numbered URL patterns...');
+  
+  const numberedPatterns = [
+    '/page/', '/service/', '/product/', '/article/', '/blog/'
+  ];
+  
+  for (const pattern of numberedPatterns) {
+    let consecutiveFailures = 0;
+    
+    for (let num = 1; num <= 20; num++) { // Test numbers 1-20
+      if (consecutiveFailures >= 5) break;
+      
+      const testUrl = `${baseUrl}${pattern}${num}`;
+      
+      try {
+        const response = await fetch(testUrl, {
+          method: 'HEAD',
+          headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
+          signal: AbortSignal.timeout(3000)
+        });
+        
+        if (response.ok) {
+          const pageContent = await analyzePageContent(testUrl);
+          if (pageContent) {
+            const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
+            
+            if (relevanceScore > 5) {
+              discoveredPages.push({
+                ...pageContent,
+                discoveryMethod: 'numbered-pattern',
+                priority: 4,
+                relevanceScore
+              });
+            }
+          }
+          consecutiveFailures = 0;
+        } else {
+          consecutiveFailures++;
+        }
+        
+      } catch {
+        consecutiveFailures++;
+      }
+      
+      await sleep(150);
+    }
+  }
+}
+
+// Phase 4: Final Comprehensive Sweep
+async function finalComprehensiveSweep(
+  websiteUrl: string,
+  searchTerms: string[],
+  allFoundPages: any[]
+): Promise<Array<{
+  url: string;
+  title: string;
+  pageType: 'product' | 'service' | 'blog' | 'category' | 'about' | 'other';
+  discoveryMethod: string;
+  priority: number;
+  relevanceScore: number;
+}>> {
+  console.log(`🔍 Phase 4: Final comprehensive sweep for ${websiteUrl}`);
+  
+  const discoveredPages: any[] = [];
+  const relevantPagesCount = allFoundPages.filter(p => p.relevanceScore > 15).length;
+  
+  // Only trigger if we haven't found enough highly relevant content
+  if (relevantPagesCount >= 10) {
+    console.log(`✅ Phase 4 skipped: Found ${relevantPagesCount} highly relevant pages already`);
+    return [];
+  }
+  
+  try {
+    const baseUrl = new URL(websiteUrl);
+    
+    // Search term-specific URL testing
+    const searchSpecificPatterns = generateSearchSpecificPatterns(searchTerms);
+    
+    for (const pattern of searchSpecificPatterns.slice(0, 30)) {
+      const testUrl = `${baseUrl.origin}${pattern}`;
+      
+      try {
+        const response = await fetch(testUrl, {
+          method: 'HEAD',
+          headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
+          signal: AbortSignal.timeout(5000)
+        });
+        
+        if (response.ok) {
+          const pageContent = await analyzePageContent(testUrl);
+          if (pageContent) {
+            const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
+            
+            if (relevanceScore > 20) { // Higher threshold for final sweep
+              discoveredPages.push({
+                ...pageContent,
+                discoveryMethod: 'final-sweep',
+                priority: 3,
+                relevanceScore
+              });
+            }
+          }
+        }
+        
+      } catch (error) {
+        // Continue on failures
+      }
+      
+      await sleep(200);
+    }
+    
+    console.log(`✅ Phase 4 complete: ${discoveredPages.length} additional pages discovered`);
+    return discoveredPages;
+    
+  } catch (error) {
+    console.error('Phase 4 final sweep error:', error);
+    return [];
+  }
+}
+
+// Generate search term-specific URL patterns
+function generateSearchSpecificPatterns(searchTerms: string[]): string[] {
+  const patterns: string[] = [];
+  
+  for (const term of searchTerms) {
+    const cleanTerm = term.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    
+    // Generate various URL patterns for the search term
+    patterns.push(
+      `/${cleanTerm}`,
+      `/service/${cleanTerm}`,
+      `/services/${cleanTerm}`,
+      `/repair/${cleanTerm}`,
+      `/maintenance/${cleanTerm}`,
+      `/guide/${cleanTerm}`,
+      `/blog/${cleanTerm}`,
+      `/article/${cleanTerm}`,
+      `/${cleanTerm}-service`,
+      `/${cleanTerm}-repair`,
+      `/${cleanTerm}-maintenance`,
+      `/${cleanTerm}-guide`
+    );
+  }
+  
+  return [...new Set(patterns)]; // Remove duplicates
+}
+
+// Enhanced website integration wrapper functions removed - now using unified searchWebsiteContentWithShopifyLogic
+
+// Enhanced website search using Shopify-style AI and vendor matching
+async function searchWebsiteContentWithShopifyLogic(
+  websiteUrl: string,
+  aiEnhancedTerms: string[],
+  pageTypes: string[],
+  originalKeyword: string,
+  identifiedVendor: string | null
+): Promise<Array<{
+  id: string;
+  title: string;
+  url: string;
+  description?: string;
+  pageType: string;
+  relevanceScore: number;
+  discoveryMethod: string;
+}>> {
+  try {
+    console.log(`🔍 Shopify-style search for page types: ${pageTypes.join(', ')}`);
+    console.log(`🎯 Using AI terms: ${aiEnhancedTerms.join(', ')}`);
+    
+    // Use enhanced 4-phase discovery with AI terms
+    const allPages = await discoverWebsitePages(websiteUrl, aiEnhancedTerms, 30000);
+    
+    // 🔥 ENHANCED BLOG FILTERING (multi-layered analysis)
+    console.log(`🔍 Blog detection analysis on ${allPages.length} discovered pages...`);
+    
+    const nonBlogPages = allPages.filter(page => {
+      const blogProb = calculateBlogProbability(page.url, page.title);
+      return blogProb <= 60; // Filter out likely blog articles
+    });
+    
+    const blogFilteredCount = allPages.length - nonBlogPages.length;
+    console.log(`📊 Blog filtering: ${blogFilteredCount}/${allPages.length} pages filtered (${Math.round(blogFilteredCount/allPages.length*100)}%)`);
+    
+    // Debug: Show top filtered pages
+    if (blogFilteredCount > 0) {
+      console.log(`🚫 Sample filtered blog articles:`);
+      allPages
+        .filter(page => calculateBlogProbability(page.url, page.title) > 60)
+        .slice(0, 3)
+        .forEach((page, index) => {
+          const blogProb = calculateBlogProbability(page.url, page.title);
+          console.log(`  ${index + 1}. "${page.title}" - Blog probability: ${blogProb}% [${page.url}]`);
+        });
+    }
+    
+    // Filter by requested page types (using non-blog pages)
+    const filteredPages = nonBlogPages.filter(page => 
+      pageTypes.includes(page.pageType)
+    );
+    
+    if (filteredPages.length === 0) {
+      console.log(`❌ No ${pageTypes.join('/')} pages found`);
+      return [];
+    }
+    
+    // Apply Shopify-style relevance scoring
+    const scoredPages = filteredPages.map(page => {
+      const shopifyStyleScore = calculateShopifyStyleRelevance(
+        page, 
+        aiEnhancedTerms, 
+        identifiedVendor, 
+        originalKeyword
+      );
+      
+      return {
+        id: Buffer.from(page.url).toString('base64'),
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType,
+        relevanceScore: shopifyStyleScore,
+        discoveryMethod: page.discoveryMethod || 'shopify-style-enhanced'
+      };
+    });
+    
+    // Sort by relevance (highest first) and filter out low-scoring content
+    const qualityPages = scoredPages
+      .filter(page => page.relevanceScore > 15) // Same quality threshold as Shopify
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+    
+    console.log(`✅ Shopify-style search complete: ${qualityPages.length} high-quality pages found`);
+    
+    return qualityPages.slice(0, 20); // Return top 20 results
+    
+  } catch (error) {
+    console.error('Shopify-style website search error:', error);
+    return [];
+  }
+}
+
+// Shopify-style relevance calculation for website content
+function calculateShopifyStyleRelevance(
+  page: { title: string; url: string; description?: string; pageType: string; content?: string },
+  aiEnhancedTerms: string[],
+  identifiedVendor: string | null,
+  originalKeyword: string
+): number {
+  let score = 0;
+  const titleLower = page.title.toLowerCase();
+  const urlLower = page.url.toLowerCase();
+  const descriptionLower = (page.description || '').toLowerCase();
+  const contentLower = (page.content || '').toLowerCase();
+  
+  // 🔥 SAME SCORING LOGIC AS SHOPIFY PRODUCTS
+  
+  // 1. Original keyword priority (highest weight - like Shopify products)
+  if (originalKeyword) {
+    const originalLower = originalKeyword.toLowerCase();
+    if (titleLower.includes(originalLower)) score += 100; // Same as Shopify
+    if (urlLower.includes(originalLower)) score += 50;
+    if (descriptionLower.includes(originalLower)) score += 25;
+    if (contentLower.includes(originalLower)) score += 15;
+  }
+  
+  // 2. Vendor/brand priority (like Shopify vendor matching)
+  if (identifiedVendor) {
+    const vendorLower = identifiedVendor.toLowerCase();
+    if (titleLower.includes(vendorLower)) score += 75; // Same vendor boost as Shopify
+    if (contentLower.includes(vendorLower)) score += 40;
+    if (urlLower.includes(vendorLower)) score += 30;
+    if (descriptionLower.includes(vendorLower)) score += 20;
+  }
+  
+  // 3. AI-enhanced search terms (comprehensive matching)
+  for (const term of aiEnhancedTerms) {
+    const termLower = term.toLowerCase();
+    if (termLower.length < 3) continue; // Skip very short terms
+    
+    if (titleLower.includes(termLower)) score += 25; // Same as Shopify
+    if (urlLower.includes(termLower)) score += 15;
+    if (descriptionLower.includes(termLower)) score += 10;
+    
+    // Content frequency bonus (like Shopify product descriptions)
+    const contentMatches = (contentLower.match(new RegExp(termLower, 'g')) || []).length;
+    score += Math.min(contentMatches * 3, 15); // Max 15 points from content frequency
+  }
+  
+  // 4. Industry-specific terms (commercial kitchen equipment - like Shopify product types)
+  const industryTerms = [
+    'fryer', 'oven', 'grill', 'refrigerat', 'freezer', 'dishwasher', 'mixer',
+    'equipment', 'commercial', 'kitchen', 'restaurant', 'maintenance', 'repair',
+    'service', 'parts', 'installation', 'cleaning', 'calibration', 'troubleshooting'
+  ];
+  
+  for (const industryTerm of industryTerms) {
+    if (titleLower.includes(industryTerm)) score += 15;
+    if (contentLower.includes(industryTerm)) score += 8;
+  }
+  
+  // 5. Equipment brand recognition (like Shopify vendor detection)
+  const brandTerms = [
+    'rational', 'hobart', 'hoshizaki', 'true', 'beverage-air', 'turbo-air',
+    'atlas', 'vulcan', 'southbend', 'garland', 'blodgett', 'cleveland'
+  ];
+  
+  for (const brandTerm of brandTerms) {
+    if (titleLower.includes(brandTerm)) score += 20;
+    if (contentLower.includes(brandTerm)) score += 12;
+  }
+  
+  // 6. Page type bonuses (like Shopify product categorization)
+  switch (page.pageType) {
+    case 'service': score += 20; break;   // Highest priority
+    case 'product': score += 18; break;   // High priority  
+    case 'category': score += 15; break;  // Medium priority
+    case 'about': score += 10; break;     // Lower priority
+    case 'other': score += 5; break;      // Lowest priority
+    default: break;
+  }
+  
+  // 7. Content quality indicators (like Shopify product descriptions)
+  if (page.content && page.content.length > 800) score += 12; // Detailed content
+  if (page.content && page.content.length > 400) score += 8;  // Moderate content
+  if (page.description && page.description.length > 100) score += 5; // Good description
+  
+  // 8. Penalty for generic/low-value pages (like filtering poor Shopify products)
+  const genericIndicators = ['contact', 'privacy', 'terms', 'cookie', 'legal'];
+  for (const generic of genericIndicators) {
+    if (titleLower.includes(generic) || urlLower.includes(generic)) {
+      score -= 20; // Penalize generic pages
+    }
+  }
+  
+  // 🔥 NEW: Commercial intent bonus (prefer actionable content)
+  const commercialIntent = calculateCommercialIntent(page);
+  score += commercialIntent; // 0-25 points for commercial relevance
+  
+  // 🔥 NEW: Anti-blog penalty (ensure we're not scoring blog content highly)
+  const blogProbability = calculateBlogProbability(page.url, page.title, {
+    content: page.content
+  });
+  
+  if (blogProbability > 40) {
+    score -= 30; // Penalty for blog-like content
+  }
+  
+  return Math.max(0, Math.round(score)); // Ensure non-negative scores
+}
+
+// Enhanced website integration wrapper functions (updated for 4-phase discovery)

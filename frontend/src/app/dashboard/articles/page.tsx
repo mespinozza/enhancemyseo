@@ -1,18 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
-import { useRouter } from 'next/navigation';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase/config';
-import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
-import { blogOperations, Blog } from '@/lib/firebase/firestore';
+import { brandProfileOperations, BrandProfile, blogOperations, Blog } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
-import { getUserUsage, canPerformAction, incrementUsage } from '@/lib/usage-limits';
+import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { Download, Copy, Eye, Code, Info, ShoppingBag, Wrench, Plus, Sparkles, X, Check } from 'lucide-react';
+import { Download, Copy, Plus, Sparkles, X, Check } from 'lucide-react';
+import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, ContentSearchResults, WebsitePage } from '@/types/content-selection';
+import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
 
 interface BlogPost {
   id: string;
@@ -29,14 +27,11 @@ interface BulkGenerationStatus {
 export default function ArticlesPage() {
   const { user, subscription_status } = useAuth();
   const { refreshUsage, refreshSidebar } = useUsageRefresh();
-  const router = useRouter();
-  const [topic, setTopic] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
   const [showBrandForm, setShowBrandForm] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   
   // Bulk generation states
   const [keywords, setKeywords] = useState<string[]>(['']);
@@ -49,7 +44,61 @@ export default function ArticlesPage() {
   const [toneOfVoice, setToneOfVoice] = useState('');
   const [contentType, setContentType] = useState('');
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
-  const [articleMode, setArticleMode] = useState<'store' | 'service' | null>(null);
+  
+  // New content selection state
+  const [contentSelection, setContentSelection] = useState<ContentSelection>({
+    mode: 'automatic',
+    automaticOptions: {
+      includeProducts: true,
+      includeCollections: true,
+      includePages: true
+    },
+    manualSelections: {
+      products: [],
+      collections: [],
+      pages: []
+    },
+    usesSitemap: false
+  });
+  
+  // Manual search states
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [collectionSearchTerm, setCollectionSearchTerm] = useState('');
+  const [pageSearchTerm, setPageSearchTerm] = useState('');
+  
+  // Website content search states (unified approach)
+  const [websiteSearchTerm, setWebsiteSearchTerm] = useState('');
+  const [websiteSearchResults, setWebsiteSearchResults] = useState<WebsitePage[]>([]);
+  const [isSearchingWebsite, setIsSearchingWebsite] = useState(false);
+  
+  const [searchResults, setSearchResults] = useState<ContentSearchResults>({
+    products: [],
+    collections: [],
+    pages: [],
+    hasNextPage: false
+  });
+  const [isSearching, setIsSearching] = useState({
+    products: false,
+    collections: false,
+    pages: false
+  });
+  const [pagination, setPagination] = useState({
+    products: { hasNextPage: false, endCursor: null, total: 0 },
+    collections: { hasNextPage: false, endCursor: null, total: 0 },
+    pages: { hasNextPage: false, endCursor: null, total: 0 }
+  });
+  const [isLoadingMore, setIsLoadingMore] = useState({
+    products: false,
+    collections: false,
+    pages: false
+  });
+
+  // Generation issue modal state
+  const [showGenerationIssueModal, setShowGenerationIssueModal] = useState({
+    show: false,
+    keyword: '',
+    articleContent: ''
+  });
   
   // Touched state for validation
   const [touchedFields, setTouchedFields] = useState({
@@ -72,28 +121,424 @@ export default function ArticlesPage() {
     setTouchedFields(prev => ({ ...prev, [fieldName]: true }));
   };
 
-  useEffect(() => {
-    if (user) {
-      loadBrandProfiles();
+  // Manual search functions
+  const searchProducts = useCallback(async (term: string, loadMore = false) => {
+    if (!term.trim() || !selectedBrandId || !user) {
+      setSearchResults((prev: ContentSearchResults) => ({ ...prev, products: [] }));
+      return;
     }
-  }, [user]);
 
-  const loadBrandProfiles = async () => {
+    const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
+    if (!selectedProfile?.shopifyStoreUrl || !selectedProfile?.shopifyAccessToken) {
+      toast.error('Shopify credentials not found for selected brand profile');
+      return;
+    }
+
+    if (loadMore) {
+      setIsLoadingMore(prev => ({ ...prev, products: true }));
+    } else {
+      setIsSearching(prev => ({ ...prev, products: true }));
+    }
+
+    try {
+      const response = await fetch('/api/content-search/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user.getIdToken()}`
+        },
+        body: JSON.stringify({
+          searchTerm: term.trim(),
+          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
+          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          cursor: loadMore ? pagination.products.endCursor : null
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (loadMore) {
+          setSearchResults(prev => ({
+            ...prev,
+            products: [...prev.products, ...(data.products || [])]
+          }));
+        } else {
+          setSearchResults(prev => ({ ...prev, products: data.products || [] }));
+        }
+        
+        setPagination(prev => ({
+          ...prev,
+          products: {
+            hasNextPage: data.pageInfo?.hasNextPage || false,
+            endCursor: data.pageInfo?.endCursor || null,
+            total: data.totalCount || 0
+          }
+        }));
+      } else {
+        const errorData = await response.json();
+        toast.error(`Product search failed: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error searching products:', error);
+      toast.error('Product search failed');
+    } finally {
+      if (loadMore) {
+        setIsLoadingMore(prev => ({ ...prev, products: false }));
+      } else {
+        setIsSearching(prev => ({ ...prev, products: false }));
+      }
+    }
+  }, [selectedBrandId, user, brandProfiles, pagination.products.endCursor]);
+
+  const searchCollections = useCallback(async (term: string, loadMore = false) => {
+    if (!term.trim() || !selectedBrandId || !user) {
+      setSearchResults((prev: ContentSearchResults) => ({ ...prev, collections: [] }));
+      return;
+    }
+
+    const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
+    if (!selectedProfile?.shopifyStoreUrl || !selectedProfile?.shopifyAccessToken) {
+      toast.error('Shopify credentials not found for selected brand profile');
+      return;
+    }
+
+    if (loadMore) {
+      setIsLoadingMore(prev => ({ ...prev, collections: true }));
+    } else {
+      setIsSearching(prev => ({ ...prev, collections: true }));
+    }
+
+    try {
+      const response = await fetch('/api/content-search/collections', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user.getIdToken()}`
+        },
+        body: JSON.stringify({
+          searchTerm: term.trim(),
+          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
+          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          cursor: loadMore ? pagination.collections.endCursor : null
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (loadMore) {
+          setSearchResults(prev => ({
+            ...prev,
+            collections: [...prev.collections, ...(data.collections || [])]
+          }));
+        } else {
+          setSearchResults(prev => ({ ...prev, collections: data.collections || [] }));
+        }
+        
+        setPagination(prev => ({
+          ...prev,
+          collections: {
+            hasNextPage: data.pageInfo?.hasNextPage || false,
+            endCursor: data.pageInfo?.endCursor || null,
+            total: data.totalCount || 0
+          }
+        }));
+      } else {
+        const errorData = await response.json();
+        toast.error(`Collection search failed: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error searching collections:', error);
+      toast.error('Collection search failed');
+    } finally {
+      if (loadMore) {
+        setIsLoadingMore(prev => ({ ...prev, collections: false }));
+      } else {
+        setIsSearching(prev => ({ ...prev, collections: false }));
+      }
+    }
+  }, [selectedBrandId, user, brandProfiles, pagination.collections.endCursor]);
+
+  const searchPages = useCallback(async (term: string, loadMore = false) => {
+    if (!term.trim() || !selectedBrandId || !user) {
+      setSearchResults((prev: ContentSearchResults) => ({ ...prev, pages: [] }));
+      return;
+    }
+
+    const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
+    if (!selectedProfile?.shopifyStoreUrl || !selectedProfile?.shopifyAccessToken) {
+      toast.error('Shopify credentials not found for selected brand profile');
+      return;
+    }
+
+    if (loadMore) {
+      setIsLoadingMore(prev => ({ ...prev, pages: true }));
+    } else {
+      setIsSearching(prev => ({ ...prev, pages: true }));
+    }
+
+    try {
+      const response = await fetch('/api/content-search/pages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user.getIdToken()}`
+        },
+        body: JSON.stringify({
+          searchTerm: term.trim(),
+          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
+          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          cursor: loadMore ? pagination.pages.endCursor : null
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (loadMore) {
+          setSearchResults(prev => ({
+            ...prev,
+            pages: [...prev.pages, ...(data.pages || [])]
+          }));
+        } else {
+          setSearchResults(prev => ({ ...prev, pages: data.pages || [] }));
+        }
+        
+        setPagination(prev => ({
+          ...prev,
+          pages: {
+            hasNextPage: data.pageInfo?.hasNextPage || false,
+            endCursor: data.pageInfo?.endCursor || null,
+            total: data.totalCount || 0
+          }
+        }));
+      } else {
+        const errorData = await response.json();
+        toast.error(`Page search failed: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error searching pages:', error);
+      toast.error('Page search failed');
+    } finally {
+      if (loadMore) {
+        setIsLoadingMore(prev => ({ ...prev, pages: false }));
+      } else {
+        setIsSearching(prev => ({ ...prev, pages: false }));
+      }
+    }
+  }, [selectedBrandId, user, brandProfiles, pagination.pages.endCursor]);
+
+  const loadBrandProfiles = useCallback(async () => {
     if (!user) return;
+    
     setIsLoadingProfiles(true);
     try {
       const profiles = await brandProfileOperations.getAll(user.uid);
       setBrandProfiles(profiles);
       
-      // If there's only one profile, select it automatically
+      // Auto-select first profile if only one exists
       if (profiles.length === 1) {
         setSelectedBrandId(profiles[0].id || '');
+        markFieldAsTouched('brandProfile');
       }
     } catch (error) {
       console.error('Error loading brand profiles:', error);
+      toast.error('Failed to load brand profiles');
     } finally {
       setIsLoadingProfiles(false);
     }
+  }, [user]);
+
+  useEffect(() => {
+    loadBrandProfiles();
+  }, [loadBrandProfiles]);
+
+  // Debounced search effects for real-time search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (productSearchTerm.trim()) {
+        searchProducts(productSearchTerm);
+      } else {
+        setSearchResults(prev => ({ ...prev, products: [] }));
+        setPagination(prev => ({ ...prev, products: { hasNextPage: false, endCursor: null, total: 0 } }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [productSearchTerm, selectedBrandId, searchProducts]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (collectionSearchTerm.trim()) {
+        searchCollections(collectionSearchTerm);
+      } else {
+        setSearchResults(prev => ({ ...prev, collections: [] }));
+        setPagination(prev => ({ ...prev, collections: { hasNextPage: false, endCursor: null, total: 0 } }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [collectionSearchTerm, selectedBrandId, searchCollections]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (pageSearchTerm.trim()) {
+        searchPages(pageSearchTerm);
+      } else {
+        setSearchResults(prev => ({ ...prev, pages: [] }));
+        setPagination(prev => ({ ...prev, pages: { hasNextPage: false, endCursor: null, total: 0 } }));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [pageSearchTerm, selectedBrandId, searchPages]);
+
+  // Website content search functions (unified approach)
+  const searchWebsiteContent = useCallback(async (searchTerm: string) => {
+    if (!selectedBrandId) return;
+    
+    const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
+    if (!selectedProfile?.websiteUrl) return;
+    
+    setWebsiteSearchResults([]);
+    setIsSearchingWebsite(true);
+    
+    try {
+      const response = await fetch('/api/search-website-content', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user?.getIdToken()}`
+        },
+        body: JSON.stringify({
+          websiteUrl: selectedProfile.websiteUrl,
+          searchTerm: searchTerm
+          // Removed contentType - now searches all page types
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`📋 Unified search found ${data.totalFound} pages:`, data.pageTypes);
+        setWebsiteSearchResults(data.pages || []);
+      } else {
+        setWebsiteSearchResults([]);
+      }
+    } catch (error) {
+      console.error('Website content search error:', error);
+      setWebsiteSearchResults([]);
+    } finally {
+      setIsSearchingWebsite(false);
+    }
+  }, [selectedBrandId, user, brandProfiles]);
+
+  // Debounced website search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (websiteSearchTerm) {
+        searchWebsiteContent(websiteSearchTerm);
+      } else {
+        setWebsiteSearchResults([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [websiteSearchTerm, selectedBrandId, searchWebsiteContent]);
+
+  // Selection functions for manual mode
+  const toggleProductSelection = (product: ShopifyProduct) => {
+    setContentSelection(prev => {
+      const isSelected = prev.manualSelections.products.some(p => p.id === product.id);
+      if (isSelected) {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            products: prev.manualSelections.products.filter(p => p.id !== product.id)
+          }
+        };
+      } else {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            products: [...prev.manualSelections.products, product]
+          }
+        };
+      }
+    });
+  };
+
+  const toggleCollectionSelection = (collection: ShopifyCollection) => {
+    setContentSelection(prev => {
+      const isSelected = prev.manualSelections.collections.some(c => c.id === collection.id);
+      if (isSelected) {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            collections: prev.manualSelections.collections.filter(c => c.id !== collection.id)
+          }
+        };
+      } else {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            collections: [...prev.manualSelections.collections, collection]
+          }
+        };
+      }
+    });
+  };
+
+  const togglePageSelection = (page: ShopifyPage) => {
+    setContentSelection(prev => {
+      const isSelected = prev.manualSelections.pages.some(p => p.id === page.id);
+      if (isSelected) {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            pages: prev.manualSelections.pages.filter(p => p.id !== page.id)
+          }
+        };
+      } else {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            pages: [...prev.manualSelections.pages, page]
+          }
+        };
+      }
+    });
+  };
+
+  // Website content selection function (unified approach)
+  const toggleWebsiteContentSelection = (page: WebsitePage) => {
+    setContentSelection(prev => {
+      const current = prev.manualSelections.websiteContent || [];
+      const isSelected = current.some(p => p.url === page.url);
+      if (isSelected) {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            websiteContent: current.filter(p => p.url !== page.url)
+          }
+        };
+      } else {
+        return {
+          ...prev,
+          manualSelections: {
+            ...prev.manualSelections,
+            websiteContent: [...current, page]
+          }
+        };
+      }
+    });
   };
 
   const handleBulkGenerate = async () => {
@@ -160,7 +605,7 @@ export default function ArticlesPage() {
           };
 
           // Create the initial blog post
-          const blog = await blogOperations.create(blogData);
+          const blog = await blogOperations.create(user.uid, blogData);
 
           // Generate the content
           const response = await fetch('/api/generate-article', {
@@ -170,7 +615,7 @@ export default function ArticlesPage() {
               'Authorization': `Bearer ${await user.getIdToken()}`,
             },
             body: JSON.stringify({
-              blogId: blog.id,
+              blogId: blog,
               keyword: currentKeyword,
               brandName: selectedProfile.brandName,
               businessType: selectedProfile.businessType,
@@ -178,9 +623,10 @@ export default function ArticlesPage() {
               toneOfVoice,
               instructions,
               brandGuidelines: selectedProfile.brandGuidelines || '',
-              articleMode,
+              contentSelection,
               shopifyStoreUrl: selectedProfile.shopifyStoreUrl || '',
               shopifyAccessToken: selectedProfile.shopifyAccessToken || '',
+              websiteUrl: selectedProfile.websiteUrl || '',
               brandColor: selectedProfile.brandColor || '#000000',
             }),
           });
@@ -192,16 +638,28 @@ export default function ArticlesPage() {
 
           const generatedContent = await response.json();
 
+          // Check for generation issues and show popup if detected
+          if (generatedContent.hasGenerationIssues) {
+            toast.error(`⚠️ Article generation issue detected for "${currentKeyword}". Please check the content.`);
+            
+            // Show the generation issue popup
+            setShowGenerationIssueModal({
+              show: true,
+              keyword: currentKeyword,
+              articleContent: generatedContent.content || ''
+            });
+          }
+
           // Update the blog post with the generated content
-          if (blog.id) {
-            await blogOperations.update(blog.id, {
+          if (blog) {
+            await blogOperations.update(user.uid, blog, {
               content: generatedContent.content || '',
               title: generatedContent.title || blogData.title,
             });
 
             // Add to generated articles
             const newArticle: BlogPost = {
-              id: blog.id,
+              id: blog,
               title: generatedContent.title || blogData.title,
               content: generatedContent.content || '',
               createdAt: new Date(),
@@ -267,7 +725,7 @@ export default function ArticlesPage() {
     }
   }, []);
 
-  const handleBrandSave = async (profile: BrandProfile) => {
+  const handleBrandSave = async () => {
     await loadBrandProfiles();
     setShowBrandForm(false);
   };
@@ -370,7 +828,7 @@ export default function ArticlesPage() {
     try {
       await navigator.clipboard.writeText(targetArticle.content);
       toast.success('Article HTML copied to clipboard!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to copy HTML to clipboard');
     }
   };
@@ -602,6 +1060,443 @@ export default function ArticlesPage() {
 
           {/* Article Details */}
           <div className="space-y-6">
+            {/* Product & Content Selection Block - Integration Aware */}
+            {selectedBrandId ? (() => {
+              const selectedBrand = brandProfiles.find(p => p.id === selectedBrandId);
+              if (!selectedBrand) return null;
+              
+              const capabilities = getIntegrationCapabilities(selectedBrand);
+              if (!capabilities.hasAnyIntegration) return null;
+              
+              return (
+                <div className="mb-6">
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
+                    <h3 className="text-sm font-medium text-blue-800 mb-2">Content Selection</h3>
+                    
+                    {/* Integration Type Display */}
+                    {capabilities.integrationType === 'shopify' && (
+                      <p className="text-xs text-blue-700">Shopify integration enabled</p>
+                    )}
+                    {capabilities.integrationType === 'website' && (
+                      <p className="text-xs text-blue-700">Website integration enabled</p>
+                    )}
+                    {capabilities.integrationType === 'both' && (
+                      <p className="text-xs text-blue-700">Shopify + Website integration enabled</p>
+                    )}
+                    
+                    {/* Selection Mode */}
+                    <div className="flex space-x-4 mt-4">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="contentMode"
+                          checked={contentSelection.mode === 'automatic'}
+                          onChange={() => setContentSelection(prev => ({ ...prev, mode: 'automatic' }))}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Automatic Selection</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="contentMode"
+                          checked={contentSelection.mode === 'manual'}
+                          onChange={() => setContentSelection(prev => ({ ...prev, mode: 'manual' }))}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Manual Selection</span>
+                      </label>
+                    </div>
+
+                    {/* Automatic Mode Options */}
+                    {contentSelection.mode === 'automatic' && (
+                      <div className="pl-6 space-y-2">
+                        <p className="text-xs text-gray-600 mb-3">
+                          Automatically find and include relevant content based on your article topic:
+                        </p>
+                        
+                        {/* Shopify Content Section */}
+                        {(capabilities.integrationType === 'shopify' || capabilities.integrationType === 'both') && (
+                          <div className="mb-4">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-2">Shopify Content:</h4>
+                            <div className="flex flex-wrap gap-4">
+                              <label className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={contentSelection.automaticOptions.includeProducts || false}
+                                  onChange={(e) => setContentSelection(prev => ({
+                                    ...prev,
+                                    automaticOptions: {
+                                      ...prev.automaticOptions,
+                                      includeProducts: e.target.checked
+                                    }
+                                  }))}
+                                  className="mr-2"
+                                />
+                                <span className="text-sm">Products</span>
+                              </label>
+                              <label className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={contentSelection.automaticOptions.includeCollections || false}
+                                  onChange={(e) => setContentSelection(prev => ({
+                                    ...prev,
+                                    automaticOptions: {
+                                      ...prev.automaticOptions,
+                                      includeCollections: e.target.checked
+                                    }
+                                  }))}
+                                  className="mr-2"
+                                />
+                                <span className="text-sm">Collections</span>
+                              </label>
+                              <label className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={contentSelection.automaticOptions.includePages || false}
+                                  onChange={(e) => setContentSelection(prev => ({
+                                    ...prev,
+                                    automaticOptions: {
+                                      ...prev.automaticOptions,
+                                      includePages: e.target.checked
+                                    }
+                                  }))}
+                                  className="mr-2"
+                                />
+                                <span className="text-sm">Pages</span>
+                              </label>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Website Content Section (Unified Structure) */}
+                        {(capabilities.integrationType === 'website' || capabilities.integrationType === 'both') && (
+                          <div className="mb-4">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-2">Website Content:</h4>
+                            <div className="flex flex-wrap gap-4">
+                              <label className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={contentSelection.automaticOptions.includeWebsiteContent || false}
+                                  onChange={(e) => setContentSelection(prev => ({
+                                    ...prev,
+                                    automaticOptions: {
+                                      ...prev.automaticOptions,
+                                      includeWebsiteContent: e.target.checked
+                                    }
+                                  }))}
+                                  className="mr-2"
+                                />
+                                <span className="text-sm">Website Pages</span>
+                              </label>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              All relevant website pages (products, services, support, etc.)
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Manual Mode Options */}
+                    {contentSelection.mode === 'manual' && (
+                      <div className="pl-6 space-y-4">
+                        <p className="text-xs text-gray-600 mb-3">
+                          Search and manually select specific content to include:
+                        </p>
+                        
+                        {/* Shopify Content Manual Selection */}
+                        {(capabilities.integrationType === 'shopify' || capabilities.integrationType === 'both') && (
+                          <div className="mb-6">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Shopify Content:</h4>
+                            
+                            {/* Shopify Products */}
+                            <div className="mb-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-medium text-gray-600">Products</label>
+                                <span className="text-xs text-gray-500">
+                                  {contentSelection.manualSelections.products.length} selected
+                                </span>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  placeholder="Search products..."
+                                  value={productSearchTerm}
+                                  onChange={(e) => setProductSearchTerm(e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                {isSearching.products && (
+                                  <div className="absolute right-3 top-2.5">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Selected Products */}
+                              {contentSelection.manualSelections.products.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {contentSelection.manualSelections.products.map((product) => (
+                                    <div key={product.id} className="flex items-center bg-blue-100 text-blue-800 px-2 py-1 rounded-md text-xs">
+                                      <span className="truncate max-w-32">{product.title}</span>
+                                      <button
+                                        onClick={() => toggleProductSelection(product)}
+                                        className="ml-1 hover:text-blue-600"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {/* Search Results */}
+                              {productSearchTerm && searchResults.products.length > 0 && (
+                                <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-md">
+                                  {searchResults.products.map((product) => (
+                                    <div
+                                      key={product.id}
+                                      className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                      onClick={() => toggleProductSelection(product)}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900">{product.title}</p>
+                                          <p className="text-xs text-gray-500 truncate">{product.handle}</p>
+                                        </div>
+                                        {contentSelection.manualSelections.products.some(p => p.id === product.id) && (
+                                          <Check size={16} className="text-green-600" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Shopify Collections */}
+                            <div className="mb-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-medium text-gray-600">Collections</label>
+                                <span className="text-xs text-gray-500">
+                                  {contentSelection.manualSelections.collections.length} selected
+                                </span>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  placeholder="Search collections..."
+                                  value={collectionSearchTerm}
+                                  onChange={(e) => setCollectionSearchTerm(e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                {isSearching.collections && (
+                                  <div className="absolute right-3 top-2.5">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Selected Collections */}
+                              {contentSelection.manualSelections.collections.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {contentSelection.manualSelections.collections.map((collection) => (
+                                    <div key={collection.id} className="flex items-center bg-purple-100 text-purple-800 px-2 py-1 rounded-md text-xs">
+                                      <span className="truncate max-w-32">{collection.title}</span>
+                                      <button
+                                        onClick={() => toggleCollectionSelection(collection)}
+                                        className="ml-1 hover:text-purple-600"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {/* Search Results */}
+                              {collectionSearchTerm && searchResults.collections.length > 0 && (
+                                <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-md">
+                                  {searchResults.collections.map((collection) => (
+                                    <div
+                                      key={collection.id}
+                                      className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                      onClick={() => toggleCollectionSelection(collection)}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900">{collection.title}</p>
+                                          <p className="text-xs text-gray-500 truncate">{collection.handle}</p>
+                                        </div>
+                                        {contentSelection.manualSelections.collections.some(c => c.id === collection.id) && (
+                                          <Check size={16} className="text-green-600" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Shopify Pages */}
+                            <div className="mb-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-medium text-gray-600">Pages</label>
+                                <span className="text-xs text-gray-500">
+                                  {contentSelection.manualSelections.pages.length} selected
+                                </span>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  placeholder="Search pages..."
+                                  value={pageSearchTerm}
+                                  onChange={(e) => setPageSearchTerm(e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                {isSearching.pages && (
+                                  <div className="absolute right-3 top-2.5">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Selected Pages */}
+                              {contentSelection.manualSelections.pages.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {contentSelection.manualSelections.pages.map((page) => (
+                                    <div key={page.id} className="flex items-center bg-green-100 text-green-800 px-2 py-1 rounded-md text-xs">
+                                      <span className="truncate max-w-32">{page.title}</span>
+                                      <button
+                                        onClick={() => togglePageSelection(page)}
+                                        className="ml-1 hover:text-green-600"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {/* Search Results */}
+                              {pageSearchTerm && searchResults.pages.length > 0 && (
+                                <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-md">
+                                  {searchResults.pages.map((page) => (
+                                    <div
+                                      key={page.id}
+                                      className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                      onClick={() => togglePageSelection(page)}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900">{page.title}</p>
+                                          <p className="text-xs text-gray-500 truncate">{page.handle}</p>
+                                        </div>
+                                        {contentSelection.manualSelections.pages.some(p => p.id === page.id) && (
+                                          <Check size={16} className="text-green-600" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Website Content Manual Selection (Unified Structure) */}
+                        {(capabilities.integrationType === 'website' || capabilities.integrationType === 'both') && (
+                          <div className="mb-6">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Website Content:</h4>
+                            
+                            {/* Unified Website Content Search */}
+                            <div className="mb-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-medium text-gray-600">Website Pages</label>
+                                <span className="text-xs text-gray-500">
+                                  {(contentSelection.manualSelections.websiteContent || []).length} selected
+                                </span>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  placeholder="Search website pages..."
+                                  value={websiteSearchTerm}
+                                  onChange={(e) => setWebsiteSearchTerm(e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                {isSearchingWebsite && (
+                                  <div className="absolute right-3 top-2.5">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Selected Website Content */}
+                              {(contentSelection.manualSelections.websiteContent || []).length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {(contentSelection.manualSelections.websiteContent || []).map((page) => (
+                                    <div key={page.url} className="flex items-center bg-blue-100 text-blue-800 px-2 py-1 rounded-md text-xs">
+                                      <span className="truncate max-w-32">{page.title}</span>
+                                      {page.pageType && (
+                                        <span className="ml-1 bg-blue-200 px-1 rounded text-xxs uppercase">
+                                          {page.pageType}
+                                        </span>
+                                      )}
+                                      <button
+                                        onClick={() => toggleWebsiteContentSelection(page)}
+                                        className="ml-1 hover:text-blue-600"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {/* Website Content Search Results */}
+                              {websiteSearchTerm && websiteSearchResults.length > 0 && (
+                                <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-md">
+                                  {websiteSearchResults.map((page) => (
+                                    <div
+                                      key={page.url}
+                                      className="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                      onClick={() => toggleWebsiteContentSelection(page)}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2">
+                                            <p className="text-sm font-medium text-gray-900">{page.title}</p>
+                                            {page.pageType && (
+                                              <span className="bg-gray-200 text-gray-600 px-1 py-0.5 rounded text-xxs uppercase">
+                                                {page.pageType}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="text-xs text-gray-500 truncate">{page.description || page.url}</p>
+                                        </div>
+                                        {(contentSelection.manualSelections.websiteContent || []).some(p => p.url === page.url) && (
+                                          <Check size={16} className="text-green-600" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <p className="text-xs text-gray-500 mt-2">
+                              All relevant website pages (products, services, support, etc.)
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })() : null}
+
             {/* Article Keywords - Bulk Generation */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -778,7 +1673,7 @@ export default function ArticlesPage() {
                 <option value="history">History Of</option>
                 <option value="pros-cons">Pros and Cons</option>
                 <option value="comparisons">Comparisons</option>
-                <option value="how-to">How To's</option>
+                <option value="how-to">How To&apos;s</option>
                 <option value="versus">Versus (Brand A Vs. Brand B)</option>
               </select>
               {!contentType && touchedFields.contentType && (
@@ -786,49 +1681,6 @@ export default function ArticlesPage() {
                   Content type is required
                 </p>
               )}
-            </div>
-
-            <div className="flex gap-4 mb-4">
-              <div className="relative group">
-                <button
-                  type="button"
-                  className={`flex items-center px-4 py-2 rounded-md border transition-colors duration-200 font-semibold text-base ${
-                    articleMode === 'store'
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-50'
-                  }`}
-                  onClick={() => setArticleMode(articleMode === 'store' ? null : 'store')}
-                >
-                  <ShoppingBag size={18} className="mr-2" />
-                  Store
-                  <span className="ml-2">
-                    <Info size={16} className="text-gray-400 group-hover:text-blue-600" />
-                  </span>
-                </button>
-                <div className="absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded shadow-lg p-2 text-xs text-gray-700 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto z-10 transition-opacity duration-200">
-                  Select this option if you would like for the article to include products & collections you may have available that align with this article's topic.
-                </div>
-              </div>
-              <div className="relative group">
-                <button
-                  type="button"
-                  className={`flex items-center px-4 py-2 rounded-md border transition-colors duration-200 font-semibold text-base ${
-                    articleMode === 'service'
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-blue-50'
-                  }`}
-                  onClick={() => setArticleMode(articleMode === 'service' ? null : 'service')}
-                >
-                  <Wrench size={18} className="mr-2" />
-                  Service
-                  <span className="ml-2">
-                    <Info size={16} className="text-gray-400 group-hover:text-blue-600" />
-                  </span>
-                </button>
-                <div className="absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded shadow-lg p-2 text-xs text-gray-700 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto z-10 transition-opacity duration-200">
-                  Select this option if you would like for the article to focus on any service pages you may have available that align with this article's topic.
-                </div>
-              </div>
             </div>
 
             <button
@@ -849,7 +1701,10 @@ export default function ArticlesPage() {
                 ? 'Enter Article Keywords'
                 : !contentType
                 ? 'Select Content Type'
-                : `Generate ${keywords.filter(k => k.trim().length > 0).length} Article${keywords.filter(k => k.trim().length > 0).length !== 1 ? 's' : ''}`}
+                : (() => {
+                    const validKeywords = keywords.filter(k => k.trim().length > 0).length;
+                    return `Generate ${validKeywords} Article${validKeywords !== 1 ? 's' : ''}`;
+                  })()}
             </button>
             
             {((!selectedBrandId && touchedFields.brandProfile) || (!keywords[0]?.trim() && touchedFields.keyword) || (!contentType && touchedFields.contentType)) && (
@@ -1111,7 +1966,7 @@ export default function ArticlesPage() {
                         <div className="ml-3">
                           <h3 className="text-sm font-medium text-yellow-800">Shopify Credentials Missing</h3>
                           <p className="text-sm text-yellow-700 mt-1">
-                            Your brand profile "{selectedBrand.brandName}" needs Shopify store URL and access token to push articles. 
+                            Your brand profile &quot;{selectedBrand.brandName}&quot; needs Shopify store URL and access token to push articles. 
                             Please update your brand profile in the settings.
                           </p>
                         </div>
@@ -1131,7 +1986,7 @@ export default function ArticlesPage() {
                       <div className="ml-3">
                         <h3 className="text-sm font-medium text-green-800">Ready to Push</h3>
                         <p className="text-sm text-green-700 mt-1">
-                          Connected to "{selectedBrand.brandName}" Shopify store. Articles will be pushed as draft blog posts.
+                          Connected to &quot;{selectedBrand.brandName}&quot; Shopify store. Articles will be pushed as draft blog posts.
                         </p>
                       </div>
                     </div>
@@ -1306,6 +2161,90 @@ export default function ArticlesPage() {
                   : `Push ${selectedArticleIds.length} article${selectedArticleIds.length !== 1 ? 's' : ''} to Shopify`
                 }
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generation Issue Modal */}
+      {showGenerationIssueModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <span className="text-yellow-600 font-bold text-sm">⚠️</span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Article Generation Issue Detected</h3>
+                </div>
+                <button
+                  onClick={() => setShowGenerationIssueModal({ show: false, keyword: '', articleContent: '' })}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 overflow-y-auto max-h-[60vh]">
+              <div className="mb-4">
+                <h4 className="font-medium text-gray-900 mb-2">Article: &quot;{showGenerationIssueModal.keyword}&quot;</h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  We detected a potential issue with your article generation. This could include incomplete content, 
+                  errors, or other problems. Please review the article and contact support if needed.
+                </p>
+                
+                <h5 className="font-medium text-gray-900 mb-2">How to Get Help:</h5>
+                <ol className="list-decimal list-inside text-sm text-gray-600 space-y-1 mb-4">
+                  <li>Take a screenshot of this message and the generated article</li>
+                  <li>Email it to: <span className="font-mono bg-yellow-100 px-1 rounded">enhancemyseoplz@gmail.com</span></li>
+                  <li>Include your account email in the message</li>
+                  <li>We&apos;ll investigate and refund your token within 24 hours</li>
+                </ol>
+              </div>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <h5 className="font-medium text-yellow-800 mb-2">🎯 To receive a token refund:</h5>
+                <ol className="text-sm text-yellow-700 space-y-1 ml-4 list-decimal">
+                  <li>Take a screenshot of the generated article</li>
+                  <li>Email it to: <span className="font-mono bg-yellow-100 px-1 rounded">enhancemyseoplz@gmail.com</span></li>
+                  <li>Include your account email in the message</li>
+                  <li>We&apos;ll investigate and refund your token within 24 hours</li>
+                </ol>
+              </div>
+              
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h5 className="font-medium text-gray-800 mb-2">Generated Article Preview:</h5>
+                <div 
+                  className="text-xs text-gray-600 max-h-40 overflow-y-auto bg-white p-3 rounded border"
+                  dangerouslySetInnerHTML={{ __html: showGenerationIssueModal.articleContent.slice(0, 1000) + (showGenerationIssueModal.articleContent.length > 1000 ? '...' : '') }}
+                />
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+              <div className="text-xs text-gray-500">
+                No tokens were charged for this generation
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowGenerationIssueModal({ show: false, keyword: '', articleContent: '' })}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    // Copy email for easy access
+                    navigator.clipboard.writeText('enhancemyseoplz@gmail.com');
+                    toast.success('Email address copied to clipboard!');
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
+                >
+                  Copy Email Address
+                </button>
+              </div>
             </div>
           </div>
         </div>

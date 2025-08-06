@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
-import { getUserUsage, getUsageDisplay, canPerformAction, getResetInfo, UserUsage } from '@/lib/usage-limits';
-import { BarChart3, Crown, Zap, TrendingUp, Sparkles, X, ArrowUp, Clock } from 'lucide-react';
-import Link from 'next/link';
+import { getUserUsage, getUsageDisplay, getResetInfo, UsageData } from '@/lib/usage-limits';
+import { BarChart3, Crown, Zap, TrendingUp, Sparkles, X, ArrowUp } from 'lucide-react';
 
 interface UsageTrackerProps {
   tool: 'articles' | 'keywords' | 'thumbnails';
@@ -46,7 +45,7 @@ const UPGRADE_PATHS = {
   free: {
     nextTier: 'kickstart',
     nextTierName: 'Kickstart',
-    benefits: ['15 articles per month', '10 keywords per month', 'No 24-hour wait'],
+    benefits: ['15 articles per month', '10 keywords per month', 'Bulk generation support'],
     buttonText: 'Upgrade to Kickstart',
     icon: Zap
   },
@@ -83,7 +82,7 @@ const UPGRADE_PATHS = {
 const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, className = '' }, ref) => {
   const { user, subscription_status } = useAuth();
   const { registerRefreshFunction, unregisterRefreshFunction } = useUsageRefresh();
-  const [usage, setUsage] = useState<UserUsage | null>(null);
+  const [usage, setUsage] = useState<UsageData | null>(null); // Changed from UserUsage to any
   const [resetInfo, setResetInfo] = useState<{
     resetText: string;
     canGenerateNow: boolean;
@@ -92,30 +91,39 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
   const [loading, setLoading] = useState(true);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
-  const loadUsageAndResetInfo = async () => {
+  const loadUsageAndResetInfo = useCallback(async () => {
     if (!user) return;
+    setLoading(true);
     
     try {
-      const [userUsage, resetData] = await Promise.all([
+      const [usage, resetData] = await Promise.all([
         getUserUsage(user.uid),
-        getResetInfo(user.uid, subscription_status, tool)
+        getResetInfo(user.uid, subscription_status)
       ]);
       
-      setUsage(userUsage);
+      setUsage(usage);
       setResetInfo(resetData);
     } catch (error) {
-      console.error('Error loading usage:', error);
+      console.error('Error loading usage info:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, subscription_status]);
 
-  const refreshUsageData = async () => {
-    console.log(`Refreshing usage data for ${tool}...`);
-    setLoading(true);
-    await loadUsageAndResetInfo();
-    console.log(`Usage data refreshed for ${tool}`);
-  };
+  useEffect(() => {
+    loadUsageAndResetInfo();
+  }, [loadUsageAndResetInfo]);
+
+  const refreshUsageData = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      const usage = await getUserUsage(user.uid);
+      setUsage(usage);
+    } catch (error) {
+      console.error('Error fetching usage data:', error);
+    }
+  }, [user]);
 
   // Expose refresh function to parent components via ref
   useImperativeHandle(ref, () => ({
@@ -129,11 +137,7 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
     return () => {
       unregisterRefreshFunction(tool);
     };
-  }, [tool, registerRefreshFunction, unregisterRefreshFunction]);
-
-  useEffect(() => {
-    loadUsageAndResetInfo();
-  }, [user, subscription_status, tool]);
+  }, [tool, registerRefreshFunction, unregisterRefreshFunction, refreshUsageData]);
 
   if (loading || !user || !usage || !resetInfo) {
     return (
@@ -147,7 +151,6 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
 
   const isUnlimited = usageDisplay.limit === 'unlimited';
   const isFree = subscription_status === 'free';
-  const isPaidTier = subscription_status === 'kickstart' || subscription_status === 'seo_takeover';
   const isNearLimit = !isUnlimited && !isFree && usageDisplay.percentage >= 80;
   const hasExceeded = !isUnlimited && usageDisplay.remaining === 0;
   const cannotGenerateNow = isFree && !resetInfo.canGenerateNow;
@@ -171,21 +174,13 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
     window.location.href = '/#pricing';
   };
 
-  const handleLimitReachedClick = () => {
-    if (canUpgrade) {
-      setShowUpgradeModal(true);
-    } else {
-      handleUpgradeClick();
-    }
-  };
-
   const getLimitMessage = () => {
     if (hasExceeded) {
       if (isFree) {
         return {
-          title: '⏰ 24-Hour Limit Reached',
-          message: 'Free users can generate once every 24 hours.',
-          action: null
+          title: '📈 Monthly Limit Reached',
+          message: 'You\'ve used all 2 articles for this month on the Free plan.',
+          action: 'Upgrade to Kickstart for 15 articles per month'
         };
       } else if (canUpgrade) {
         return {
@@ -202,9 +197,9 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
       }
     } else if (cannotGenerateNow) {
       return {
-        title: '⏳ Please Wait',
-        message: 'Free users can generate once every 24 hours.',
-        action: null
+        title: '📈 Monthly Limit Reached',
+        message: 'You\'ve used all 2 articles for this month on the Free plan.',
+        action: 'Upgrade to Kickstart for 15 articles per month'
       };
     } else if (isNearLimit) {
       return {
@@ -342,7 +337,7 @@ const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, cla
             
             <div className="mb-6">
               <p className="text-gray-600 mb-4">
-                You've reached your {tool} limit for the {tierDisplayNames[subscription_status as keyof typeof tierDisplayNames]} plan. 
+                You&apos;ve reached your {tool} limit for the {tierDisplayNames[subscription_status as keyof typeof tierDisplayNames]} plan. 
                 Upgrade to {upgradeInfo.nextTierName} and get:
               </p>
               

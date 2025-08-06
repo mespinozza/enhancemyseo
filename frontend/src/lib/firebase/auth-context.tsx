@@ -10,7 +10,7 @@ import {
   signInWithPopup
 } from 'firebase/auth';
 import { auth } from './config';
-import { getUserSubscriptionStatus, createOrUpdateUserProfile, debugUserSubscription } from './admin-users';
+import { getUserSubscriptionStatus, createOrUpdateUserProfile } from './admin-users';
 import { SubscriptionTier } from '@/config/navigation';
 
 // Define the user type
@@ -48,18 +48,19 @@ const retryOperation = async <T,>(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (attempt === maxRetries) {
         throw error;
       }
       
       // Don't retry for permission errors
-      if (error?.code === 'permission-denied') {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'permission-denied') {
         throw error;
       }
       
       const delay = baseDelay * Math.pow(2, attempt - 1);
-      console.warn(`Operation failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms:`, error.message);
+      const errorMessage = error && typeof error === 'object' && 'message' in error ? error.message : 'Unknown error';
+      console.warn(`Operation failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms:`, errorMessage);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -75,8 +76,9 @@ const formatUser = async (user: FirebaseUser): Promise<User> => {
     }, 3, 1000);
     
     console.log('✅ User profile created/updated successfully');
-  } catch (error: any) {
-    console.warn('Profile creation/update failed:', error.message);
+  } catch (error: unknown) {
+    const errorMessage = error && typeof error === 'object' && 'message' in error ? error.message : 'Unknown error';
+    console.warn('Profile creation/update failed:', errorMessage);
     // Continue with subscription check even if profile update fails
   }
   
@@ -90,8 +92,9 @@ const formatUser = async (user: FirebaseUser): Promise<User> => {
     }, 2, 1500);
     
     console.log('✅ Subscription status retrieved:', subscriptionStatus);
-  } catch (error: any) {
-    console.warn('Subscription status check failed, defaulting to free:', error.message);
+  } catch (error: unknown) {
+    const errorMessage = error && typeof error === 'object' && 'message' in error ? error.message : 'Unknown error';
+    console.warn('Subscription status check failed, defaulting to free:', errorMessage);
     subscriptionStatus = 'free';
   }
   
@@ -186,21 +189,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Handle specific Firebase Auth errors gracefully
-      if (error.code === 'auth/cancelled-popup-request') {
-        console.info('Google sign-in popup was cancelled by user');
-        return; // Don't throw error for user cancellation
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        console.info('Google sign-in popup was closed by user');
-        return; // Don't throw error for user closing popup
-      } else if (error.code === 'auth/popup-blocked') {
-        console.error('Google sign-in popup was blocked by browser');
-        throw new Error('Please allow popups for this site to sign in with Google');
-      } else {
-        console.error('Google sign-in error:', error);
-        throw error;
+      if (error && typeof error === 'object' && 'code' in error) {
+        if (error.code === 'auth/cancelled-popup-request') {
+          console.info('Google sign-in popup was cancelled by user');
+          return; // Don't throw error for user cancellation
+        } else if (error.code === 'auth/popup-closed-by-user') {
+          console.info('Google sign-in popup was closed by user');
+          return; // Don't throw error for user closing popup
+        } else if (error.code === 'auth/popup-blocked') {
+          console.error('Google sign-in popup was blocked by browser');
+          throw new Error('Please allow popups for this site to sign in with Google');
+        }
       }
+      
+      console.error('Google sign-in error:', error);
+      throw error;
     }
   };
 
@@ -246,8 +251,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           subscription_status: newSubscriptionStatus
         };
       });
-    } catch (error: any) {
-      console.warn('Subscription status refresh failed:', error.message);
+    } catch (error: unknown) {
+      const errorMessage = error && typeof error === 'object' && 'message' in error ? error.message : 'Unknown error';
+      console.warn('Subscription status refresh failed:', errorMessage);
     }
   };
 

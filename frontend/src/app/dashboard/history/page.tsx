@@ -2,21 +2,28 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { FileText, Key, Download, ExternalLink, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon } from 'lucide-react';
+import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon } from 'lucide-react';
 import { blogOperations, historyOperations, generatedProductOperations, brandProfileOperations, Blog, HistoryItem, GeneratedProduct, BrandProfile } from '@/lib/firebase/firestore';
 import { db } from '@/lib/firebase/config';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, DocumentSnapshot, orderBy, doc, getDoc } from 'firebase/firestore';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 
 type TabType = 'blogs' | 'keywords' | 'thumbnails' | 'collections' | 'products';
-type SubscriptionTier = 'free' | 'kickstart' | 'seo-takeover' | 'seo_takeover' | 'agency' | 'admin';
+type SubscriptionTier = 'free' | 'kickstart' | 'seo_takeover' | 'agency' | 'admin';
 
-interface TabData {
-  id: TabType;
+interface ShopifyBlog {
+  id: string;
+  title: string;
+  handle: string;
+  [key: string]: unknown;
+}
+
+interface NavItem {
+  id: string;
   name: string;
-  icon: any;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   count: number;
   requiredSubscription?: SubscriptionTier[];
 }
@@ -48,7 +55,7 @@ export default function HistoryPage() {
   const [isPushingToShopify, setIsPushingToShopify] = useState(false);
   const [articleAuthor, setArticleAuthor] = useState<string>('');
   const [selectedBlogId, setSelectedBlogId] = useState<string>('');
-  const [shopifyBlogs, setShopifyBlogs] = useState<any[]>([]);
+  const [shopifyBlogs, setShopifyBlogs] = useState<ShopifyBlog[]>([]);
   const [isLoadingBlogs, setIsLoadingBlogs] = useState(false);
   
   // Pagination states for modal
@@ -63,6 +70,214 @@ export default function HistoryPage() {
   const [hasMoreBlogs, setHasMoreBlogs] = useState(true);
   const blogsPerPage = 9;
 
+  // Test Firestore connectivity and permissions - moved to top to maintain hook order
+  const testFirestoreAccess = useCallback(async () => {
+    if (!user?.uid) return;
+    
+    try {
+      console.log('🧪 Testing Firestore access...');
+      
+      // Test 1: Try to access the user's blogs collection directly
+      const blogsRef = collection(db, 'users', user.uid, 'blogs');
+      const testQuery = query(blogsRef);
+      const snapshot = await getDocs(testQuery);
+      
+      console.log('✅ Firestore access test successful:', {
+        collectionPath: `users/${user.uid}/blogs`,
+        documentsFound: snapshot.docs.length,
+        hasAccess: true
+      });
+      
+      // Test 2: Check if documents have the expected structure
+      if (snapshot.docs.length > 0) {
+        const firstDoc = snapshot.docs[0];
+        const data = firstDoc.data();
+        console.log('📋 Sample document structure:', {
+          id: firstDoc.id,
+          hasTitle: !!data.title,
+          hasContent: !!data.content,
+          hasCreatedAt: !!data.createdAt,
+          keys: Object.keys(data)
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ Firestore access test failed:', error);
+      if (error && typeof error === 'object' && 'code' in error) {
+        const firebaseError = error as { code: string; message: string };
+        console.error('🔥 Firestore error details:', {
+          code: firebaseError.code,
+          message: firebaseError.message,
+          collectionPath: `users/${user.uid}/blogs`
+        });
+      }
+    }
+  }, [user?.uid]);
+
+  // Comprehensive database inspector to find all generated content
+  const inspectAllCollections = useCallback(async () => {
+    if (!user?.uid) return;
+    
+    console.log('🔍 COMPREHENSIVE DATABASE INSPECTION STARTING...');
+    console.log('👤 Current User:', {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName
+    });
+    
+    // Collection paths to check
+    const pathsToCheck = [
+      `users/${user.uid}/blogs`,           // Current expected path
+      `users/${user.uid}/articles`,       // Alternative name
+      `users/${user.uid}/posts`,          // Alternative name
+      `users/${user.uid}/generated`,      // Alternative name
+      `blogs`,                            // Root level
+      `articles`,                         // Root level
+      `generated-content`,                // Root level
+      `user-content/${user.uid}`,         // Alternative structure
+    ];
+    
+    for (const path of pathsToCheck) {
+      try {
+        console.log(`🔍 Checking collection: ${path}`);
+        
+        const pathSegments = path.split('/');
+        const collectionRef = pathSegments.length === 1 
+          ? collection(db, pathSegments[0])
+          : pathSegments.length === 2
+          ? collection(db, pathSegments[0], pathSegments[1])
+          : collection(db, pathSegments[0], pathSegments[1], pathSegments[2]);
+        const snapshot = await getDocs(collectionRef);
+        
+        console.log(`📊 Collection ${path}:`, {
+          exists: true,
+          documentCount: snapshot.docs.length,
+          isEmpty: snapshot.empty
+        });
+        
+        if (!snapshot.empty) {
+          console.log(`📝 Documents in ${path}:`);
+          snapshot.docs.forEach((doc, index) => {
+            const data = doc.data();
+            console.log(`  Document ${index + 1}:`, {
+              id: doc.id,
+              title: data.title || 'No title',
+              hasContent: !!data.content,
+              contentLength: data.content?.length || 0,
+              createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt || 'No date',
+              userId: data.userId || data.uid || 'No userId',
+              keyword: data.keyword || 'No keyword',
+              status: data.status || 'No status',
+              allKeys: Object.keys(data)
+            });
+          });
+        }
+        
+      } catch (error) {
+        console.log(`❌ Error accessing ${path}:`, error);
+      }
+    }
+    
+    // Also check for documents directly under users collection
+    try {
+      console.log('🔍 Checking user document itself...');
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        console.log('📄 User document exists:', userDoc.data());
+      } else {
+        console.log('❌ User document does not exist');
+      }
+    } catch (error) {
+      console.log('❌ Error checking user document:', error);
+    }
+    
+    // Check for any collections that might contain the user's content by searching for userId field
+    try {
+      console.log('🔍 Searching for content with your userId in root collections...');
+      const rootCollections = ['blogs', 'articles', 'posts', 'generated-content'];
+      
+      for (const collectionName of rootCollections) {
+        try {
+          const q = query(
+            collection(db, collectionName),
+            where('userId', '==', user.uid)
+          );
+          const snapshot = await getDocs(q);
+          
+          if (!snapshot.empty) {
+            console.log(`🎯 Found ${snapshot.docs.length} documents in ${collectionName} with your userId!`);
+            snapshot.docs.forEach((doc, index) => {
+              const data = doc.data();
+              console.log(`  Found document ${index + 1}:`, {
+                id: doc.id,
+                title: data.title,
+                hasContent: !!data.content,
+                createdAt: data.createdAt?.toDate?.()?.toISOString() || 'No date'
+              });
+            });
+          }
+        } catch (err) {
+          console.log(`Collection ${collectionName} doesn't exist or error:`, err);
+        }
+      }
+    } catch (error) {
+      console.log('❌ Error searching root collections:', error);
+    }
+    
+    console.log('✅ DATABASE INSPECTION COMPLETE');
+  }, [user?.uid]);
+
+  // Alternative content loading using raw Firestore queries
+  const loadContentDirectly = useCallback(async () => {
+    if (!user?.uid) return;
+    
+    console.log('🔄 ATTEMPTING DIRECT FIRESTORE ACCESS...');
+    
+    try {
+      // Try direct access to the blogs collection
+      const blogsRef = collection(db, 'users', user.uid, 'blogs');
+      const q = query(blogsRef, orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      
+      console.log('📊 Direct Firestore Results:', {
+        totalDocs: snapshot.docs.length,
+        isEmpty: snapshot.empty
+      });
+      
+      if (!snapshot.empty) {
+        const directBlogs = snapshot.docs.map(doc => {
+          const data = doc.data();
+          console.log('📄 Raw document data:', {
+            id: doc.id,
+            data: data
+          });
+          
+          return {
+            id: doc.id,
+            ...data
+          } as Blog;
+        });
+        
+        console.log('✅ Successfully loaded blogs directly:', directBlogs.length);
+        
+        // Update state with directly loaded blogs
+        setBlogs(directBlogs);
+        initializeMainPageBlogs(directBlogs);
+        
+        toast.success(`Found ${directBlogs.length} articles using direct access!`);
+      } else {
+        console.log('❌ No documents found even with direct access');
+        toast.error('No articles found even with direct database access');
+      }
+      
+    } catch (error) {
+      console.error('❌ Direct Firestore access failed:', error);
+      toast.error('Direct database access failed');
+    }
+  }, [user?.uid]);
+
   // Show toast notification  
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToastNotification({ show: true, message, type });
@@ -73,40 +288,55 @@ export default function HistoryPage() {
 
   // Load all content
   useEffect(() => {
-    async function loadAllContent() {
+    const loadAllContent = async () => {
       if (!user?.uid) {
-        console.log('No authenticated user found, skipping history load');
+        console.log('No user UID available for loading content');
         return;
       }
       
-      // Ensure we have a valid auth token
-      try {
-        await user.getIdToken();
-      } catch (tokenError) {
-        console.error('Failed to get auth token for history:', tokenError);
-        return;
-      }
-      
-      console.log('Loading history for user:', user.uid);
+      console.log('🔍 Starting to load all content for user:', user.uid);
       setIsLoading(true);
       
       try {
+        console.log('📊 Fetching blogs, keywords, and brand profiles...');
         const [blogsData, keywordsData, brandProfilesData] = await Promise.all([
           blogOperations.getAll(user.uid),
           historyOperations.getAll(user.uid),
           brandProfileOperations.getAll(user.uid)
         ]);
         
+        // Enhanced debug logging
+        console.log('✅ Data loaded successfully:', {
+          blogsCount: blogsData.length,
+          keywordsCount: keywordsData.length,
+          brandProfilesCount: brandProfilesData.length
+        });
+        
+        if (blogsData.length === 0) {
+          console.warn('⚠️ No blogs found! This could mean:');
+          console.warn('  1. User hasn\'t generated any articles yet');
+          console.warn('  2. Firestore security rules are blocking access');
+          console.warn('  3. Collection path is incorrect');
+          console.warn('  4. User UID mismatch');
+          
+          // Run comprehensive inspection if no blogs found
+          console.log('🔍 Running comprehensive database inspection...');
+          setTimeout(inspectAllCollections, 500);
+        }
+        
         // Debug logging to check if content is loaded
-        console.log('Loaded blogs:', blogsData.length);
+        console.log('📝 Loaded blogs details:');
         blogsData.forEach((blog, index) => {
-          if (index < 3) { // Log first 3 blogs for debugging
-            console.log(`Blog ${index + 1}:`, {
+          if (index < 5) { // Log first 5 blogs for debugging
+            console.log(`  Blog ${index + 1}:`, {
               id: blog.id,
               title: blog.title,
               hasContent: !!blog.content,
               contentLength: blog.content?.length || 0,
-              contentPreview: blog.content?.substring(0, 100) + '...'
+              status: blog.status,
+              keyword: blog.keyword,
+              createdAt: blog.createdAt?.toDate?.()?.toISOString() || 'No date',
+              userId: blog.userId
             });
           }
         });
@@ -116,29 +346,49 @@ export default function HistoryPage() {
         setBrandProfiles(brandProfilesData);
         
         // Initialize displayed blogs for main page
+        console.log('🎯 Initializing main page blogs...');
         initializeMainPageBlogs(blogsData);
 
         // Load products separately with error handling (collection might not exist yet)
         try {
           const productsData = await generatedProductOperations.getAll(user.uid);
-          console.log('Successfully loaded products for history:', productsData.length);
+          console.log('✅ Successfully loaded products for history:', productsData.length);
           setProducts(productsData);
         } catch (productsError) {
-          console.warn('Generated products collection not available yet:', productsError);
+          console.warn('⚠️ Generated products collection not available yet:', productsError);
           setProducts([]); // Set empty array if collection doesn't exist
         }
       } catch (error) {
-        console.error('Failed to load content:', error);
+        console.error('❌ Failed to load content:', error);
+        // Check if it's a permission error
+        if (error && typeof error === 'object' && 'code' in error) {
+          const firebaseError = error as { code: string; message: string };
+          if (firebaseError.code === 'permission-denied') {
+            console.error('🚫 Permission denied - check Firestore security rules');
+            toast.error('Permission denied. Please check your account permissions.');
+          } else {
+            console.error('🔥 Firestore error:', firebaseError.code, firebaseError.message);
+            toast.error(`Error loading data: ${firebaseError.message}`);
+          }
+        } else {
+          console.error('🔥 Unknown error:', error);
+          toast.error('Failed to load history. Please refresh the page.');
+        }
       } finally {
         setIsLoading(false);
+        console.log('✅ Content loading completed');
       }
     }
 
     // Only run when we have a fully authenticated user
     if (user?.uid) {
+      console.log('👤 User authenticated, starting content load in 500ms...');
       // Add delay to ensure Firestore rules have been applied
       setTimeout(loadAllContent, 500);
+    } else {
+      console.log('❌ No authenticated user found');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid]);
 
   // Scroll to highlighted item
@@ -154,21 +404,28 @@ export default function HistoryPage() {
     }
   }, [searchParams, isLoading]);
 
+  // Run Firestore test when component mounts and user is available
+  useEffect(() => {
+    if (user?.uid) {
+      setTimeout(testFirestoreAccess, 1000); // Run after main data load
+    }
+  }, [user?.uid, testFirestoreAccess]);
+
   // Define all available tabs with subscription requirements
-  const allTabs: TabData[] = [
+  const allTabs: NavItem[] = [
     { 
       id: 'blogs', 
       name: 'Generated Articles', 
       icon: FileText, 
       count: blogs.length,
-      requiredSubscription: ['free', 'kickstart', 'seo-takeover', 'admin'] // Available to all users
+      requiredSubscription: ['free', 'kickstart', 'seo_takeover', 'admin'] // Available to all users
     },
     { 
       id: 'keywords', 
       name: 'Keyword Research', 
       icon: Key, 
       count: keywords.length,
-      requiredSubscription: ['free', 'kickstart', 'seo-takeover', 'admin'] // Available to all users
+      requiredSubscription: ['admin'] // Admin only
     },
     { 
       id: 'thumbnails', 
@@ -207,7 +464,7 @@ export default function HistoryPage() {
     } else {
       // If the requested tab is not available, default to the first available tab
       if (tabs.length > 0 && !tabs.find(t => t.id === activeTab)) {
-        setActiveTab(tabs[0].id);
+        setActiveTab(tabs[0].id as TabType);
       }
     }
   }, [searchParams, tabs, activeTab]);
@@ -387,7 +644,7 @@ Status: ${blog.status}`;
       console.log('🚀 AUTO-TRIGGERING loadMoreBlogs from scroll!');
       loadMoreBlogs();
     }
-  }, [hasMoreBlogs, isLoadingMoreBlogs, activeTab, displayedBlogs.length, blogs.length, loadMoreBlogs]);
+  }, [hasMoreBlogs, isLoadingMoreBlogs, activeTab, loadMoreBlogs]);
 
   // Add scroll listener for main page (simplified for debugging)
   useEffect(() => {
@@ -529,7 +786,7 @@ Status: ${blog.status}`;
         const querySnapshot = await getDocs(q);
         
         const profiles: BrandProfile[] = [];
-        querySnapshot.forEach((doc: any) => {
+        querySnapshot.forEach((doc: DocumentSnapshot) => {
           profiles.push({ id: doc.id, ...doc.data() } as BrandProfile);
         });
         
@@ -645,6 +902,43 @@ Status: ${blog.status}`;
 
   const renderBlogsTab = () => (
     <div>
+      {/* Debugging Information Panel - Only show when no blogs are found */}
+      {blogs.length === 0 && !isLoading && (
+        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="font-semibold text-yellow-800 mb-2">🔍 Troubleshooting: No Articles Found</h3>
+          <div className="text-sm text-yellow-700 space-y-1">
+            <p><strong>User ID:</strong> {user?.uid || 'Not available'}</p>
+            <p><strong>Authentication Status:</strong> {user ? '✅ Authenticated' : '❌ Not authenticated'}</p>
+            <p><strong>Total Blogs Loaded:</strong> {blogs.length}</p>
+            <p><strong>Loading State:</strong> {isLoading ? 'Loading...' : 'Complete'}</p>
+          </div>
+          <div className="mt-3 text-xs text-yellow-600">
+            <p><strong>💡 Possible causes:</strong></p>
+            <ul className="list-disc ml-4 space-y-1">
+              <li>No articles have been generated yet - <Link href="/dashboard/articles" className="underline">Generate your first article</Link></li>
+              <li>Firestore security rules preventing access</li>
+              <li>Network connectivity issues</li>
+              <li>Account permissions issue</li>
+            </ul>
+            <p className="mt-2"><strong>🔧 Check browser console for detailed logs</strong></p>
+          </div>
+          <div className="mt-4">
+            <button
+              onClick={inspectAllCollections}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm mr-2"
+            >
+              🔍 Run Database Inspection
+            </button>
+            <button
+              onClick={loadContentDirectly}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+            >
+              🔄 Try Direct Access
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {displayedBlogs.map((blog) => {
         const isHighlighted = searchParams.get('highlight') === blog.id;
@@ -897,12 +1191,17 @@ Status: ${blog.status}`;
           <div className="text-center py-12">
             <Key className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-500 mb-4">No keyword research generated yet</p>
+            {subscription_status === 'admin' && (
             <Link
               href="/dashboard/keywords"
               className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
               Generate Keywords
             </Link>
+            )}
+            {subscription_status !== 'admin' && (
+              <p className="text-sm text-gray-400">Keyword generation is only available to administrators</p>
+            )}
           </div>
         );
       case 'thumbnails':
@@ -975,7 +1274,7 @@ Status: ${blog.status}`;
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => setActiveTab(tab.id as TabType)}
                 className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'

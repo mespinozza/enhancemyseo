@@ -16,7 +16,10 @@ export default function ArticleDetailPage() {
   const { data: article, isLoading } = useQuery({
     queryKey: ['article', articleId],
     queryFn: async () => {
-      const blogData = await blogOperations.getById(articleId);
+      if (!user?.uid) {
+        throw new Error("User not authenticated");
+      }
+      const blogData = await blogOperations.getBlogById(user.uid, articleId);
       if (!blogData) {
         throw new Error("Article not found");
       }
@@ -29,12 +32,15 @@ export default function ArticleDetailPage() {
         publish_url: "#" // Not implemented
       };
     },
-    enabled: !!articleId && !!user,
+    enabled: !!user?.uid && !!articleId
   });
 
   const publishMutation = useMutation({
     mutationFn: async () => {
-      await blogOperations.update(articleId, {
+      if (!user?.uid) {
+        throw new Error("User not authenticated");
+      }
+      await blogOperations.updateBlog(user.uid, articleId, {
         status: 'published',
       });
     },
@@ -42,8 +48,9 @@ export default function ArticleDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['article', articleId] });
       toast.success('Article published successfully!');
     },
-    onError: (error: any) => {
-      toast.error(error.message || 'Failed to publish article');
+    onError: (error: unknown) => {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to publish article';
+      toast.error(errorMessage);
     },
   });
 

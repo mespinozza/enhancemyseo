@@ -49,7 +49,7 @@ const pricingTiers = [
 export default function Pricing() {
   const router = useRouter();
 
-  const handlePricingClick = (tier: string) => {
+  const handlePricingClick = () => {
     router.push('/register');
   };
 
@@ -101,7 +101,7 @@ export default function Pricing() {
                 ))}
               </ul>
               <button
-                onClick={() => handlePricingClick(tier.name)}
+                onClick={() => handlePricingClick()}
                 className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
                   tier.popular
                     ? 'bg-blue-600 text-white hover:bg-blue-700'

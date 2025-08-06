@@ -60,6 +60,6 @@ export async function getServerUserSubscriptionStatus(uid: string, email: string
 }
 
 // Validate subscription tier
-function isValidSubscriptionTier(tier: any): tier is SubscriptionTier {
-  return ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'].includes(tier);
+function isValidSubscriptionTier(tier: unknown): tier is SubscriptionTier {
+  return ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'].includes(tier as string);
 } 

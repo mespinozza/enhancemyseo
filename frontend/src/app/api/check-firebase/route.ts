@@ -18,10 +18,10 @@ export async function GET() {
     };
     
     return NextResponse.json({ success: true, config });
-  } catch (error: any) {
-    console.error('Error checking Firebase config:', error);
+  } catch (error: unknown) {
+    console.error('Firebase check failed:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Unknown error' },
+      { error: 'Firebase initialization failed', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
