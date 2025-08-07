@@ -541,6 +541,39 @@ export default function ArticlesPage() {
     });
   };
 
+  // Helper function to discover website content
+  const discoverWebsiteContent = async (websiteUrl: string, keyword: string) => {
+    if (!user) return null;
+    
+    try {
+      const response = await fetch('/api/discover-content', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          websiteUrl,
+          keyword,
+          searchTerms: [keyword]
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn('Content discovery failed, continuing without website content');
+        return null;
+      }
+
+      const discoveryResult = await response.json();
+      console.log(`🎯 Content discovery ${discoveryResult.cached ? '(cached)' : 'completed'}: ${discoveryResult.pages.length} pages found`);
+      
+      return discoveryResult.pages;
+    } catch (error) {
+      console.warn('Content discovery error, continuing without website content:', error);
+      return null;
+    }
+  };
+
   const handleBulkGenerate = async () => {
     const validKeywords = keywords.filter(k => k.trim().length > 0);
     if (!selectedBrandId || validKeywords.length === 0 || !contentType || !user) {
@@ -580,6 +613,24 @@ export default function ArticlesPage() {
         throw new Error('Selected brand profile not found');
       }
 
+      // Pre-discover website content if needed (once for all keywords)
+      let discoveredContent = null;
+      const needsWebsiteContent = contentSelection.mode === 'automatic' && 
+                                 contentSelection.automaticOptions.includeWebsiteContent && 
+                                 selectedProfile.websiteUrl;
+
+      if (needsWebsiteContent && selectedProfile.websiteUrl) {
+        console.log('🔍 Pre-discovering website content...');
+        toast('Discovering website content...', { duration: 3000 });
+        
+        // Use the first keyword for discovery (can be improved to use all keywords)
+        discoveredContent = await discoverWebsiteContent(selectedProfile.websiteUrl, validKeywords[0]);
+        
+        if (discoveredContent && discoveredContent.length > 0) {
+          toast.success(`Found ${discoveredContent.length} relevant pages!`, { duration: 2000 });
+        }
+      }
+
       // Generate articles sequentially to respect rate limits
       for (let i = 0; i < validKeywords.length; i++) {
         const currentKeyword = validKeywords[i];
@@ -607,28 +658,32 @@ export default function ArticlesPage() {
           // Create the initial blog post
           const blog = await blogOperations.create(user.uid, blogData);
 
-          // Generate the content
+          // Generate the content with discovered content (if available)
+          const generationPayload = {
+            blogId: blog,
+            keyword: currentKeyword,
+            brandName: selectedProfile.brandName,
+            businessType: selectedProfile.businessType,
+            contentType,
+            toneOfVoice,
+            instructions,
+            brandGuidelines: selectedProfile.brandGuidelines || '',
+            contentSelection,
+            shopifyStoreUrl: selectedProfile.shopifyStoreUrl || '',
+            shopifyAccessToken: selectedProfile.shopifyAccessToken || '',
+            websiteUrl: selectedProfile.websiteUrl || '',
+            brandColor: selectedProfile.brandColor || '#000000',
+            // Add discovered content for website integration
+            ...(discoveredContent && { discoveredContent })
+          };
+
           const response = await fetch('/api/generate-article', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${await user.getIdToken()}`,
             },
-            body: JSON.stringify({
-              blogId: blog,
-              keyword: currentKeyword,
-              brandName: selectedProfile.brandName,
-              businessType: selectedProfile.businessType,
-              contentType,
-              toneOfVoice,
-              instructions,
-              brandGuidelines: selectedProfile.brandGuidelines || '',
-              contentSelection,
-              shopifyStoreUrl: selectedProfile.shopifyStoreUrl || '',
-              shopifyAccessToken: selectedProfile.shopifyAccessToken || '',
-              websiteUrl: selectedProfile.websiteUrl || '',
-              brandColor: selectedProfile.brandColor || '#000000',
-            }),
+            body: JSON.stringify(generationPayload),
           });
 
           if (!response.ok) {
