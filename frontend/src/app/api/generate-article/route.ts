@@ -10,6 +10,40 @@ import OpenAI from 'openai';
 // Force Serverless Runtime (60s timeout) instead of Edge Runtime (30s timeout)
 export const runtime = 'nodejs';
 
+// Helper function for OpenAI calls with timeout and Claude fallback
+async function callAIWithFallback(
+  openaiCall: () => Promise<any>,
+  claudeFallbackPrompt: string,
+  anthropic: Anthropic,
+  timeoutMs: number = 10000
+): Promise<string> {
+  try {
+    // Try OpenAI with timeout
+    const openaiResult = await Promise.race([
+      openaiCall(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('OpenAI timeout')), timeoutMs)
+      )
+    ]);
+    return openaiResult.choices[0].message.content?.trim() || '';
+  } catch (error) {
+    console.log(`OpenAI failed (${error.message}), using Claude fallback`);
+    
+    // Fallback to Claude
+    try {
+      const claudeMessage = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 200,
+        messages: [{ role: "user", content: claudeFallbackPrompt }]
+      });
+      return claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
+    } catch (claudeError) {
+      console.error('Both OpenAI and Claude failed:', claudeError);
+      return '';
+    }
+  }
+}
+
 // Log the environment variable at module load time
 console.log('--- generate-article route loaded by Next.js server ---');
 
@@ -149,35 +183,51 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     }
     
     // Now extract component terms using the identified brand/vendor
-    const extractionPrompt = `
-      For the topic "${keyword}", extract:
-      1. The brand name: ${primaryVendor || 'Unknown'}
-      2. 5-8 basic component/part terms that would typically be found in product names for ${primaryVendor || ''} ${keyword.split(' ').filter(w => w.toLowerCase() !== primaryVendor?.toLowerCase()).join(' ')}
+    const extractionPrompt = `Given the keyword "${keyword}" and the following text, extract the most important component terms that would be valuable for content discovery and search.
       
       Focus on:
-      - Simple, single-word component terms (e.g., "hose", "gasket", "valve", "switch", "pump") 
-      - Common part categories specific to this product type
-      - Terms likely to appear in part catalogs or product listings
-      - Do NOT include the brand name as a separate term
-      
-      For example, if the topic is "unic espresso machine parts", good component terms would be:
-      portafilter, boiler, valve, hose, gasket, group, pump, seal
+      - Core product/service terms related to the keyword
+      - Technical specifications or features
+      - Industry-specific terminology
+      - Action words or verbs related to the main topic
+      - Qualifying descriptors (size, type, material, etc.)
       
       Return only a comma-separated list of these component terms (do NOT include the brand name in this list).
       
       Text: ${text}
     `;
     
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4-1106-preview',
-      messages: [
-        { role: 'user', content: extractionPrompt }
-      ],
-      max_tokens: 150,
-      temperature: 0.3,
-    });
-    
-    const keyTermsText = response.choices[0].message.content?.trim() || '';
+    // OpenAI call with 10-second timeout and Claude fallback
+    let keyTermsText = '';
+    try {
+      const response: any = await Promise.race([
+        openai.chat.completions.create({
+          model: 'gpt-4-1106-preview',
+          messages: [{ role: 'user', content: extractionPrompt }],
+          max_tokens: 150,
+          temperature: 0.3,
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OpenAI timeout')), 10000)
+        )
+      ]);
+      keyTermsText = response.choices[0].message.content?.trim() || '';
+    } catch (error: any) {
+      console.log(`OpenAI failed for key terms (${error.message}), using Claude fallback`);
+      
+      // Fallback to Claude for term extraction
+      try {
+        const claudeMessage = await anthropic.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 200,
+          messages: [{ role: "user", content: extractionPrompt }]
+        });
+        keyTermsText = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
+      } catch (claudeError: any) {
+        console.error('Both OpenAI and Claude failed for key terms:', claudeError);
+        keyTermsText = '';
+      }
+    }
     // Remove any quotes that might appear in the terms
     const cleanedTermsText = keyTermsText.replace(/["']/g, '');
     const componentTerms = cleanedTermsText.split(',').map(term => term.trim()).filter(Boolean);
@@ -1024,7 +1074,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   if (finalProducts.length > 0) {
     console.log('\n🏆 Selected products (by relevance score):');
     candidateProducts.slice(0, TARGET_PRODUCTS).forEach((cp, index) => {
-      console.log(`${index + 1}. "${cp.product.title}" (Score: ${cp.score}, Term: "${cp.searchTerm}")`);
+      console.log(`${index + 1}. "${cp.title}" (Score: ${cp.score}, Term: "${cp.searchTerm}")`);
     });
   }
   
@@ -2434,20 +2484,36 @@ export async function POST(request: Request) {
 
     let topicBreakdown = '';
     try {
-      console.log('Calling OpenAI API for topic breakdown');
-      const openaiRes = await openai.chat.completions.create({
-        model: 'gpt-4-1106-preview',
-        messages: [
-          { role: 'user', content: topicBreakdownPrompt }
-        ],
-        max_tokens: 800,
-        temperature: 0.7,
-      });
+      console.log('Calling OpenAI API for topic breakdown with 10s timeout');
+      const openaiRes: any = await Promise.race([
+        openai.chat.completions.create({
+          model: 'gpt-4-1106-preview',
+          messages: [{ role: 'user', content: topicBreakdownPrompt }],
+          max_tokens: 800,
+          temperature: 0.7,
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OpenAI timeout')), 10000)
+        )
+      ]);
       topicBreakdown = openaiRes.choices[0].message.content || '';
-      console.log('Successfully generated topic breakdown');
-    } catch (err) {
-      console.error('Error generating topic breakdown:', err);
-      // Continue without breakdown rather than failing completely
+      console.log('Successfully generated topic breakdown with OpenAI');
+    } catch (error: any) {
+      console.log(`OpenAI failed for topic breakdown (${error.message}), using Claude fallback`);
+      
+      // Fallback to Claude for topic breakdown
+      try {
+        const claudeMessage = await anthropic.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 800,
+          messages: [{ role: "user", content: topicBreakdownPrompt }]
+        });
+        topicBreakdown = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
+        console.log('Successfully generated topic breakdown with Claude fallback');
+      } catch (claudeError: any) {
+        console.error('Both OpenAI and Claude failed for topic breakdown:', claudeError);
+        topicBreakdown = '';
+      }
     }
 
     // 2. If contentSelection is configured, fetch content based on integration type
