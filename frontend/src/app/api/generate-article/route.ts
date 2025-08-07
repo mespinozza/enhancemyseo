@@ -27,7 +27,7 @@ async function callAIWithFallback(
     ]);
     return openaiResult.choices[0].message.content?.trim() || '';
   } catch (error) {
-    console.log(`OpenAI failed (${error.message}), using Claude fallback`);
+    console.log(`OpenAI failed (${(error as any).message}), using Claude fallback`);
     
     // Fallback to Claude
     try {
@@ -1074,7 +1074,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   if (finalProducts.length > 0) {
     console.log('\n🏆 Selected products (by relevance score):');
     candidateProducts.slice(0, TARGET_PRODUCTS).forEach((cp, index) => {
-      console.log(`${index + 1}. "${cp.title}" (Score: ${cp.score}, Term: "${cp.searchTerm}")`);
+      console.log(`${index + 1}. "${cp.product.title}" (Score: ${cp.score}, Term: "${cp.searchTerm}")`);
     });
   }
   
