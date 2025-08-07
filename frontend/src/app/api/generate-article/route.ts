@@ -7,43 +7,6 @@ import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-uti
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import OpenAI from 'openai';
 
-// Force Serverless Runtime (60s timeout) instead of Edge Runtime (30s timeout)
-export const runtime = 'nodejs';
-
-// Helper function for OpenAI calls with timeout and Claude fallback
-async function callAIWithFallback(
-  openaiCall: () => Promise<any>,
-  claudeFallbackPrompt: string,
-  anthropic: Anthropic,
-  timeoutMs: number = 10000
-): Promise<string> {
-  try {
-    // Try OpenAI with timeout
-    const openaiResult = await Promise.race([
-      openaiCall(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('OpenAI timeout')), timeoutMs)
-      )
-    ]);
-    return openaiResult.choices[0].message.content?.trim() || '';
-  } catch (error) {
-    console.log(`OpenAI failed (${(error as any).message}), using Claude fallback`);
-    
-    // Fallback to Claude
-    try {
-      const claudeMessage = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 200,
-        messages: [{ role: "user", content: claudeFallbackPrompt }]
-      });
-      return claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
-    } catch (claudeError) {
-      console.error('Both OpenAI and Claude failed:', claudeError);
-      return '';
-    }
-  }
-}
-
 // Log the environment variable at module load time
 console.log('--- generate-article route loaded by Next.js server ---');
 
@@ -183,51 +146,35 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     }
     
     // Now extract component terms using the identified brand/vendor
-    const extractionPrompt = `Given the keyword "${keyword}" and the following text, extract the most important component terms that would be valuable for content discovery and search.
+    const extractionPrompt = `
+      For the topic "${keyword}", extract:
+      1. The brand name: ${primaryVendor || 'Unknown'}
+      2. 5-8 basic component/part terms that would typically be found in product names for ${primaryVendor || ''} ${keyword.split(' ').filter(w => w.toLowerCase() !== primaryVendor?.toLowerCase()).join(' ')}
       
       Focus on:
-      - Core product/service terms related to the keyword
-      - Technical specifications or features
-      - Industry-specific terminology
-      - Action words or verbs related to the main topic
-      - Qualifying descriptors (size, type, material, etc.)
+      - Simple, single-word component terms (e.g., "hose", "gasket", "valve", "switch", "pump") 
+      - Common part categories specific to this product type
+      - Terms likely to appear in part catalogs or product listings
+      - Do NOT include the brand name as a separate term
+      
+      For example, if the topic is "unic espresso machine parts", good component terms would be:
+      portafilter, boiler, valve, hose, gasket, group, pump, seal
       
       Return only a comma-separated list of these component terms (do NOT include the brand name in this list).
       
       Text: ${text}
     `;
     
-    // OpenAI call with 10-second timeout and Claude fallback
-    let keyTermsText = '';
-    try {
-      const response: any = await Promise.race([
-        openai.chat.completions.create({
-          model: 'gpt-4-1106-preview',
-          messages: [{ role: 'user', content: extractionPrompt }],
-          max_tokens: 150,
-          temperature: 0.3,
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('OpenAI timeout')), 10000)
-        )
-      ]);
-      keyTermsText = response.choices[0].message.content?.trim() || '';
-    } catch (error: any) {
-      console.log(`OpenAI failed for key terms (${error.message}), using Claude fallback`);
-      
-      // Fallback to Claude for term extraction
-      try {
-        const claudeMessage = await anthropic.messages.create({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 200,
-          messages: [{ role: "user", content: extractionPrompt }]
-        });
-        keyTermsText = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
-      } catch (claudeError: any) {
-        console.error('Both OpenAI and Claude failed for key terms:', claudeError);
-        keyTermsText = '';
-      }
-    }
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4-1106-preview',
+      messages: [
+        { role: 'user', content: extractionPrompt }
+      ],
+      max_tokens: 150,
+      temperature: 0.3,
+    });
+    
+    const keyTermsText = response.choices[0].message.content?.trim() || '';
     // Remove any quotes that might appear in the terms
     const cleanedTermsText = keyTermsText.replace(/["']/g, '');
     const componentTerms = cleanedTermsText.split(',').map(term => term.trim()).filter(Boolean);
@@ -2000,7 +1947,7 @@ function prioritizeSearchTerms(searchTerms: string[], originalKeyword: string, i
 async function discoverWebsitePages(
   websiteUrl: string, 
   searchTerms: string[] = [],
-  timeLimit: number = 12000 // 12 seconds - reduced from 30 for Vercel timeout safety
+  timeLimit: number = 30000 // 30 seconds default for automatic mode
 ): Promise<Array<{
   url: string;
   title: string;
@@ -2010,19 +1957,19 @@ async function discoverWebsitePages(
   priority?: number;
   relevanceScore?: number;
 }>> {
-  console.log(`🚀 Enhanced 4-Phase Discovery starting for: ${websiteUrl} (${timeLimit/1000}s limit)`);
+  console.log(`🚀 Enhanced 4-Phase Discovery starting for: ${websiteUrl}`);
   const startTime = Date.now();
   const allPages: any[] = [];
   
   try {
     // Phase 1: Enhanced Sitemap & Structure Analysis (High Priority - Fast)
-    console.log('⚡ Phase 1: Structure Analysis (0-6 seconds)');
+    console.log('⚡ Phase 1: Structure Analysis (0-10 seconds)');
     const structureData = await discoverWebsiteStructure(websiteUrl);
     allPages.push(...structureData.pages);
     
     console.log(`📊 Phase 1 Results: ${structureData.pages.length} pages, ${structureData.sitemaps.length} sitemaps`);
     
-    // Quick quality assessment - lowered threshold for faster completion
+    // Quick quality assessment
     const phase1RelevantPages = structureData.pages.filter(page => {
       if (!searchTerms.length) return true;
       const score = calculateAdvancedRelevance({
@@ -2034,13 +1981,13 @@ async function discoverWebsitePages(
       return score > 10;
     });
     
-    // Check if we should continue with deeper phases - more aggressive early exit
+    // Check if we should continue with deeper phases
     const timeElapsed = Date.now() - startTime;
-    const hasGoodResults = phase1RelevantPages.length >= 5; // Reduced from 10 to 5
-    const shouldContinue = !hasGoodResults && timeElapsed < timeLimit * 0.5; // Increased to 50% for Phase 1
+    const hasGoodResults = phase1RelevantPages.length >= 10;
+    const shouldContinue = !hasGoodResults && timeElapsed < timeLimit * 0.4; // Use max 40% of time for deeper phases
     
     if (!shouldContinue) {
-      console.log(`✅ Discovery complete after Phase 1: ${allPages.length} pages (${phase1RelevantPages.length} relevant) - Time: ${timeElapsed}ms`);
+      console.log(`✅ Discovery complete after Phase 1: ${allPages.length} pages (${phase1RelevantPages.length} relevant)`);
       return allPages.map(page => ({
         url: page.url,
         title: page.title,
@@ -2058,86 +2005,96 @@ async function discoverWebsitePages(
     }
     
     // Phase 2: Deep Navigation Crawling (Medium Priority - If needed)
-    if (Date.now() - startTime < timeLimit * 0.75) { // Reduced from 0.7 to 0.75
-      console.log('🔍 Phase 2: Deep Navigation Crawling (6-9 seconds)');
+    if (Date.now() - startTime < timeLimit * 0.7) {
+      console.log('🔍 Phase 2: Deep Navigation Crawling (10-20 seconds)');
       const phase2Pages = await crawlNavigationSystematically(
         websiteUrl,
         structureData.navigationStructure,
-        searchTerms,
-        timeLimit,
-        startTime
+        searchTerms
       );
       allPages.push(...phase2Pages);
       
       console.log(`📊 Phase 2 Results: ${phase2Pages.length} additional pages`);
-      
-      // Early exit if we now have enough content
-      const totalRelevant = allPages.filter(page => {
-        if (!searchTerms.length) return true;
-        const score = calculateAdvancedRelevance({
-          title: page.title,
-          url: page.url,
-          description: page.description,
-          pageType: page.pageType
-        }, searchTerms);
-        return score > 15;
-      }).length;
-      
-      if (totalRelevant >= 8) { // Early exit with good results
-        console.log(`✅ Discovery complete after Phase 2: ${totalRelevant} relevant pages found`);
-        return allPages.map(page => ({
-          url: page.url,
-          title: page.title,
-          description: page.description,
-          pageType: page.pageType,
-          discoveryMethod: page.discoveryMethod || 'phase2',
-          priority: page.priority || 10,
-          relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
-            title: page.title,
-            url: page.url,
-            description: page.description,
-            pageType: page.pageType
-          }, searchTerms) : 50
-        }));
-      }
     }
     
-    // Skip Phases 3 & 4 to avoid timeouts - return what we have
-    console.log(`⚠️ Phases 3-4 skipped for timeout safety. Time elapsed: ${Date.now() - startTime}ms`);
+    // Phase 3: Pattern Testing (Lower Priority - If still time)
+    if (Date.now() - startTime < timeLimit * 0.9 && allPages.length < 30) {
+      console.log('🎯 Phase 3: Pattern-Based Testing (20-25 seconds)');
+      const phase3Pages = await comprehensivePatternTesting(
+        websiteUrl,
+        searchTerms,
+        allPages.length
+      );
+      allPages.push(...phase3Pages);
+      
+      console.log(`📊 Phase 3 Results: ${phase3Pages.length} additional pages`);
+    }
     
-    // Return all discovered pages with relevance scores
-    return allPages.map(page => ({
+    // Phase 4: Final Sweep (Lowest Priority - Only if really needed)
+    const relevantCount = allPages.filter(page => 
+      searchTerms.length ? calculateAdvancedRelevance({
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType
+      }, searchTerms) > 15 : true
+    ).length;
+    
+    if (Date.now() - startTime < timeLimit && relevantCount < 5) {
+      console.log('🔬 Phase 4: Final Comprehensive Sweep (25-30 seconds)');
+      const phase4Pages = await finalComprehensiveSweep(websiteUrl, searchTerms, allPages);
+      allPages.push(...phase4Pages);
+      
+      console.log(`📊 Phase 4 Results: ${phase4Pages.length} additional pages`);
+    }
+    
+    // Final processing and scoring
+    const finalPages = allPages.map(page => ({
       url: page.url,
       title: page.title,
       description: page.description,
       pageType: page.pageType,
-      discoveryMethod: page.discoveryMethod || 'early-phases',
-      priority: page.priority || 10,
-      relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
+      discoveryMethod: page.discoveryMethod || 'enhanced-discovery',
+      priority: page.priority || 5,
+      relevanceScore: page.relevanceScore || (searchTerms.length ? calculateAdvancedRelevance({
         title: page.title,
         url: page.url,
         description: page.description,
         pageType: page.pageType
-      }, searchTerms) : 50
+      }, searchTerms) : 25)
     }));
     
+    // Remove duplicates and sort by relevance
+    const uniquePages = finalPages.filter((page, index, self) => 
+      index === self.findIndex(p => p.url === page.url)
+    ).sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    
+    const totalTime = Date.now() - startTime;
+    const relevantPages = uniquePages.filter(page => (page.relevanceScore || 0) > 10);
+    
+    console.log(`🎉 Enhanced Discovery Complete:`);
+    console.log(`   ⏱️  Total Time: ${totalTime}ms`);
+    console.log(`   📄 Total Pages: ${uniquePages.length}`);
+    console.log(`   🎯 Relevant Pages: ${relevantPages.length}`);
+    console.log(`   ⭐ Avg Relevance: ${Math.round(relevantPages.reduce((sum, p) => sum + (p.relevanceScore || 0), 0) / relevantPages.length) || 0}`);
+    
+    return uniquePages;
+    
   } catch (error) {
-    console.error('❌ Discovery error:', error);
-    // Return any pages we managed to discover before the error
-    return allPages.map(page => ({
-      url: page.url,
-      title: page.title,
-      description: page.description || '',
-      pageType: page.pageType || 'other',
-      discoveryMethod: page.discoveryMethod || 'partial',
-      priority: page.priority || 20,
-      relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
-        title: page.title,
-        url: page.url,
-        description: page.description,
-        pageType: page.pageType
-      }, searchTerms) : 30
-    }));
+    console.error('Enhanced discovery error:', error);
+    
+    // Fallback to basic structure
+    const fallbackPages = [{
+      url: websiteUrl,
+      title: 'Homepage',
+      description: 'Main website page',
+      pageType: 'other' as const,
+      discoveryMethod: 'fallback',
+      priority: 1,
+      relevanceScore: 10
+    }];
+    
+    return fallbackPages;
   }
 }
 
@@ -2384,11 +2341,8 @@ function calculateWebsitePageRelevance(
 
 
 export async function POST(request: Request) {
-  const startTime = Date.now();
-  console.log('🚀 Article generation started at:', new Date().toISOString());
-  
   try {
-    console.log('⏱️ [0ms] Starting article generation request');
+    console.log('Received article generation request');
     
     // Check for required API keys
     if (!openaiKey) {
@@ -2407,8 +2361,6 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(`⏱️ [${Date.now() - startTime}ms] API keys validated`);
-
     // Get the user's ID token from the Authorization header
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -2419,39 +2371,51 @@ export async function POST(request: Request) {
     const idToken = authHeader.split('Bearer ')[1];
     let verifiedUser;
     
-    console.log(`⏱️ [${Date.now() - startTime}ms] Starting token verification`);
-    
     try {
       // Verify the ID token
       verifiedUser = await getAuth().verifyIdToken(idToken);
       if (!verifiedUser.uid) {
         throw new Error('Invalid token');
       }
-      console.log(`⏱️ [${Date.now() - startTime}ms] User authenticated successfully:`, verifiedUser.uid);
+      console.log('User authenticated successfully:', verifiedUser.uid);
     } catch (error) {
       console.error('Error verifying token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    console.log(`⏱️ [${Date.now() - startTime}ms] Starting simplified usage verification`);
-    
-    // OPTIMIZATION: Simplified usage verification for speed
+    // CRITICAL: Server-side usage verification
+    console.log('Verifying usage limits for user:', verifiedUser.uid);
     try {
-      // Basic subscription check without complex server-side utilities
-      const subscriptionStatus = verifiedUser.firebase?.sign_in_provider ? 'free' : 'free'; // Simplified check
-      console.log(`⏱️ [${Date.now() - startTime}ms] Using simplified subscription model:`, subscriptionStatus);
+      // Get user's subscription status from Firestore
+      const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
+      console.log('User subscription status:', subscriptionStatus);
       
-      // Skip complex usage verification for speed optimization
-      console.log(`⏱️ [${Date.now() - startTime}ms] Skipping detailed usage verification for speed`);
+      // Get Firestore admin instance
+      const adminFirestore = getFirestore();
       
-    } catch (usageError) {
-      console.error('Error in simplified usage verification:', usageError);
-      // Continue with generation even if usage check fails
-      console.log(`⏱️ [${Date.now() - startTime}ms] Continuing despite usage verification error`);
+      // Check if user can perform this action
+      const usageCheck = await serverSideUsageUtils.canPerformAction(
+        verifiedUser.uid,
+        subscriptionStatus,
+        'articles',
+        adminFirestore
+      );
+      
+      if (!usageCheck.canPerform) {
+        console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
+        return NextResponse.json({ 
+          error: usageCheck.reason || 'Usage limit exceeded' 
+        }, { status: 429 });
+      }
+      
+      console.log('Usage verification passed for user:', verifiedUser.uid);
+    } catch (error) {
+      console.error('Error verifying usage limits:', error);
+      return NextResponse.json({ 
+        error: 'Unable to verify usage limits' 
+      }, { status: 500 });
     }
 
-    console.log(`⏱️ [${Date.now() - startTime}ms] Parsing request body`);
-    
     const body = await request.json();
     console.log('Request body:', { ...body, keyword: body.keyword }); // Log everything except sensitive data
 
@@ -2484,36 +2448,20 @@ export async function POST(request: Request) {
 
     let topicBreakdown = '';
     try {
-      console.log('Calling OpenAI API for topic breakdown with 10s timeout');
-      const openaiRes: any = await Promise.race([
-        openai.chat.completions.create({
-          model: 'gpt-4-1106-preview',
-          messages: [{ role: 'user', content: topicBreakdownPrompt }],
-          max_tokens: 800,
-          temperature: 0.7,
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('OpenAI timeout')), 10000)
-        )
-      ]);
+      console.log('Calling OpenAI API for topic breakdown');
+      const openaiRes = await openai.chat.completions.create({
+        model: 'gpt-4-1106-preview',
+        messages: [
+          { role: 'user', content: topicBreakdownPrompt }
+        ],
+        max_tokens: 800,
+        temperature: 0.7,
+      });
       topicBreakdown = openaiRes.choices[0].message.content || '';
-      console.log('Successfully generated topic breakdown with OpenAI');
-    } catch (error: any) {
-      console.log(`OpenAI failed for topic breakdown (${error.message}), using Claude fallback`);
-      
-      // Fallback to Claude for topic breakdown
-      try {
-        const claudeMessage = await anthropic.messages.create({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 800,
-          messages: [{ role: "user", content: topicBreakdownPrompt }]
-        });
-        topicBreakdown = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
-        console.log('Successfully generated topic breakdown with Claude fallback');
-      } catch (claudeError: any) {
-        console.error('Both OpenAI and Claude failed for topic breakdown:', claudeError);
-        topicBreakdown = '';
-      }
+      console.log('Successfully generated topic breakdown');
+    } catch (err) {
+      console.error('Error generating topic breakdown:', err);
+      // Continue without breakdown rather than failing completely
     }
 
     // 2. If contentSelection is configured, fetch content based on integration type
@@ -2586,14 +2534,7 @@ export async function POST(request: Request) {
         
         try {
           if (contentSelection.mode === 'automatic') {
-            // Use pre-discovered content if provided, otherwise fall back to discovery
-            if (body.discoveredContent && Array.isArray(body.discoveredContent)) {
-              console.log(`🎯 Using pre-discovered content: ${body.discoveredContent.length} pages`);
-              await handlePreDiscoveredWebsiteContent(contentSelection, body.discoveredContent, keyword);
-            } else {
-              console.log(`⚠️ No pre-discovered content provided, falling back to quick discovery`);
-              await handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
-            }
+            await handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
           } else {
             await handleManualWebsiteContent(contentSelection);
           }
@@ -2617,13 +2558,6 @@ export async function POST(request: Request) {
     
     // Helper functions for content handling
     async function handleAutomaticShopifyContent(contentSelection: any, shopDomain: string, accessToken: string, currentSearchTerms: string[], currentAvailableVendors: string[], storeUrl: string) {
-      console.log(`⏱️ [${Date.now() - startTime}ms] Skipping Shopify integration for speed optimization`);
-      // OPTIMIZATION: Skip all Shopify searches to eliminate timeout
-      // This removes 5-10 seconds of API calls and processing
-      return;
-      
-      // Original complex logic commented out for performance
-      /*
       const searchQueries = currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
       
       // Search products if enabled
@@ -2655,7 +2589,6 @@ export async function POST(request: Request) {
           console.log(`✅ Found ${pages.length} relevant pages`);
         }
       }
-      */
     }
     
     async function handleManualShopifyContent(contentSelection: any, storeUrl: string) {
@@ -2680,45 +2613,43 @@ export async function POST(request: Request) {
     }
     
     async function handleAutomaticWebsiteContent(contentSelection: any, websiteUrl: string, currentSearchTerms: string[]) {
-      console.log(`⏱️ [${Date.now() - startTime}ms] Skipping website content discovery for speed optimization`);
-      // OPTIMIZATION: Skip all website content processing to eliminate timeout
-      // This removes 8-12 seconds of crawling and AI processing
-      return;
+      // 🔥 USE SHOPIFY-STYLE AI ENHANCEMENT
+      console.log('🧠 Using Shopify-style AI term extraction for website content...');
+      const aiAnalysisResult = await extractKeyTerms('', keyword, []);
+      const aiExtractedTerms = aiAnalysisResult.searchTerms;
+      const identifiedVendor = aiAnalysisResult.primaryVendor;
       
-      // Original complex logic commented out for performance
-      /*
-      console.log('🌐 Processing automatic website content selection');
+      console.log(`🎯 AI extracted ${aiExtractedTerms.length} enhanced terms: ${aiExtractedTerms.join(', ')}`);
+      if (identifiedVendor) {
+        console.log(`🏷️ AI identified vendor: "${identifiedVendor}"`);
+      }
       
-      try {
-        // Call AI extraction for search terms
-        const aiAnalysis = await extractKeyTerms('', keyword, []);
-        const enhancedTerms = [...currentSearchTerms, ...aiAnalysis.searchTerms];
-        
-        console.log(`AI enhanced search terms: ${enhancedTerms.join(', ')}`);
-        
-        // Use the unified search with Shopify-style logic (now with timeout safety)
-        const websitePages = await searchWebsiteContentWithShopifyLogic(
-          websiteUrl,
-          enhancedTerms,
-          [], // No page type filtering for automatic mode
-          keyword,
-          aiAnalysis.primaryVendor
+      const searchQueries = aiExtractedTerms.length > 0 ? aiExtractedTerms : currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
+      let websitePages: any[] = [];
+      
+      // Search based on unified website content structure
+      if (contentSelection.automaticOptions.includeWebsiteContent) {
+        console.log('🌐 Searching all website content types (unified approach)...');
+        websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor);
+      }
+      
+      if (websitePages.length > 0) {
+        // Remove duplicates based on URL (already done in searchWebsiteContentWithShopifyLogic)
+        const uniquePages = websitePages.filter((page, index, self) =>
+          index === self.findIndex((p) => p.url === page.url)
         );
         
-        console.log(`Found ${websitePages.length} relevant website pages`);
+        relatedWebsiteContentList = uniquePages.slice(0, 15).map(p => 
+          `• ${p.title} ${p.pageType ? `[${p.pageType.toUpperCase()}]` : ''} - ${p.url}`
+        ).join('\n');
         
-        // Convert to string format for the prompt (maintain existing format)
-        if (websitePages.length > 0) {
-          relatedWebsiteContentList = websitePages.slice(0, 15).map(page => 
-            `• ${page.title} ${page.pageType ? `[${page.pageType.toUpperCase()}]` : ''} - ${page.url}`
-          ).join('\n');
-        }
+        console.log(`✅ Found ${uniquePages.length} relevant website pages using unified approach`);
         
-      } catch (error) {
-        console.error('Error in automatic website content handling:', error);
-        throw error;
+        // Log top results with scores and page types
+        uniquePages.slice(0, 5).forEach((page, index) => {
+          console.log(`  ${index + 1}. "${page.title}" [${page.pageType?.toUpperCase() || 'OTHER'}] - Score: ${page.relevanceScore} [${page.discoveryMethod || 'enhanced'}]`);
+        });
       }
-      */
     }
     
     async function handleManualWebsiteContent(contentSelection: any) {
@@ -2731,46 +2662,8 @@ export async function POST(request: Request) {
         console.log(`📋 Using ${contentSelection.manualSelections.websiteContent.length} manually selected website pages`);
       }
     }
-
-    async function handlePreDiscoveredWebsiteContent(contentSelection: any, discoveredPages: any[], keyword: string) {
-      console.log('🎯 Processing pre-discovered website content');
-      
-      try {
-        // Filter out blog pages and low-relevance content
-        const filteredPages = discoveredPages.filter(page => {
-          // Basic blog filtering
-          const isBlog = page.pageType === 'blog' || 
-                         page.url.toLowerCase().includes('/blog/') ||
-                         page.url.toLowerCase().match(/\/\d{4}\/\d{2}\//);
-          
-          // Keep only relevant non-blog pages
-          return !isBlog && (page.relevanceScore || 0) > 5;
-        });
-        
-        console.log(`Filtered content: ${filteredPages.length}/${discoveredPages.length} pages (removed blogs and low-relevance)`);
-        
-        // Convert to the string format expected by the prompt builder (maintain existing format)
-        if (filteredPages.length > 0) {
-          relatedWebsiteContentList = filteredPages.slice(0, 15).map(page => 
-            `• ${page.title} ${page.pageType ? `[${page.pageType.toUpperCase()}]` : ''} - ${page.url}`
-          ).join('\n');
-        }
-        
-        console.log(`Added ${filteredPages.length} website pages to content context`);
-        
-      } catch (error) {
-        console.error('Error in pre-discovered website content handling:', error);
-        throw error;
-      }
-    }
     
     function buildIntegrationPrompt(products: string, collections: string, pages: string, websiteContent: string): string {
-      console.log(`⏱️ [${Date.now() - startTime}ms] Skipping integration prompt building for speed optimization`);
-      // OPTIMIZATION: Skip complex integration prompts to eliminate processing time
-      return '';
-      
-      // Original complex logic commented out for performance
-      /*
       let prompt = '';
       
       if (products) {
@@ -2789,8 +2682,12 @@ export async function POST(request: Request) {
         prompt += `\n\nRELATED WEBSITE CONTENT TO MENTION:\n${websiteContent}`;
       }
       
+      if (prompt) {
+        prompt = `\n\nIMPORTANT: Please naturally incorporate links to the following relevant content throughout the article where contextually appropriate:${prompt}`;
+        prompt += `\n\nWhen mentioning these items, use descriptive anchor text and ensure the links feel natural within the content flow.`;
+      }
+      
       return prompt;
-      */
     }
 
     // 3. Generate the article content using Claude
@@ -2897,11 +2794,10 @@ export async function POST(request: Request) {
 
     // Generate content using Claude
     try {
-      console.log(`⏱️ [${Date.now() - startTime}ms] Starting Claude API call`);
       console.log('Calling Claude API for article generation');
     const message = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
+        max_tokens: 8192,
       messages: [
         {
           role: "user",
@@ -2910,11 +2806,9 @@ export async function POST(request: Request) {
       ]
     });
 
-      console.log(`⏱️ [${Date.now() - startTime}ms] Claude API call completed successfully`);
-      
       // Get the generated content from the response
       const generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
-      console.log(`⏱️ [${Date.now() - startTime}ms] Content extracted from Claude response`);
+      console.log('Successfully generated article content');
 
       // Check for generation issues
       const hasGenerationIssues = detectGenerationIssues(generatedContent);
@@ -2926,15 +2820,13 @@ export async function POST(request: Request) {
       const titleMatch = generatedContent.match(/<h1>(.*?)<\/h1>/);
       const title = titleMatch ? titleMatch[1] : `${keyword} - ${contentType}`;
 
-      console.log(`⏱️ [${Date.now() - startTime}ms] Starting usage count increment`);
-      
       // CRITICAL: Increment usage count only if no generation issues detected
       if (!hasGenerationIssues) {
         console.log('Incrementing usage count for user:', verifiedUser.uid);
         try {
           const adminFirestore = getFirestore();
           await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', adminFirestore);
-          console.log(`⏱️ [${Date.now() - startTime}ms] Usage count incremented successfully`);
+          console.log('Usage count incremented successfully');
         } catch (usageError) {
           console.error('Error incrementing usage count:', usageError);
           // Continue execution - don't fail the request for usage tracking errors
@@ -2943,7 +2835,7 @@ export async function POST(request: Request) {
         console.log('⚠️ Skipping usage increment due to generation issues - user will not be charged');
       }
 
-      console.log(`⏱️ [${Date.now() - startTime}ms] Article generation completed successfully - Total time: ${Date.now() - startTime}ms`);
+      console.log('Article generation completed successfully');
       
       // Return the response including Shopify integration status and generation issues flag
     return NextResponse.json({
@@ -3513,9 +3405,7 @@ function categorizeWebsitePageAdvanced(
 async function crawlNavigationSystematically(
   websiteUrl: string,
   navigationStructure: { mainMenuLinks: string[]; categories: string[] },
-  searchTerms: string[],
-  timeLimit?: number,
-  startTime?: number
+  searchTerms: string[]
 ): Promise<Array<{
   url: string;
   title: string;
@@ -3529,75 +3419,65 @@ async function crawlNavigationSystematically(
   
   const discoveredPages: any[] = [];
   const processedUrls = new Set<string>();
-  const currentTime = startTime || Date.now();
-  const maxTime = timeLimit || 12000;
   
   try {
-    // Combine all navigation links for exploration - reduced limit for speed
+    // Combine all navigation links for exploration
     const navigationLinks = [
       ...navigationStructure.mainMenuLinks,
       ...navigationStructure.categories
-    ].slice(0, 8); // Reduced from 30 to 8 for timeout safety
+    ].slice(0, 30); // Limit to prevent excessive crawling
     
-    // Process navigation links in parallel batches of 3 for better performance
-    const batchSize = 3;
-    for (let i = 0; i < navigationLinks.length; i += batchSize) {
-      // Check timeout before each batch
-      if (Date.now() - currentTime > maxTime * 0.6) {
-        console.log(`⏰ Phase 2 timeout safety: stopping at batch ${Math.floor(i/batchSize) + 1}`);
-        break;
-      }
+    // Crawl each navigation link
+    for (const navLink of navigationLinks) {
+      if (processedUrls.has(navLink)) continue;
+      processedUrls.add(navLink);
       
-      const batch = navigationLinks.slice(i, i + batchSize);
-      const batchPromises = batch.map(async (navLink) => {
-        if (processedUrls.has(navLink)) return null;
-        processedUrls.add(navLink);
-        
-        console.log(`🗺️ Exploring navigation link: ${navLink}`);
-        
-        try {
-          // Add timeout to individual page analysis
-          const pageContent = await Promise.race([
-            analyzePageContent(navLink),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Page analysis timeout')), 3000))
-          ]);
+      console.log(`🗺️ Exploring navigation link: ${navLink}`);
+      
+      try {
+        // Crawl the navigation page
+        const pageContent = await analyzePageContent(navLink);
+        if (pageContent) {
+          const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
           
-          if (pageContent) {
-            const relevanceScore = calculateAdvancedRelevance(pageContent as any, searchTerms);
-            
-            return {
-              ...pageContent,
-              discoveryMethod: 'navigation-deep',
-              priority: 7,
-              relevanceScore
-            };
-          }
-        } catch (error) {
-          console.log(`⚠️ Failed to analyze ${navLink}:`, error);
-          return null;
+          discoveredPages.push({
+            ...pageContent,
+            discoveryMethod: 'navigation-deep',
+            priority: 7,
+            relevanceScore
+          });
         }
         
-        return null;
-      });
-      
-      // Wait for batch to complete and collect results
-      const batchResults = await Promise.allSettled(batchPromises);
-      batchResults.forEach(result => {
-        if (result.status === 'fulfilled' && result.value) {
-          discoveredPages.push(result.value);
+        // Look for pagination or "load more" patterns
+        const paginatedPages = await explorePagination(navLink);
+        for (const page of paginatedPages) {
+          if (!processedUrls.has(page.url)) {
+            processedUrls.add(page.url);
+            const relevanceScore = calculateAdvancedRelevance(page, searchTerms);
+            
+            discoveredPages.push({
+              ...page,
+              discoveryMethod: 'pagination',
+              priority: 6,
+              relevanceScore
+            });
+          }
         }
-      });
-      
-      // Small delay between batches to prevent overwhelming the server
-      await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Brief delay to be respectful
+        await sleep(200);
+        
+      } catch (error) {
+        console.warn(`Failed to crawl navigation link ${navLink}:`, error);
+      }
     }
     
-    console.log(`✅ Phase 2 complete: ${discoveredPages.length} pages discovered`);
+    console.log(`✅ Phase 2 complete: ${discoveredPages.length} additional pages discovered`);
     return discoveredPages;
     
   } catch (error) {
-    console.error('Phase 2 navigation crawling error:', error);
-    return discoveredPages; // Return what we got so far
+    console.error('Phase 2 crawling error:', error);
+    return [];
   }
 }
 
@@ -3612,7 +3492,7 @@ async function analyzePageContent(url: string): Promise<{
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
-      signal: AbortSignal.timeout(3000) // Reduced from 10 to 3 seconds for speed
+      signal: AbortSignal.timeout(10000) // 10 second timeout
     });
     
     if (!response.ok) return null;
@@ -3622,12 +3502,12 @@ async function analyzePageContent(url: string): Promise<{
     // Extract title with HTML entity decoding
     const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
     const rawTitle = titleMatch ? titleMatch[1].trim() : extractTitleFromUrl(url);
-    const title = decodeHtmlEntities(rawTitle);
+    const title = rawTitle; // TODO: Add HTML entity decoding
     
     // Extract meta description with HTML entity decoding
     const descMatch = html.match(/<meta[^>]*name=['"](description|Description)['"]\s*content=['"](.*?)['"]/i);
     const rawDescription = descMatch ? descMatch[2].trim() : undefined;
-    const description = rawDescription ? decodeHtmlEntities(rawDescription) : undefined;
+    const description = rawDescription; // TODO: Add HTML entity decoding
     
     // Extract main content (simplified)
     const contentMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
@@ -3652,7 +3532,7 @@ async function analyzePageContent(url: string): Promise<{
     };
     
   } catch (error) {
-    // Return null on any error (timeout, network, parsing, etc.)
+    console.warn(`Failed to analyze page content for ${url}:`, error);
     return null;
   }
 }
