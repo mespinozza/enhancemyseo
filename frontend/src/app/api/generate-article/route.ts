@@ -2331,8 +2331,11 @@ function calculateWebsitePageRelevance(
 
 
 export async function POST(request: Request) {
+  const startTime = Date.now();
+  console.log('🚀 Article generation started at:', new Date().toISOString());
+  
   try {
-    console.log('Received article generation request');
+    console.log('⏱️ [0ms] Starting article generation request');
     
     // Check for required API keys
     if (!openaiKey) {
@@ -2351,6 +2354,8 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log(`⏱️ [${Date.now() - startTime}ms] API keys validated`);
+
     // Get the user's ID token from the Authorization header
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -2361,51 +2366,58 @@ export async function POST(request: Request) {
     const idToken = authHeader.split('Bearer ')[1];
     let verifiedUser;
     
+    console.log(`⏱️ [${Date.now() - startTime}ms] Starting token verification`);
+    
     try {
       // Verify the ID token
       verifiedUser = await getAuth().verifyIdToken(idToken);
       if (!verifiedUser.uid) {
         throw new Error('Invalid token');
       }
-      console.log('User authenticated successfully:', verifiedUser.uid);
+      console.log(`⏱️ [${Date.now() - startTime}ms] User authenticated successfully:`, verifiedUser.uid);
     } catch (error) {
       console.error('Error verifying token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
+    console.log(`⏱️ [${Date.now() - startTime}ms] Starting usage verification`);
+    
     // CRITICAL: Server-side usage verification
     console.log('Verifying usage limits for user:', verifiedUser.uid);
     try {
       // Get user's subscription status from Firestore
       const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
-      console.log('User subscription status:', subscriptionStatus);
+      console.log(`⏱️ [${Date.now() - startTime}ms] Subscription status retrieved:`, subscriptionStatus);
       
       // Get Firestore admin instance
       const adminFirestore = getFirestore();
       
-      // Check if user can perform this action
+      // Check usage limits on the server side
       const usageCheck = await serverSideUsageUtils.canPerformAction(
         verifiedUser.uid,
         subscriptionStatus,
         'articles',
         adminFirestore
       );
+      console.log(`⏱️ [${Date.now() - startTime}ms] Usage verification complete:`, usageCheck);
       
       if (!usageCheck.canPerform) {
-        console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
-        return NextResponse.json({ 
-          error: usageCheck.reason || 'Usage limit exceeded' 
-        }, { status: 429 });
+        console.log('User has reached their usage limit');
+        return NextResponse.json(
+          { error: usageCheck.reason || 'You have reached your article generation limit. Please upgrade your plan or wait for the next reset period.' },
+          { status: 429 }
+        );
       }
-      
-      console.log('Usage verification passed for user:', verifiedUser.uid);
-    } catch (error) {
-      console.error('Error verifying usage limits:', error);
-      return NextResponse.json({ 
-        error: 'Unable to verify usage limits' 
-      }, { status: 500 });
+    } catch (usageError) {
+      console.error('Error checking usage limits:', usageError);
+      return NextResponse.json(
+        { error: 'Unable to verify usage limits. Please try again.' },
+        { status: 500 }
+      );
     }
 
+    console.log(`⏱️ [${Date.now() - startTime}ms] Parsing request body`);
+    
     const body = await request.json();
     console.log('Request body:', { ...body, keyword: body.keyword }); // Log everything except sensitive data
 

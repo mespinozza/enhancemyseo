@@ -615,9 +615,10 @@ export default function ArticlesPage() {
 
       // Pre-discover website content if needed (once for all keywords)
       let discoveredContent = null;
-      const needsWebsiteContent = contentSelection.mode === 'automatic' && 
-                                 contentSelection.automaticOptions.includeWebsiteContent && 
-                                 selectedProfile.websiteUrl;
+      const needsWebsiteContent = false; // TEMPORARILY DISABLED FOR TESTING
+      // const needsWebsiteContent = contentSelection.mode === 'automatic' && 
+      //                            contentSelection.automaticOptions.includeWebsiteContent && 
+      //                            selectedProfile.websiteUrl;
 
       if (needsWebsiteContent && selectedProfile.websiteUrl) {
         console.log('🔍 Pre-discovering website content...');
