@@ -7,6 +7,9 @@ import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-uti
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import OpenAI from 'openai';
 
+// Force Serverless Runtime (60s timeout) instead of Edge Runtime (30s timeout)
+export const runtime = 'nodejs';
+
 // Log the environment variable at module load time
 console.log('--- generate-article route loaded by Next.js server ---');
 
