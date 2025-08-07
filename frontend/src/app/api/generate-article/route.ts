@@ -1947,7 +1947,7 @@ function prioritizeSearchTerms(searchTerms: string[], originalKeyword: string, i
 async function discoverWebsitePages(
   websiteUrl: string, 
   searchTerms: string[] = [],
-  timeLimit: number = 30000 // 30 seconds default for automatic mode
+  timeLimit: number = 12000 // 12 seconds - reduced from 30 for Vercel timeout safety
 ): Promise<Array<{
   url: string;
   title: string;
@@ -1957,19 +1957,19 @@ async function discoverWebsitePages(
   priority?: number;
   relevanceScore?: number;
 }>> {
-  console.log(`🚀 Enhanced 4-Phase Discovery starting for: ${websiteUrl}`);
+  console.log(`🚀 Enhanced 4-Phase Discovery starting for: ${websiteUrl} (${timeLimit/1000}s limit)`);
   const startTime = Date.now();
   const allPages: any[] = [];
   
   try {
     // Phase 1: Enhanced Sitemap & Structure Analysis (High Priority - Fast)
-    console.log('⚡ Phase 1: Structure Analysis (0-10 seconds)');
+    console.log('⚡ Phase 1: Structure Analysis (0-6 seconds)');
     const structureData = await discoverWebsiteStructure(websiteUrl);
     allPages.push(...structureData.pages);
     
     console.log(`📊 Phase 1 Results: ${structureData.pages.length} pages, ${structureData.sitemaps.length} sitemaps`);
     
-    // Quick quality assessment
+    // Quick quality assessment - lowered threshold for faster completion
     const phase1RelevantPages = structureData.pages.filter(page => {
       if (!searchTerms.length) return true;
       const score = calculateAdvancedRelevance({
@@ -1981,13 +1981,13 @@ async function discoverWebsitePages(
       return score > 10;
     });
     
-    // Check if we should continue with deeper phases
+    // Check if we should continue with deeper phases - more aggressive early exit
     const timeElapsed = Date.now() - startTime;
-    const hasGoodResults = phase1RelevantPages.length >= 10;
-    const shouldContinue = !hasGoodResults && timeElapsed < timeLimit * 0.4; // Use max 40% of time for deeper phases
+    const hasGoodResults = phase1RelevantPages.length >= 5; // Reduced from 10 to 5
+    const shouldContinue = !hasGoodResults && timeElapsed < timeLimit * 0.5; // Increased to 50% for Phase 1
     
     if (!shouldContinue) {
-      console.log(`✅ Discovery complete after Phase 1: ${allPages.length} pages (${phase1RelevantPages.length} relevant)`);
+      console.log(`✅ Discovery complete after Phase 1: ${allPages.length} pages (${phase1RelevantPages.length} relevant) - Time: ${timeElapsed}ms`);
       return allPages.map(page => ({
         url: page.url,
         title: page.title,
@@ -2005,96 +2005,86 @@ async function discoverWebsitePages(
     }
     
     // Phase 2: Deep Navigation Crawling (Medium Priority - If needed)
-    if (Date.now() - startTime < timeLimit * 0.7) {
-      console.log('🔍 Phase 2: Deep Navigation Crawling (10-20 seconds)');
+    if (Date.now() - startTime < timeLimit * 0.75) { // Reduced from 0.7 to 0.75
+      console.log('🔍 Phase 2: Deep Navigation Crawling (6-9 seconds)');
       const phase2Pages = await crawlNavigationSystematically(
         websiteUrl,
         structureData.navigationStructure,
-        searchTerms
+        searchTerms,
+        timeLimit,
+        startTime
       );
       allPages.push(...phase2Pages);
       
       console.log(`📊 Phase 2 Results: ${phase2Pages.length} additional pages`);
-    }
-    
-    // Phase 3: Pattern Testing (Lower Priority - If still time)
-    if (Date.now() - startTime < timeLimit * 0.9 && allPages.length < 30) {
-      console.log('🎯 Phase 3: Pattern-Based Testing (20-25 seconds)');
-      const phase3Pages = await comprehensivePatternTesting(
-        websiteUrl,
-        searchTerms,
-        allPages.length
-      );
-      allPages.push(...phase3Pages);
       
-      console.log(`📊 Phase 3 Results: ${phase3Pages.length} additional pages`);
-    }
-    
-    // Phase 4: Final Sweep (Lowest Priority - Only if really needed)
-    const relevantCount = allPages.filter(page => 
-      searchTerms.length ? calculateAdvancedRelevance({
-        title: page.title,
-        url: page.url,
-        description: page.description,
-        pageType: page.pageType
-      }, searchTerms) > 15 : true
-    ).length;
-    
-    if (Date.now() - startTime < timeLimit && relevantCount < 5) {
-      console.log('🔬 Phase 4: Final Comprehensive Sweep (25-30 seconds)');
-      const phase4Pages = await finalComprehensiveSweep(websiteUrl, searchTerms, allPages);
-      allPages.push(...phase4Pages);
+      // Early exit if we now have enough content
+      const totalRelevant = allPages.filter(page => {
+        if (!searchTerms.length) return true;
+        const score = calculateAdvancedRelevance({
+          title: page.title,
+          url: page.url,
+          description: page.description,
+          pageType: page.pageType
+        }, searchTerms);
+        return score > 15;
+      }).length;
       
-      console.log(`📊 Phase 4 Results: ${phase4Pages.length} additional pages`);
+      if (totalRelevant >= 8) { // Early exit with good results
+        console.log(`✅ Discovery complete after Phase 2: ${totalRelevant} relevant pages found`);
+        return allPages.map(page => ({
+          url: page.url,
+          title: page.title,
+          description: page.description,
+          pageType: page.pageType,
+          discoveryMethod: page.discoveryMethod || 'phase2',
+          priority: page.priority || 10,
+          relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
+            title: page.title,
+            url: page.url,
+            description: page.description,
+            pageType: page.pageType
+          }, searchTerms) : 50
+        }));
+      }
     }
     
-    // Final processing and scoring
-    const finalPages = allPages.map(page => ({
+    // Skip Phases 3 & 4 to avoid timeouts - return what we have
+    console.log(`⚠️ Phases 3-4 skipped for timeout safety. Time elapsed: ${Date.now() - startTime}ms`);
+    
+    // Return all discovered pages with relevance scores
+    return allPages.map(page => ({
       url: page.url,
       title: page.title,
       description: page.description,
       pageType: page.pageType,
-      discoveryMethod: page.discoveryMethod || 'enhanced-discovery',
-      priority: page.priority || 5,
-      relevanceScore: page.relevanceScore || (searchTerms.length ? calculateAdvancedRelevance({
+      discoveryMethod: page.discoveryMethod || 'early-phases',
+      priority: page.priority || 10,
+      relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
         title: page.title,
         url: page.url,
         description: page.description,
         pageType: page.pageType
-      }, searchTerms) : 25)
+      }, searchTerms) : 50
     }));
     
-    // Remove duplicates and sort by relevance
-    const uniquePages = finalPages.filter((page, index, self) => 
-      index === self.findIndex(p => p.url === page.url)
-    ).sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
-    
-    const totalTime = Date.now() - startTime;
-    const relevantPages = uniquePages.filter(page => (page.relevanceScore || 0) > 10);
-    
-    console.log(`🎉 Enhanced Discovery Complete:`);
-    console.log(`   ⏱️  Total Time: ${totalTime}ms`);
-    console.log(`   📄 Total Pages: ${uniquePages.length}`);
-    console.log(`   🎯 Relevant Pages: ${relevantPages.length}`);
-    console.log(`   ⭐ Avg Relevance: ${Math.round(relevantPages.reduce((sum, p) => sum + (p.relevanceScore || 0), 0) / relevantPages.length) || 0}`);
-    
-    return uniquePages;
-    
   } catch (error) {
-    console.error('Enhanced discovery error:', error);
-    
-    // Fallback to basic structure
-    const fallbackPages = [{
-      url: websiteUrl,
-      title: 'Homepage',
-      description: 'Main website page',
-      pageType: 'other' as const,
-      discoveryMethod: 'fallback',
-      priority: 1,
-      relevanceScore: 10
-    }];
-    
-    return fallbackPages;
+    console.error('❌ Discovery error:', error);
+    // Return any pages we managed to discover before the error
+    return allPages.map(page => ({
+      url: page.url,
+      title: page.title,
+      description: page.description || '',
+      pageType: page.pageType || 'other',
+      discoveryMethod: page.discoveryMethod || 'partial',
+      priority: page.priority || 20,
+      relevanceScore: searchTerms.length ? calculateAdvancedRelevance({
+        title: page.title,
+        url: page.url,
+        description: page.description,
+        pageType: page.pageType
+      }, searchTerms) : 30
+    }));
   }
 }
 
@@ -3405,7 +3395,9 @@ function categorizeWebsitePageAdvanced(
 async function crawlNavigationSystematically(
   websiteUrl: string,
   navigationStructure: { mainMenuLinks: string[]; categories: string[] },
-  searchTerms: string[]
+  searchTerms: string[],
+  timeLimit?: number,
+  startTime?: number
 ): Promise<Array<{
   url: string;
   title: string;
@@ -3419,65 +3411,75 @@ async function crawlNavigationSystematically(
   
   const discoveredPages: any[] = [];
   const processedUrls = new Set<string>();
+  const currentTime = startTime || Date.now();
+  const maxTime = timeLimit || 12000;
   
   try {
-    // Combine all navigation links for exploration
+    // Combine all navigation links for exploration - reduced limit for speed
     const navigationLinks = [
       ...navigationStructure.mainMenuLinks,
       ...navigationStructure.categories
-    ].slice(0, 30); // Limit to prevent excessive crawling
+    ].slice(0, 8); // Reduced from 30 to 8 for timeout safety
     
-    // Crawl each navigation link
-    for (const navLink of navigationLinks) {
-      if (processedUrls.has(navLink)) continue;
-      processedUrls.add(navLink);
-      
-      console.log(`🗺️ Exploring navigation link: ${navLink}`);
-      
-      try {
-        // Crawl the navigation page
-        const pageContent = await analyzePageContent(navLink);
-        if (pageContent) {
-          const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
-          
-          discoveredPages.push({
-            ...pageContent,
-            discoveryMethod: 'navigation-deep',
-            priority: 7,
-            relevanceScore
-          });
-        }
-        
-        // Look for pagination or "load more" patterns
-        const paginatedPages = await explorePagination(navLink);
-        for (const page of paginatedPages) {
-          if (!processedUrls.has(page.url)) {
-            processedUrls.add(page.url);
-            const relevanceScore = calculateAdvancedRelevance(page, searchTerms);
-            
-            discoveredPages.push({
-              ...page,
-              discoveryMethod: 'pagination',
-              priority: 6,
-              relevanceScore
-            });
-          }
-        }
-        
-        // Brief delay to be respectful
-        await sleep(200);
-        
-      } catch (error) {
-        console.warn(`Failed to crawl navigation link ${navLink}:`, error);
+    // Process navigation links in parallel batches of 3 for better performance
+    const batchSize = 3;
+    for (let i = 0; i < navigationLinks.length; i += batchSize) {
+      // Check timeout before each batch
+      if (Date.now() - currentTime > maxTime * 0.6) {
+        console.log(`⏰ Phase 2 timeout safety: stopping at batch ${Math.floor(i/batchSize) + 1}`);
+        break;
       }
+      
+      const batch = navigationLinks.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (navLink) => {
+        if (processedUrls.has(navLink)) return null;
+        processedUrls.add(navLink);
+        
+        console.log(`🗺️ Exploring navigation link: ${navLink}`);
+        
+        try {
+          // Add timeout to individual page analysis
+          const pageContent = await Promise.race([
+            analyzePageContent(navLink),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Page analysis timeout')), 3000))
+          ]);
+          
+          if (pageContent) {
+            const relevanceScore = calculateAdvancedRelevance(pageContent as any, searchTerms);
+            
+            return {
+              ...pageContent,
+              discoveryMethod: 'navigation-deep',
+              priority: 7,
+              relevanceScore
+            };
+          }
+        } catch (error) {
+          console.log(`⚠️ Failed to analyze ${navLink}:`, error);
+          return null;
+        }
+        
+        return null;
+      });
+      
+      // Wait for batch to complete and collect results
+      const batchResults = await Promise.allSettled(batchPromises);
+      batchResults.forEach(result => {
+        if (result.status === 'fulfilled' && result.value) {
+          discoveredPages.push(result.value);
+        }
+      });
+      
+      // Small delay between batches to prevent overwhelming the server
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
-    console.log(`✅ Phase 2 complete: ${discoveredPages.length} additional pages discovered`);
+    console.log(`✅ Phase 2 complete: ${discoveredPages.length} pages discovered`);
     return discoveredPages;
     
   } catch (error) {
-    console.error('Phase 2 crawling error:', error);
-    return [];
+    console.error('Phase 2 navigation crawling error:', error);
+    return discoveredPages; // Return what we got so far
   }
 }
 
@@ -3492,7 +3494,7 @@ async function analyzePageContent(url: string): Promise<{
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': 'EnhanceMySeBot/1.0' },
-      signal: AbortSignal.timeout(10000) // 10 second timeout
+      signal: AbortSignal.timeout(3000) // Reduced from 10 to 3 seconds for speed
     });
     
     if (!response.ok) return null;
@@ -3502,12 +3504,12 @@ async function analyzePageContent(url: string): Promise<{
     // Extract title with HTML entity decoding
     const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
     const rawTitle = titleMatch ? titleMatch[1].trim() : extractTitleFromUrl(url);
-    const title = rawTitle; // TODO: Add HTML entity decoding
+    const title = decodeHtmlEntities(rawTitle);
     
     // Extract meta description with HTML entity decoding
     const descMatch = html.match(/<meta[^>]*name=['"](description|Description)['"]\s*content=['"](.*?)['"]/i);
     const rawDescription = descMatch ? descMatch[2].trim() : undefined;
-    const description = rawDescription; // TODO: Add HTML entity decoding
+    const description = rawDescription ? decodeHtmlEntities(rawDescription) : undefined;
     
     // Extract main content (simplified)
     const contentMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
@@ -3532,7 +3534,7 @@ async function analyzePageContent(url: string): Promise<{
     };
     
   } catch (error) {
-    console.warn(`Failed to analyze page content for ${url}:`, error);
+    // Return null on any error (timeout, network, parsing, etc.)
     return null;
   }
 }
