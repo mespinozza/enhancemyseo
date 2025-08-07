@@ -2524,7 +2524,14 @@ export async function POST(request: Request) {
         
         try {
           if (contentSelection.mode === 'automatic') {
-            await handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
+            // Use pre-discovered content if provided, otherwise fall back to discovery
+            if (body.discoveredContent && Array.isArray(body.discoveredContent)) {
+              console.log(`🎯 Using pre-discovered content: ${body.discoveredContent.length} pages`);
+              await handlePreDiscoveredWebsiteContent(contentSelection, body.discoveredContent, keyword);
+            } else {
+              console.log(`⚠️ No pre-discovered content provided, falling back to quick discovery`);
+              await handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
+            }
           } else {
             await handleManualWebsiteContent(contentSelection);
           }
@@ -2603,42 +2610,36 @@ export async function POST(request: Request) {
     }
     
     async function handleAutomaticWebsiteContent(contentSelection: any, websiteUrl: string, currentSearchTerms: string[]) {
-      // 🔥 USE SHOPIFY-STYLE AI ENHANCEMENT
-      console.log('🧠 Using Shopify-style AI term extraction for website content...');
-      const aiAnalysisResult = await extractKeyTerms('', keyword, []);
-      const aiExtractedTerms = aiAnalysisResult.searchTerms;
-      const identifiedVendor = aiAnalysisResult.primaryVendor;
+      console.log('🌐 Processing automatic website content selection');
       
-      console.log(`🎯 AI extracted ${aiExtractedTerms.length} enhanced terms: ${aiExtractedTerms.join(', ')}`);
-      if (identifiedVendor) {
-        console.log(`🏷️ AI identified vendor: "${identifiedVendor}"`);
-      }
-      
-      const searchQueries = aiExtractedTerms.length > 0 ? aiExtractedTerms : currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
-      let websitePages: any[] = [];
-      
-      // Search based on unified website content structure
-      if (contentSelection.automaticOptions.includeWebsiteContent) {
-        console.log('🌐 Searching all website content types (unified approach)...');
-        websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor);
-      }
-      
-      if (websitePages.length > 0) {
-        // Remove duplicates based on URL (already done in searchWebsiteContentWithShopifyLogic)
-        const uniquePages = websitePages.filter((page, index, self) =>
-          index === self.findIndex((p) => p.url === page.url)
+      try {
+        // Call AI extraction for search terms
+        const aiAnalysis = await extractKeyTerms('', keyword, []);
+        const enhancedTerms = [...currentSearchTerms, ...aiAnalysis.searchTerms];
+        
+        console.log(`AI enhanced search terms: ${enhancedTerms.join(', ')}`);
+        
+        // Use the unified search with Shopify-style logic (now with timeout safety)
+        const websitePages = await searchWebsiteContentWithShopifyLogic(
+          websiteUrl,
+          enhancedTerms,
+          [], // No page type filtering for automatic mode
+          keyword,
+          aiAnalysis.primaryVendor
         );
         
-        relatedWebsiteContentList = uniquePages.slice(0, 15).map(p => 
-          `• ${p.title} ${p.pageType ? `[${p.pageType.toUpperCase()}]` : ''} - ${p.url}`
-        ).join('\n');
+        console.log(`Found ${websitePages.length} relevant website pages`);
         
-        console.log(`✅ Found ${uniquePages.length} relevant website pages using unified approach`);
+        // Convert to string format for the prompt (maintain existing format)
+        if (websitePages.length > 0) {
+          relatedWebsiteContentList = websitePages.slice(0, 15).map(page => 
+            `• ${page.title} ${page.pageType ? `[${page.pageType.toUpperCase()}]` : ''} - ${page.url}`
+          ).join('\n');
+        }
         
-        // Log top results with scores and page types
-        uniquePages.slice(0, 5).forEach((page, index) => {
-          console.log(`  ${index + 1}. "${page.title}" [${page.pageType?.toUpperCase() || 'OTHER'}] - Score: ${page.relevanceScore} [${page.discoveryMethod || 'enhanced'}]`);
-        });
+      } catch (error) {
+        console.error('Error in automatic website content handling:', error);
+        throw error;
       }
     }
     
@@ -2650,6 +2651,38 @@ export async function POST(request: Request) {
         ).join('\n');
         
         console.log(`📋 Using ${contentSelection.manualSelections.websiteContent.length} manually selected website pages`);
+      }
+    }
+
+    async function handlePreDiscoveredWebsiteContent(contentSelection: any, discoveredPages: any[], keyword: string) {
+      console.log('🎯 Processing pre-discovered website content');
+      
+      try {
+        // Filter out blog pages and low-relevance content
+        const filteredPages = discoveredPages.filter(page => {
+          // Basic blog filtering
+          const isBlog = page.pageType === 'blog' || 
+                         page.url.toLowerCase().includes('/blog/') ||
+                         page.url.toLowerCase().match(/\/\d{4}\/\d{2}\//);
+          
+          // Keep only relevant non-blog pages
+          return !isBlog && (page.relevanceScore || 0) > 5;
+        });
+        
+        console.log(`Filtered content: ${filteredPages.length}/${discoveredPages.length} pages (removed blogs and low-relevance)`);
+        
+        // Convert to the string format expected by the prompt builder (maintain existing format)
+        if (filteredPages.length > 0) {
+          relatedWebsiteContentList = filteredPages.slice(0, 15).map(page => 
+            `• ${page.title} ${page.pageType ? `[${page.pageType.toUpperCase()}]` : ''} - ${page.url}`
+          ).join('\n');
+        }
+        
+        console.log(`Added ${filteredPages.length} website pages to content context`);
+        
+      } catch (error) {
+        console.error('Error in pre-discovered website content handling:', error);
+        throw error;
       }
     }
     
