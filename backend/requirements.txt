@@ -2,4 +2,9 @@ flask
 gunicorn
 python-dotenv
 flask-cors
-requests 
+requests
+flask-sqlalchemy
+flask-migrate
+flask-jwt-extended
+bcrypt
+anthropic 
