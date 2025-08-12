@@ -17,4 +17,7 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"Migration error: {e}")
             print("Continuing without migrations...")
-    app.run(debug=True) 
+    
+    # Use Railway PORT environment variable or default to 5000
+    port = int(os.getenv('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port) 
