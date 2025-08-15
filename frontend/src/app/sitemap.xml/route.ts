@@ -63,7 +63,26 @@ export async function GET() {
   ${publishedBlogs.map(blog => `
   <url>
     <loc>${baseUrl}/blog/${blog.slug}</loc>
-    <lastmod>${blog.updatedAt?.toDate?.()?.toISOString() || (blog.publishDate ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString() : currentDate)}</lastmod>
+    <lastmod>${(() => {
+      try {
+        if (blog.updatedAt?.toDate) {
+          const updatedDate = blog.updatedAt.toDate();
+          if (updatedDate && !isNaN(updatedDate.getTime())) {
+            return updatedDate.toISOString();
+          }
+        }
+        if (blog.publishDate) {
+          if (blog.publishDate instanceof Date) {
+            return isNaN(blog.publishDate.getTime()) ? currentDate : blog.publishDate.toISOString();
+          }
+          const dateObj = new Date(blog.publishDate);
+          return isNaN(dateObj.getTime()) ? currentDate : dateObj.toISOString();
+        }
+        return currentDate;
+      } catch {
+        return currentDate;
+      }
+    })()}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>`).join('')}

@@ -220,7 +220,11 @@ export default function BlogPostPage() {
               "datePublished": (() => {
                 try {
                   if (blog.publishDate) {
-                    return (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString();
+                    if (blog.publishDate instanceof Date) {
+                      return isNaN(blog.publishDate.getTime()) ? new Date().toISOString() : blog.publishDate.toISOString();
+                    }
+                    const dateObj = new Date(blog.publishDate);
+                    return isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
                   }
                   return new Date().toISOString();
                 } catch {
@@ -229,10 +233,18 @@ export default function BlogPostPage() {
               })(),
               "dateModified": (() => {
                 try {
-                  if (blog.updatedAt?.toDate?.()?.toISOString) {
-                    return blog.updatedAt.toDate().toISOString();
-                  } else if (blog.publishDate) {
-                    return (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString();
+                  if (blog.updatedAt?.toDate) {
+                    const updatedDate = blog.updatedAt.toDate();
+                    if (updatedDate && !isNaN(updatedDate.getTime())) {
+                      return updatedDate.toISOString();
+                    }
+                  }
+                  if (blog.publishDate) {
+                    if (blog.publishDate instanceof Date) {
+                      return isNaN(blog.publishDate.getTime()) ? new Date().toISOString() : blog.publishDate.toISOString();
+                    }
+                    const dateObj = new Date(blog.publishDate);
+                    return isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
                   }
                   return new Date().toISOString();
                 } catch {
