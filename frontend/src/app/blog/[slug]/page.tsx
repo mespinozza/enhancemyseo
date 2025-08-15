@@ -114,10 +114,12 @@ export default function BlogPostPage() {
                   </div>
                 )}
                 
-                <div className="flex items-center">
-                  <Eye className="w-4 h-4 mr-1" />
-                  <span>{blog.viewCount || 0} views</span>
-                </div>
+                {blog.showViews !== false && (
+                  <div className="flex items-center">
+                    <Eye className="w-4 h-4 mr-1" />
+                    <span>{blog.viewCount || 0} views</span>
+                  </div>
+                )}
               </div>
               
               {blog.tags && blog.tags.length > 0 && (

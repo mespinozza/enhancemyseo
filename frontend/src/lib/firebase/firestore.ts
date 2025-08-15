@@ -107,6 +107,7 @@ export interface BlogPost extends BaseDocument {
   viewCount?: number; // Track views
   showDate?: boolean; // Whether to display publish date
   showAuthor?: boolean; // Whether to display author info
+  showViews?: boolean; // Whether to display view count
 }
 
 // Generic operations for any collection

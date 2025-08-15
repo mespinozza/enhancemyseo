@@ -29,7 +29,8 @@ export default function EditBlogPage() {
     published: false,
     tags: [] as string[],
     showDate: true,
-    showAuthor: true
+    showAuthor: true,
+    showViews: true
   });
   const [tagInput, setTagInput] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -74,7 +75,8 @@ export default function EditBlogPage() {
           published: existingBlog.published,
           tags: existingBlog.tags || [],
           showDate: existingBlog.showDate ?? true,
-          showAuthor: existingBlog.showAuthor ?? true
+          showAuthor: existingBlog.showAuthor ?? true,
+          showViews: existingBlog.showViews ?? true
         });
       } catch (error) {
         console.error('Error loading blog:', error);
@@ -178,6 +180,7 @@ export default function EditBlogPage() {
         published: publishStatus,
         showDate: formData.showDate,
         showAuthor: formData.showAuthor,
+        showViews: formData.showViews,
         // Only include featuredImage if it has a value
         ...(formData.featuredImage && { featuredImage: formData.featuredImage }),
         // Only include tags if there are any
@@ -545,6 +548,19 @@ export default function EditBlogPage() {
                   />
                   <label htmlFor="showAuthor" className="ml-2 block text-sm text-gray-700">
                     Show author name
+                  </label>
+                </div>
+                
+                <div className="flex items-center">
+                  <input
+                    id="showViews"
+                    type="checkbox"
+                    checked={formData.showViews}
+                    onChange={(e) => handleInputChange('showViews', e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="showViews" className="ml-2 block text-sm text-gray-700">
+                    Show view count
                   </label>
                 </div>
               </div>
