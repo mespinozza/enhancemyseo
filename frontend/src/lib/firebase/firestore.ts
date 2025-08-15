@@ -473,8 +473,14 @@ export const blogOperations = {
     try {
       // CHANGE: Update in the root 'blogs' collection
       const docRef = doc(db, 'blogs', id);
+      
+      // Filter out undefined fields to prevent Firebase errors
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([_, value]) => value !== undefined)
+      );
+      
       const updateData = {
-        ...data,
+        ...cleanData,
         updatedAt: serverTimestamp()
       };
       await updateDoc(docRef, updateData);
@@ -489,8 +495,14 @@ export const blogOperations = {
     try {
       // CHANGE: Update in the root 'blogs' collection
       const docRef = doc(db, 'blogs', id);
+      
+      // Filter out undefined fields to prevent Firebase errors
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([_, value]) => value !== undefined)
+      );
+      
       await updateDoc(docRef, {
-        ...data,
+        ...cleanData,
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
