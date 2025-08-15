@@ -1874,7 +1874,9 @@ export default function ArticlesPage() {
                           {article.title}
                         </h4>
                         <p className="text-sm text-gray-600 mb-3">
-                          Created {article.createdAt instanceof Date ? article.createdAt.toLocaleDateString() : article.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
+                          Created {article.createdAt instanceof Date 
+                            ? article.createdAt.toLocaleDateString() 
+                            : (article.createdAt as any)?.toDate?.()?.toLocaleDateString() || 'Unknown'}
                         </p>
                         <div className="flex items-center justify-between">
                           <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
@@ -2102,7 +2104,9 @@ export default function ArticlesPage() {
                         )}
                       </div>
                       <p className="text-xs text-gray-500">
-                        Created {article.createdAt instanceof Date ? article.createdAt.toLocaleDateString() : article.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
+                        Created {article.createdAt instanceof Date 
+                          ? article.createdAt.toLocaleDateString() 
+                          : (article.createdAt as any)?.toDate?.()?.toLocaleDateString() || 'Unknown'}
                       </p>
                       <div className="mt-2">
                         <div 
