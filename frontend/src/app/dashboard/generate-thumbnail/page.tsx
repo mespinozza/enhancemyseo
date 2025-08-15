@@ -568,11 +568,7 @@ export default function GenerateThumbnailPage() {
                               <span className="text-xs text-gray-500">
                                 {(() => {
                                   try {
-                                    const date = article.created_at;
-                                    if (date instanceof Date) {
-                                      return date.toLocaleDateString();
-                                    }
-                                    return new Date(date as string).toLocaleDateString();
+                                    return new Date(article.created_at as any).toLocaleDateString();
                                   } catch {
                                     return 'Unknown';
                                   }
