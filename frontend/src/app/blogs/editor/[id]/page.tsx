@@ -163,9 +163,11 @@ export default function EditBlogPage() {
         slug: formData.slug,
         content: formData.content,
         metaDescription: formData.metaDescription,
-        featuredImage: formData.featuredImage || undefined,
         published: publishStatus,
-        tags: formData.tags.length > 0 ? formData.tags : undefined
+        // Only include featuredImage if it has a value
+        ...(formData.featuredImage && { featuredImage: formData.featuredImage }),
+        // Only include tags if there are any
+        ...(formData.tags.length > 0 && { tags: formData.tags })
       };
 
       // Set publish date if publishing for the first time

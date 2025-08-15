@@ -125,12 +125,14 @@ export default function BlogEditorPage() {
         slug: formData.slug,
         content: formData.content,
         metaDescription: formData.metaDescription,
-        featuredImage: formData.featuredImage || undefined,
         published: publish,
         authorId: user.uid,
         authorName: user.displayName || user.email || 'Admin',
-        tags: formData.tags.length > 0 ? formData.tags : undefined,
-        viewCount: 0
+        viewCount: 0,
+        // Only include featuredImage if it has a value
+        ...(formData.featuredImage && { featuredImage: formData.featuredImage }),
+        // Only include tags if there are any
+        ...(formData.tags.length > 0 && { tags: formData.tags })
       };
 
       if (publish) {
