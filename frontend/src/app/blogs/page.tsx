@@ -245,7 +245,7 @@ export default function BlogsPage() {
                         <div className="flex items-center">
                           <Calendar className="w-4 h-4 mr-1" />
                           {blog.published && blog.publishDate 
-                            ? blog.publishDate.toLocaleDateString()
+                            ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString()
                             : blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'
                           }
                         </div>

@@ -27,7 +27,9 @@ export default function EditBlogPage() {
     metaDescription: '',
     featuredImage: '',
     published: false,
-    tags: [] as string[]
+    tags: [] as string[],
+    showDate: true,
+    showAuthor: true
   });
   const [tagInput, setTagInput] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -38,6 +40,14 @@ export default function EditBlogPage() {
       router.push('/dashboard');
     }
   }, [user, subscription_status, loading, router]);
+
+  // Auto-generate slug from title when editing
+  useEffect(() => {
+    if (formData.title) {
+      const slug = blogOperations.generateSlug(formData.title);
+      setFormData(prev => ({ ...prev, slug }));
+    }
+  }, [formData.title]);
 
   // Load existing blog post
   useEffect(() => {
@@ -62,7 +72,9 @@ export default function EditBlogPage() {
           metaDescription: existingBlog.metaDescription || '',
           featuredImage: existingBlog.featuredImage || '',
           published: existingBlog.published,
-          tags: existingBlog.tags || []
+          tags: existingBlog.tags || [],
+          showDate: existingBlog.showDate ?? true,
+          showAuthor: existingBlog.showAuthor ?? true
         });
       } catch (error) {
         console.error('Error loading blog:', error);
@@ -164,6 +176,8 @@ export default function EditBlogPage() {
         content: formData.content,
         metaDescription: formData.metaDescription,
         published: publishStatus,
+        showDate: formData.showDate,
+        showAuthor: formData.showAuthor,
         // Only include featuredImage if it has a value
         ...(formData.featuredImage && { featuredImage: formData.featuredImage }),
         // Only include tags if there are any
@@ -500,6 +514,39 @@ export default function EditBlogPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Display Options */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Display Options</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-center">
+                  <input
+                    id="showDate"
+                    type="checkbox"
+                    checked={formData.showDate}
+                    onChange={(e) => handleInputChange('showDate', e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="showDate" className="ml-2 block text-sm text-gray-700">
+                    Show publish date
+                  </label>
+                </div>
+                
+                <div className="flex items-center">
+                  <input
+                    id="showAuthor"
+                    type="checkbox"
+                    checked={formData.showAuthor}
+                    onChange={(e) => handleInputChange('showAuthor', e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="showAuthor" className="ml-2 block text-sm text-gray-700">
+                    Show author name
+                  </label>
+                </div>
               </div>
             </div>
 

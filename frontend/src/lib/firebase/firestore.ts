@@ -105,6 +105,8 @@ export interface BlogPost extends BaseDocument {
   authorName: string; // Display name of author
   tags?: string[]; // For categorization
   viewCount?: number; // Track views
+  showDate?: boolean; // Whether to display publish date
+  showAuthor?: boolean; // Whether to display author info
 }
 
 // Generic operations for any collection
@@ -404,23 +406,61 @@ export const blogOperations = {
   // Get blog post by slug (for public viewing)
   getBySlug: async (slug: string): Promise<BlogPost | null> => {
     try {
+      console.log('🔍 Searching for blog with slug:', slug);
+      
       // CHANGE: Search in root 'blogs' collection instead of user subcollections
       const blogsRef = collection(db, 'blogs');
-      const q = query(
+      
+      // First try: published blogs only
+      const publishedQuery = query(
         blogsRef, 
         where('slug', '==', slug), 
         where('published', '==', true)
       );
-      const snapshot = await getDocs(q);
+      const publishedSnapshot = await getDocs(publishedQuery);
       
-      if (!snapshot.empty) {
-        const doc = snapshot.docs[0];
+      console.log('📊 Published blogs found:', publishedSnapshot.size);
+      
+      if (!publishedSnapshot.empty) {
+        const doc = publishedSnapshot.docs[0];
+        const data = doc.data();
+        console.log('✅ Found published blog:', { id: doc.id, title: data.title, published: data.published });
         return {
           id: doc.id,
-          ...doc.data()
+          ...data
         } as BlogPost;
       }
       
+      // Fallback: search for any blog with this slug (for debugging)
+      const allQuery = query(blogsRef, where('slug', '==', slug));
+      const allSnapshot = await getDocs(allQuery);
+      
+      console.log('📊 Total blogs with slug found:', allSnapshot.size);
+      
+      if (!allSnapshot.empty) {
+        const doc = allSnapshot.docs[0];
+        const data = doc.data();
+        console.log('⚠️ Found unpublished blog:', { 
+          id: doc.id, 
+          title: data.title, 
+          published: data.published,
+          publishedType: typeof data.published 
+        });
+        
+        // If blog exists but isn't published correctly, return null but log the issue
+        if (data.published === true) {
+          // This should have been caught by the first query - possible indexing issue
+          console.log('🚨 Blog is published but wasn\'t found in published query - possible indexing issue');
+          return {
+            id: doc.id,
+            ...data
+          } as BlogPost;
+        } else {
+          console.log('❌ Blog exists but is not published:', data.published);
+        }
+      }
+      
+      console.log('❌ No blog found with slug:', slug);
       return null;
     } catch (error) {
       console.error('Error getting blog post by slug:', error);

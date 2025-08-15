@@ -91,24 +91,28 @@ export default function BlogPostPage() {
               </h1>
               
               <div className="flex flex-wrap items-center text-sm text-gray-600 space-x-6">
-                <div className="flex items-center">
-                  <User className="w-4 h-4 mr-1" />
-                  <span>By {blog.authorName}</span>
-                </div>
+                {blog.showAuthor !== false && (
+                  <div className="flex items-center">
+                    <User className="w-4 h-4 mr-1" />
+                    <span>By {blog.authorName}</span>
+                  </div>
+                )}
                 
-                <div className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-1" />
-                  <span>
-                    {blog.publishDate 
-                      ? new Date(blog.publishDate).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
-                        })
-                      : 'Draft'
-                    }
-                  </span>
-                </div>
+                {blog.showDate !== false && (
+                  <div className="flex items-center">
+                    <Calendar className="w-4 h-4 mr-1" />
+                    <span>
+                      {blog.publishDate 
+                        ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          })
+                        : 'Draft'
+                      }
+                    </span>
+                  </div>
+                )}
                 
                 <div className="flex items-center">
                   <Eye className="w-4 h-4 mr-1" />
@@ -168,16 +172,18 @@ export default function BlogPostPage() {
           {/* Article Footer */}
           <div className="mt-8 pt-8 border-t border-gray-200">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-500">
-                Published on {blog.publishDate 
-                  ? new Date(blog.publishDate).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })
-                  : 'Unknown'
-                }
-              </div>
+              {blog.showDate !== false && (
+                <div className="text-sm text-gray-500">
+                  Published on {blog.publishDate 
+                    ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })
+                    : 'Unknown'
+                  }
+                </div>
+              )}
               
               <Link
                 href="/blog"

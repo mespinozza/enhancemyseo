@@ -22,7 +22,9 @@ export default function BlogEditorPage() {
     metaDescription: '',
     featuredImage: '',
     published: false,
-    tags: [] as string[]
+    tags: [] as string[],
+    showDate: true,
+    showAuthor: true
   });
   const [tagInput, setTagInput] = useState('');
 
@@ -35,11 +37,11 @@ export default function BlogEditorPage() {
 
   // Auto-generate slug from title
   useEffect(() => {
-    if (formData.title && !formData.slug) {
+    if (formData.title) {
       const slug = blogOperations.generateSlug(formData.title);
       setFormData(prev => ({ ...prev, slug }));
     }
-  }, [formData.title, formData.slug]);
+  }, [formData.title]);
 
   // Handle form input changes
   const handleInputChange = (field: string, value: string | boolean) => {
@@ -129,6 +131,8 @@ export default function BlogEditorPage() {
         authorId: user.uid,
         authorName: user.displayName || user.email || 'Admin',
         viewCount: 0,
+        showDate: formData.showDate,
+        showAuthor: formData.showAuthor,
         // Only include featuredImage if it has a value
         ...(formData.featuredImage && { featuredImage: formData.featuredImage }),
         // Only include tags if there are any
@@ -424,6 +428,39 @@ export default function BlogEditorPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Display Options */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Display Options</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-center">
+                  <input
+                    id="showDate"
+                    type="checkbox"
+                    checked={formData.showDate}
+                    onChange={(e) => handleInputChange('showDate', e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="showDate" className="ml-2 block text-sm text-gray-700">
+                    Show publish date
+                  </label>
+                </div>
+                
+                <div className="flex items-center">
+                  <input
+                    id="showAuthor"
+                    type="checkbox"
+                    checked={formData.showAuthor}
+                    onChange={(e) => handleInputChange('showAuthor', e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="showAuthor" className="ml-2 block text-sm text-gray-700">
+                    Show author name
+                  </label>
+                </div>
               </div>
             </div>
 

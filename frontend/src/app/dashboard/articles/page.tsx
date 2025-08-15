@@ -2102,7 +2102,7 @@ export default function ArticlesPage() {
                         )}
                       </div>
                       <p className="text-xs text-gray-500">
-                        Created {article.createdAt.toLocaleDateString()}
+                        Created {article.createdAt instanceof Date ? article.createdAt.toLocaleDateString() : article.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
                       </p>
                       <div className="mt-2">
                         <div 

@@ -232,23 +232,27 @@ export default function BlogListingPage() {
                     {/* Meta Info */}
                     <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
                       <div className="flex items-center space-x-4">
-                        <div className="flex items-center">
-                          <User className="w-4 h-4 mr-1" />
-                          <span>{blog.authorName}</span>
-                        </div>
-                        <div className="flex items-center">
-                          <Calendar className="w-4 h-4 mr-1" />
-                          <span>
-                            {blog.publishDate 
-                              ? new Date(blog.publishDate).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric'
-                                })
-                              : 'Draft'
-                            }
-                          </span>
-                        </div>
+                        {blog.showAuthor !== false && (
+                          <div className="flex items-center">
+                            <User className="w-4 h-4 mr-1" />
+                            <span>{blog.authorName}</span>
+                          </div>
+                        )}
+                        {blog.showDate !== false && (
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 mr-1" />
+                            <span>
+                              {blog.publishDate 
+                                ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                  })
+                                : 'Draft'
+                              }
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center">
                         <Eye className="w-4 h-4 mr-1" />
