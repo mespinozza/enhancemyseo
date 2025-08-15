@@ -217,8 +217,28 @@ export default function BlogPostPage() {
                   "url": `${window.location.origin}/logo.png`
                 }
               },
-              "datePublished": blog.publishDate ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString() : undefined,
-              "dateModified": blog.updatedAt?.toDate?.()?.toISOString() || (blog.publishDate ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString() : undefined),
+              "datePublished": (() => {
+                try {
+                  if (blog.publishDate) {
+                    return (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString();
+                  }
+                  return new Date().toISOString();
+                } catch {
+                  return new Date().toISOString();
+                }
+              })(),
+              "dateModified": (() => {
+                try {
+                  if (blog.updatedAt?.toDate?.()?.toISOString) {
+                    return blog.updatedAt.toDate().toISOString();
+                  } else if (blog.publishDate) {
+                    return (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString();
+                  }
+                  return new Date().toISOString();
+                } catch {
+                  return new Date().toISOString();
+                }
+              })(),
               "mainEntityOfPage": {
                 "@type": "WebPage",
                 "@id": `${window.location.origin}/blog/${blog.slug}`
