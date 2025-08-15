@@ -63,7 +63,7 @@ export async function GET() {
   ${publishedBlogs.map(blog => `
   <url>
     <loc>${baseUrl}/blog/${blog.slug}</loc>
-    <lastmod>${blog.updatedAt?.toDate?.()?.toISOString() || blog.publishDate?.toISOString() || currentDate}</lastmod>
+    <lastmod>${blog.updatedAt?.toDate?.()?.toISOString() || (blog.publishDate ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString() : currentDate)}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>`).join('')}

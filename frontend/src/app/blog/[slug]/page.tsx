@@ -217,8 +217,8 @@ export default function BlogPostPage() {
                   "url": `${window.location.origin}/logo.png`
                 }
               },
-              "datePublished": blog.publishDate?.toISOString(),
-              "dateModified": blog.updatedAt?.toDate?.()?.toISOString() || blog.publishDate?.toISOString(),
+              "datePublished": blog.publishDate ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString() : undefined,
+              "dateModified": blog.updatedAt?.toDate?.()?.toISOString() || (blog.publishDate ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toISOString() : undefined),
               "mainEntityOfPage": {
                 "@type": "WebPage",
                 "@id": `${window.location.origin}/blog/${blog.slug}`
