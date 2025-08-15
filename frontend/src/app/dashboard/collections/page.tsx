@@ -163,7 +163,7 @@ export default function CollectionsPage() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-medium">{item.collectionName}</h3>
                     <span className="text-sm text-gray-500">
-                      {item.timestamp.toLocaleDateString()}
+                      {item.timestamp instanceof Date ? item.timestamp.toLocaleDateString() : item.timestamp?.toDate?.()?.toLocaleDateString() || 'Unknown'}
                     </span>
                   </div>
                   <div className="mb-3">
