@@ -566,9 +566,17 @@ export default function GenerateThumbnailPage() {
                             
                             <div className="flex items-center justify-between">
                               <span className="text-xs text-gray-500">
-                                {(article.created_at as any) instanceof Date 
-                                  ? (article.created_at as Date).toLocaleDateString() 
-                                  : new Date(article.created_at as any).toLocaleDateString()}
+                                {(() => {
+                                  try {
+                                    const date = article.created_at;
+                                    if (date instanceof Date) {
+                                      return date.toLocaleDateString();
+                                    }
+                                    return new Date(date as string).toLocaleDateString();
+                                  } catch {
+                                    return 'Unknown';
+                                  }
+                                })()}
                               </span>
                               <div className="flex items-center text-xs">
                                 {article.image ? (
