@@ -47,9 +47,19 @@ service cloud.firestore {
     }
     
     match /blogs/{document} {
-      allow read, write, create, delete: if 
+      // Allow public read access to published blogs (for Google crawlers and public users)
+      allow read: if resource.data.published == true;
+      
+      // Allow authenticated users to read their own blogs (published or not)
+      allow read: if request.auth != null && 
+                  request.auth.uid == resource.data.userId;
+                  
+      // Allow authenticated users to write/delete their own blogs
+      allow write, create, delete: if 
         request.auth != null && 
         request.auth.uid == resource.data.userId;
+        
+      // Allow authenticated users to list their own blogs
       allow list: if request.auth != null;
     }
     
