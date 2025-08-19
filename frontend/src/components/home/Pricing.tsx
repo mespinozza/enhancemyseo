@@ -69,7 +69,14 @@ export default function Pricing() {
 
   const handlePricingClick = async (tier: PricingTier) => {
     if (!user) {
-      router.push('/login');
+      // Store purchase intent in URL parameters
+      const params = new URLSearchParams({
+        intent: 'purchase',
+        priceId: tier.priceId || '',
+        tierName: tier.name,
+        isAnnual: isAnnual.toString()
+      });
+      router.push(`/login?${params.toString()}`);
       return;
     }
 
@@ -85,10 +92,11 @@ export default function Pricing() {
       }
       
       const userToken = await user.getIdToken();
+      console.log('Attempting to create checkout session with priceId:', tier.priceId);
       await createCheckoutSession(tier.priceId, userToken);
     } catch (error) {
-      console.error('Error:', error);
-      alert('Something went wrong. Please try again.');
+      console.error('Detailed Error:', error);
+      alert(`Payment Error: ${error instanceof Error ? error.message : 'Something went wrong. Please try again.'}`);
     }
   };
 

@@ -89,6 +89,8 @@ export const getAnnualPrice = (plan: string): number => {
  */
 export const createCheckoutSession = async (priceId: string, userToken: string): Promise<string> => {
   try {
+    console.log('Creating checkout session for priceId:', priceId);
+    
     const response = await fetch('/api/create-checkout-session', {
       method: 'POST',
       headers: {
@@ -98,21 +100,30 @@ export const createCheckoutSession = async (priceId: string, userToken: string):
       body: JSON.stringify({ priceId }),
     });
 
+    console.log('Response status:', response.status);
+    
     if (!response.ok) {
-      throw new Error('Failed to create checkout session');
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('API Error:', errorData);
+      throw new Error(`Failed to create checkout session: ${errorData.error || response.statusText}`);
     }
 
     const data = await response.json();
+    console.log('Response data:', data);
     
     // Redirect to Stripe checkout
     if (data.checkoutUrl) {
+      console.log('Redirecting to:', data.checkoutUrl);
       window.location.href = data.checkoutUrl;
       return data.checkoutUrl;
     }
     
-    throw new Error('No checkout URL returned');
+    throw new Error('No checkout URL returned from API');
   } catch (error) {
-    console.error('Error creating checkout session:', error);
+    console.error('Detailed createCheckoutSession error:', error);
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error: Unable to connect to payment service');
+    }
     throw error;
   }
 };

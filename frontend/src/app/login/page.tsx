@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useEffect } from 'react';
 import { FcGoogle } from 'react-icons/fc';
+import { createCheckoutSession } from '@/lib/stripe';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -21,6 +22,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLogin, setIsLogin] = useState(true);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const {
     register,
@@ -30,22 +32,54 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
-  // Redirect to dashboard if user is already authenticated
+  // Handle authentication and purchase intent
   useEffect(() => {
     if (user) {
+      // Check for purchase intent parameters
+      const intent = searchParams.get('intent');
+      const priceId = searchParams.get('priceId');
+      const tierName = searchParams.get('tierName');
+      
+      if (intent === 'purchase' && priceId && tierName) {
+        // User logged in with purchase intent - redirect to Stripe checkout
+        handlePurchaseIntent(priceId, tierName);
+      } else {
+        // Normal login - redirect to dashboard
+        router.push('/dashboard');
+      }
+    }
+  }, [user, router, searchParams]);
+
+  const handlePurchaseIntent = async (priceId: string, tierName: string) => {
+    try {
+      console.log('Processing purchase intent for:', tierName, 'with priceId:', priceId);
+      
+      if (tierName === 'Free') {
+        // Free tier - just go to dashboard
+        router.push('/dashboard');
+        return;
+      }
+
+      // Get user token and create checkout session
+      const userToken = await user!.getIdToken();
+      await createCheckoutSession(priceId, userToken);
+    } catch (error) {
+      console.error('Purchase intent error:', error);
+      alert(`Payment Error: ${error instanceof Error ? error.message : 'Something went wrong. Please try again.'}`);
+      // Fallback to dashboard on error
       router.push('/dashboard');
     }
-  }, [user, router]);
+  };
 
   const onSubmit = async (data: LoginFormData) => {
     try {
       setError('');
       if (isLogin) {
         await login(data.email, data.password);
-        router.push('/dashboard');
+        // Don't redirect here - let useEffect handle it with purchase intent
       } else {
         await registerUser(data.email, data.password);
-        router.push('/dashboard');
+        // Don't redirect here - let useEffect handle it with purchase intent
       }
     } catch (err: unknown) {
       // Only show error if it's not a user cancellation
@@ -60,7 +94,7 @@ export default function LoginPage() {
     try {
       setError('');
       await signInWithGoogle();
-      router.push('/dashboard');
+      // Don't redirect here - let useEffect handle it with purchase intent
     } catch (err: unknown) {
       // Only show error if it's not a user cancellation
       if (err instanceof Error && err.message) {
