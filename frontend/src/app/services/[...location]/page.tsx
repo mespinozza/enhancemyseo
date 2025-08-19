@@ -49,6 +49,33 @@ function LocationPricing() {
     priceId?: string | null;
   }
 
+
+
+  const handlePricingClick = async (tier: PricingTier) => {
+    if (tier.name === 'Free') {
+      if (user) {
+        router.push('/dashboard');
+      } else {
+        router.push('/login');
+      }
+      return;
+    }
+
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    if (tier.priceId) {
+      try {
+        const userToken = await user.getIdToken();
+        await createCheckoutSession(tier.priceId, userToken);
+      } catch (error) {
+        console.error('Error creating checkout session:', error);
+      }
+    }
+  };
+
   const pricingTiers: PricingTier[] = [
     {
       name: "Free",
@@ -76,7 +103,7 @@ function LocationPricing() {
       ],
       buttonText: "Get Started",
       popular: true,
-      priceId: getPriceId('kickstart'),
+      priceId: getPriceId('kickstart', isAnnual),
     },
     {
       name: "SEO Takeover",
@@ -90,34 +117,9 @@ function LocationPricing() {
         "Dedicated account manager"
       ],
       buttonText: "Get Started",
-      priceId: getPriceId('seo_takeover'),
+      priceId: getPriceId('seo_takeover', isAnnual),
     }
   ];
-
-  const handlePricingClick = async (tier: PricingTier) => {
-    if (tier.name === 'Free') {
-      if (user) {
-        router.push('/dashboard');
-      } else {
-        router.push('/login');
-      }
-      return;
-    }
-
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-
-    if (tier.priceId) {
-      try {
-        const userToken = await user.getIdToken();
-        await createCheckoutSession(tier.priceId, userToken);
-      } catch (error) {
-        console.error('Error creating checkout session:', error);
-      }
-    }
-  };
 
   return (
     <>
