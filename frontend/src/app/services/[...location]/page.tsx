@@ -259,7 +259,7 @@ export default function LocationBasedServicePage() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [transformWords.length]);
 
   // Stats animation
   useEffect(() => {
@@ -303,9 +303,10 @@ export default function LocationBasedServicePage() {
     );
 
     // Add a small delay to ensure DOM is ready
+    const currentStatsRef = statsRef.current;
     const setupObserver = () => {
-      if (statsRef.current) {
-        observer.observe(statsRef.current);
+      if (currentStatsRef) {
+        observer.observe(currentStatsRef);
       }
     };
 
@@ -314,8 +315,8 @@ export default function LocationBasedServicePage() {
 
     return () => {
       clearTimeout(timeoutId);
-      if (statsRef.current) {
-        observer.unobserve(statsRef.current);
+      if (currentStatsRef) {
+        observer.unobserve(currentStatsRef);
       }
     };
   }, [hasAnimated, isLoading, locationContext]);

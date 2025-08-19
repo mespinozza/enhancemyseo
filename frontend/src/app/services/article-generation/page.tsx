@@ -11,6 +11,7 @@ import {
   ShoppingCart, 
   BarChart3, 
   Search, 
+  Clock,
   DollarSign,
   Check,
   ChevronDown,
@@ -45,7 +46,7 @@ export default function ArticleGenerationServicePage() {
     }, 3000); // Total time for each word
 
     return () => clearInterval(interval);
-  }, []);
+  }, [transformWords.length]);
 
   // Intersection Observer for stats animation
   useEffect(() => {
@@ -86,13 +87,14 @@ export default function ArticleGenerationServicePage() {
       { threshold: 0.5 }
     );
 
-    if (statsRef.current) {
-      observer.observe(statsRef.current);
+    const currentStatsRef = statsRef.current;
+    if (currentStatsRef) {
+      observer.observe(currentStatsRef);
     }
 
     return () => {
-      if (statsRef.current) {
-        observer.unobserve(statsRef.current);
+      if (currentStatsRef) {
+        observer.unobserve(currentStatsRef);
       }
     };
   }, [hasAnimated]);
