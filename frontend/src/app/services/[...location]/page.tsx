@@ -112,10 +112,7 @@ function LocationPricing() {
     if (tier.priceId) {
       try {
         const userToken = await user.getIdToken();
-        const session = await createCheckoutSession(tier.priceId, userToken);
-        if (session?.url) {
-          window.location.href = session.url;
-        }
+        await createCheckoutSession(tier.priceId, userToken);
       } catch (error) {
         console.error('Error creating checkout session:', error);
       }
