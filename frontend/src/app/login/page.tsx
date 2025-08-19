@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -17,22 +17,12 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-export default function LoginPage() {
-  const { login, register: registerUser, signInWithGoogle, user } = useAuth();
-  const [error, setError] = useState('');
-  const [isLogin, setIsLogin] = useState(true);
+// Separate component for purchase intent handling that uses useSearchParams
+function PurchaseIntentHandler() {
+  const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-  });
-
-  // Handle authentication and purchase intent
   useEffect(() => {
     if (user) {
       // Check for purchase intent parameters
@@ -70,6 +60,22 @@ export default function LoginPage() {
       router.push('/dashboard');
     }
   };
+
+  return null; // This component doesn't render anything
+}
+
+function LoginForm() {
+  const { login, register: registerUser, signInWithGoogle } = useAuth();
+  const [error, setError] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+  });
 
   const onSubmit = async (data: LoginFormData) => {
     try {
@@ -216,5 +222,16 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <>
+      <Suspense fallback={<div>Loading...</div>}>
+        <PurchaseIntentHandler />
+      </Suspense>
+      <LoginForm />
+    </>
   );
 } 
