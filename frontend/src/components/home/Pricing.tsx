@@ -69,7 +69,7 @@ export default function Pricing() {
 
   const handlePricingClick = async (tier: PricingTier) => {
     if (!user) {
-      router.push('/register');
+      router.push('/login');
       return;
     }
 
