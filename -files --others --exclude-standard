@@ -1,0 +1,4 @@
+warning: in the working copy of 'frontend/src/components/home/Pricing.tsx', LF will be replaced by CRLF the next time Git touches it
+frontend/public/favicon.ico
+frontend/src/components/home/Pricing.tsx
+frontend/src/components/layout/Header.tsx

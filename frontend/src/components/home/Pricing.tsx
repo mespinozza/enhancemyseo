@@ -115,7 +115,9 @@ export default function Pricing() {
             </span>
             <button
               onClick={() => setIsAnnual(!isAnnual)}
-              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 bg-gray-200"
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                isAnnual ? 'bg-blue-600' : 'bg-gray-200'
+              }`}
               role="switch"
               aria-checked={isAnnual}
             >

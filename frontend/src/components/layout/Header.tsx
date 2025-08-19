@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { LogOut, FileText } from 'lucide-react';
+import { LogOut, FileText, ChevronDown, Settings } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Header() {
@@ -12,6 +12,7 @@ export default function Header() {
   const router = useRouter();
   const pathname = usePathname();
   const [logoError, setLogoError] = useState(false);
+  const [servicesDropdownOpen, setServicesDropdownOpen] = useState(false);
 
   // Don't show header on dashboard pages
   if (pathname.startsWith('/dashboard')) {
@@ -56,6 +57,35 @@ export default function Header() {
 
           {/* Navigation */}
           <div className="flex items-center space-x-4">
+            {/* Services Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setServicesDropdownOpen(!servicesDropdownOpen)}
+                className="inline-flex items-center justify-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors duration-200"
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                Services
+                <ChevronDown className={`w-4 h-4 ml-1 transition-transform duration-200 ${servicesDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {servicesDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-50">
+                  <div className="py-1">
+                    <Link
+                      href="/services/article-generation"
+                      onClick={() => setServicesDropdownOpen(false)}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                    >
+                      <div className="flex items-center">
+                        <FileText className="w-4 h-4 mr-3" />
+                        Article Generation
+                      </div>
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <Link
               href="/blog"
               className="inline-flex items-center justify-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors duration-200"
