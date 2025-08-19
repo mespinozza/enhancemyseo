@@ -111,7 +111,8 @@ function LocationPricing() {
 
     if (tier.priceId) {
       try {
-        const session = await createCheckoutSession(tier.priceId);
+        const userToken = await user.getIdToken();
+        const session = await createCheckoutSession(tier.priceId, userToken);
         if (session?.url) {
           window.location.href = session.url;
         }
