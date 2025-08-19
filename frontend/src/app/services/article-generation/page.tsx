@@ -11,12 +11,10 @@ import {
   ShoppingCart, 
   BarChart3, 
   Search, 
-  Clock, 
   DollarSign,
   Check,
   ChevronDown,
   TrendingUp,
-  Award,
   Shield,
   Star
 } from 'lucide-react';
@@ -303,7 +301,7 @@ export default function ArticleGenerationServicePage() {
                     </div>
                     <div className="flex items-center text-red-700">
                       <Target className="w-5 h-5 mr-3" />
-                      <span>Generic content that doesn't convert</span>
+                      <span>Generic content that doesn&apos;t convert</span>
                     </div>
                     <div className="flex items-center text-red-700">
                       <TrendingUp className="w-5 h-5 mr-3" />
@@ -339,7 +337,7 @@ export default function ArticleGenerationServicePage() {
                     </div>
                     <div className="flex items-center text-red-700">
                       <Target className="w-5 h-5 mr-3 flex-shrink-0" />
-                      <span>Generic content that doesn't convert</span>
+                      <span>Generic content that doesn&apos;t convert</span>
                     </div>
                     <div className="flex items-center text-red-700">
                       <TrendingUp className="w-5 h-5 mr-3 flex-shrink-0" />
