@@ -52,27 +52,27 @@ function LocationPricing() {
 
 
   const handlePricingClick = async (tier: PricingTier) => {
-    if (tier.name === 'Free') {
-      if (user) {
-        router.push('/dashboard');
-      } else {
-        router.push('/login');
-      }
-      return;
-    }
-
     if (!user) {
-      router.push('/login');
+      router.push('/register');
       return;
     }
 
-    if (tier.priceId) {
-      try {
-        const userToken = await user.getIdToken();
-        await createCheckoutSession(tier.priceId, userToken);
-      } catch (error) {
-        console.error('Error creating checkout session:', error);
+    if (tier.price === "0") {
+      // Handle free tier
+      router.push('/dashboard');
+      return;
+    }
+
+    try {
+      if (!tier.priceId) {
+        throw new Error('Price ID not found');
       }
+      
+      const userToken = await user.getIdToken();
+      await createCheckoutSession(tier.priceId, userToken);
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Something went wrong. Please try again.');
     }
   };
 
