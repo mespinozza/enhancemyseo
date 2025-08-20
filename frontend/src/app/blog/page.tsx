@@ -1,63 +1,194 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { blogOperations, BlogPost } from '@/lib/firebase/firestore';
 import { Search, Calendar, User, Eye, ArrowRight, FileText } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { DocumentSnapshot } from 'firebase/firestore';
+import Pagination from '@/components/ui/Pagination';
 
 export default function BlogListingPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  // Pagination state
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
-  const [filteredBlogs, setFilteredBlogs] = useState<BlogPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
+  const pageHistoryRef = useRef<Map<number, DocumentSnapshot | null>>(new Map());
+  
+  // Filter state
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState(''); // Separate input state for immediate UI updates
   const [selectedTag, setSelectedTag] = useState('');
+  const [allTags, setAllTags] = useState<string[]>([]);
+  
+  const ITEMS_PER_PAGE = 9;
 
-  // Load published blog posts
+  // Initialize page from URL params
   useEffect(() => {
+    const pageParam = searchParams.get('page');
+    const searchParam = searchParams.get('search');
+    const tagParam = searchParams.get('tag');
+    
+    if (pageParam) {
+      const page = parseInt(pageParam, 10);
+      if (page > 0) {
+        setCurrentPage(page);
+      }
+    }
+    
+    if (searchParam) {
+      setSearchTerm(searchParam);
+      setSearchInput(searchParam);
+    }
+    
+    if (tagParam) {
+      setSelectedTag(tagParam);
+    }
+  }, [searchParams]);
+
+  // Update URL when filters change
+  const updateURL = useCallback((page: number, search: string, tag: string) => {
+    const params = new URLSearchParams();
+    
+    if (page > 1) params.set('page', page.toString());
+    if (search) params.set('search', search);
+    if (tag) params.set('tag', tag);
+    
+    const url = params.toString() ? `/blog?${params.toString()}` : '/blog';
+    router.push(url, { scroll: false });
+  }, [router]);
+
+  // Load blogs when page, search, or tag changes
+  useEffect(() => {
+    let isCancelled = false;
+    
     const loadBlogs = async () => {
+      if (isCancelled) return;
       setIsLoading(true);
+      
       try {
-        const publishedBlogs = await blogOperations.getAllPublished();
-        setBlogs(publishedBlogs);
-        setFilteredBlogs(publishedBlogs);
+        let targetLastDoc: DocumentSnapshot | null = null;
+        
+        if (currentPage > 1) {
+          // Get the cursor for the previous page
+          targetLastDoc = pageHistoryRef.current.get(currentPage - 1) || null;
+        }
+        
+        let result;
+        if (searchTerm || selectedTag) {
+          // Use filtered pagination with page number (not cursor-based)
+          result = await blogOperations.getFilteredPublishedPaginated(
+            searchTerm, 
+            selectedTag, 
+            ITEMS_PER_PAGE, 
+            currentPage
+          );
+          
+          // Get filtered count for total pages
+          const count = await blogOperations.getFilteredPublishedCount(searchTerm, selectedTag);
+          if (!isCancelled) {
+            setTotalCount(count);
+            setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
+          }
+        } else {
+          // Use regular pagination
+          result = await blogOperations.getAllPublishedPaginated(
+            ITEMS_PER_PAGE, 
+            targetLastDoc || undefined
+          );
+          
+          // Get total count for total pages
+          const count = await blogOperations.getPublishedCount();
+          if (!isCancelled) {
+            setTotalCount(count);
+            setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
+          }
+        }
+        
+        if (!isCancelled) {
+          setBlogs(result.blogs);
+          setLastDoc(result.lastDoc);
+          setHasMore(result.hasMore);
+          
+          // Update page history
+          if (result.lastDoc && currentPage > 0) {
+            pageHistoryRef.current.set(currentPage, result.lastDoc);
+          }
+          
+          // Load all tags for filter dropdown (only on first load)
+          if (currentPage === 1 && !searchTerm && !selectedTag) {
+            const allBlogs = await blogOperations.getAllPublished();
+            const uniqueTags = Array.from(
+              new Set(allBlogs.flatMap(blog => blog.tags || []))
+            ).sort();
+            setAllTags(uniqueTags);
+          }
+        }
+        
       } catch (error) {
-        console.error('Error loading blogs:', error);
+        if (!isCancelled) {
+          console.error('Error loading blogs:', error);
+          setBlogs([]);
+          setTotalCount(0);
+          setTotalPages(1);
+        }
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadBlogs();
+    
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentPage, searchTerm, selectedTag]);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== searchTerm) {
+        setSearchTerm(searchInput);
+        setCurrentPage(1);
+        pageHistoryRef.current.clear();
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [searchInput, searchTerm]);
+
+  // Update URL separately to avoid infinite loops
+  useEffect(() => {
+    updateURL(currentPage, searchTerm, selectedTag);
+  }, [currentPage, searchTerm, selectedTag, updateURL]);
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Handle search input change (immediate UI update)
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value);
   }, []);
 
-  // Filter blogs based on search term and selected tag
-  useEffect(() => {
-    let filtered = blogs;
-
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(blog =>
-        blog.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        blog.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        blog.metaDescription?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Filter by tag
-    if (selectedTag) {
-      filtered = filtered.filter(blog =>
-        blog.tags?.includes(selectedTag)
-      );
-    }
-
-    setFilteredBlogs(filtered);
-  }, [blogs, searchTerm, selectedTag]);
-
-  // Get all unique tags
-  const allTags = Array.from(
-    new Set(blogs.flatMap(blog => blog.tags || []))
-  ).sort();
+  // Handle tag change
+  const handleTagChange = (tag: string) => {
+    setSelectedTag(tag);
+    setCurrentPage(1); // Reset to first page
+    pageHistoryRef.current.clear(); // Clear page history
+  };
 
   // Extract text content from HTML (for excerpts)
   const getExcerpt = (htmlContent: string, maxLength: number = 150) => {
@@ -89,8 +220,8 @@ export default function BlogListingPage() {
                 <input
                   type="text"
                   placeholder="Search articles..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 text-gray-900 bg-white rounded-lg border-0 focus:ring-2 focus:ring-blue-300 focus:outline-none"
                 />
               </div>
@@ -107,7 +238,7 @@ export default function BlogListingPage() {
             <h3 className="text-lg font-medium text-gray-900 mb-4">Filter by Topic</h3>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => setSelectedTag('')}
+                onClick={() => handleTagChange('')}
                 className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                   selectedTag === ''
                     ? 'bg-blue-600 text-white'
@@ -119,7 +250,7 @@ export default function BlogListingPage() {
               {allTags.map((tag) => (
                 <button
                   key={tag}
-                  onClick={() => setSelectedTag(tag)}
+                  onClick={() => handleTagChange(tag)}
                   className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                     selectedTag === tag
                       ? 'bg-blue-600 text-white'
@@ -139,7 +270,7 @@ export default function BlogListingPage() {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
             <p className="mt-4 text-gray-600">Loading articles...</p>
           </div>
-        ) : filteredBlogs.length === 0 ? (
+        ) : blogs.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -154,8 +285,9 @@ export default function BlogListingPage() {
             {(searchTerm || selectedTag) && (
               <button
                 onClick={() => {
+                  setSearchInput('');
                   setSearchTerm('');
-                  setSelectedTag('');
+                  handleTagChange('');
                 }}
                 className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -168,16 +300,16 @@ export default function BlogListingPage() {
             {/* Results Count */}
             <div className="mb-6">
               <p className="text-gray-600">
-                {filteredBlogs.length === blogs.length 
-                  ? `${blogs.length} article${blogs.length !== 1 ? 's' : ''}`
-                  : `${filteredBlogs.length} of ${blogs.length} articles`
+                {searchTerm || selectedTag 
+                  ? `Showing ${blogs.length} of ${totalCount} articles`
+                  : `${totalCount} article${totalCount !== 1 ? 's' : ''} total`
                 }
               </p>
             </div>
 
             {/* Blog Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {filteredBlogs.map((blog) => (
+              {blogs.map((blog) => (
                 <article
                   key={blog.id}
                   className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300"
@@ -274,6 +406,14 @@ export default function BlogListingPage() {
                 </article>
               ))}
             </div>
+
+            {/* Pagination */}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              isLoading={isLoading}
+            />
           </>
         )}
       </div>

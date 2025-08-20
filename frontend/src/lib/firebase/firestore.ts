@@ -11,7 +11,12 @@ import {
   orderBy,
   serverTimestamp,
   increment,
-  Timestamp 
+  Timestamp,
+  limit,
+  startAfter,
+  DocumentSnapshot,
+  getAggregateFromServer,
+  count
 } from 'firebase/firestore';
 import { db } from './config';
 import type { IntegrationType } from '@/types/content-selection';
@@ -488,6 +493,199 @@ export const blogOperations = {
     } catch (error) {
       console.error('Error getting all published blogs:', error);
       return [];
+    }
+  },
+
+  // Get paginated published blogs for blog listing page
+  getAllPublishedPaginated: async (pageLimit: number = 10, lastDoc?: DocumentSnapshot): Promise<{
+    blogs: BlogPost[];
+    lastDoc: DocumentSnapshot | null;
+    hasMore: boolean;
+  }> => {
+    try {
+      const blogsRef = collection(db, 'blogs');
+      let q = query(
+        blogsRef, 
+        where('published', '==', true), 
+        orderBy('publishDate', 'desc'),
+        limit(pageLimit + 1) // Get one extra to check if there are more
+      );
+
+      // If we have a cursor, start after it
+      if (lastDoc) {
+        q = query(
+          blogsRef, 
+          where('published', '==', true), 
+          orderBy('publishDate', 'desc'),
+          startAfter(lastDoc),
+          limit(pageLimit + 1)
+        );
+      }
+
+      const snapshot = await getDocs(q);
+      const docs = snapshot.docs;
+      
+      // Check if we have more pages
+      const hasMore = docs.length > pageLimit;
+      
+      // Remove the extra document if it exists
+      const blogs = docs.slice(0, pageLimit).map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as BlogPost));
+      
+      // Get the last document for cursor
+      const newLastDoc = blogs.length > 0 ? docs[blogs.length - 1] : null;
+      
+      return {
+        blogs,
+        lastDoc: newLastDoc,
+        hasMore
+      };
+    } catch (error) {
+      console.error('Error getting paginated published blogs:', error);
+      return {
+        blogs: [],
+        lastDoc: null,
+        hasMore: false
+      };
+    }
+  },
+
+  // Get filtered and paginated published blogs
+  getFilteredPublishedPaginated: async (
+    searchTerm: string = '', 
+    selectedTag: string = '', 
+    pageLimit: number = 10, 
+    pageNumber: number = 1
+  ): Promise<{
+    blogs: BlogPost[];
+    lastDoc: DocumentSnapshot | null;
+    hasMore: boolean;
+  }> => {
+    try {
+      const blogsRef = collection(db, 'blogs');
+      
+      // For search functionality, we need to get all published blogs first
+      // since Firestore doesn't support text search natively
+      let q = query(
+        blogsRef, 
+        where('published', '==', true), 
+        orderBy('publishDate', 'desc')
+      );
+
+      // Add tag filter if specified (this can be done at query level)
+      if (selectedTag) {
+        q = query(
+          blogsRef, 
+          where('published', '==', true), 
+          where('tags', 'array-contains', selectedTag),
+          orderBy('publishDate', 'desc')
+        );
+      }
+
+      const snapshot = await getDocs(q);
+      let docs = snapshot.docs;
+      
+      // Apply search filter in memory (since Firestore doesn't support text search)
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        docs = docs.filter(doc => {
+          const data = doc.data();
+          return (
+            data.title?.toLowerCase().includes(searchLower) ||
+            data.content?.toLowerCase().includes(searchLower) ||
+            data.metaDescription?.toLowerCase().includes(searchLower)
+          );
+        });
+      }
+      
+      // Calculate pagination manually for filtered results
+      const startIndex = (pageNumber - 1) * pageLimit;
+      const endIndex = startIndex + pageLimit;
+      const paginatedDocs = docs.slice(startIndex, endIndex);
+      
+      // Check if we have more pages
+      const hasMore = endIndex < docs.length;
+      
+      // Convert to BlogPost objects
+      const blogs = paginatedDocs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as BlogPost));
+      
+      // For filtered results, we don't use cursor-based pagination
+      // since we're doing client-side filtering
+      const lastDoc = paginatedDocs.length > 0 ? paginatedDocs[paginatedDocs.length - 1] : null;
+      
+      return {
+        blogs,
+        lastDoc,
+        hasMore
+      };
+    } catch (error) {
+      console.error('Error getting filtered paginated published blogs:', error);
+      return {
+        blogs: [],
+        lastDoc: null,
+        hasMore: false
+      };
+    }
+  },
+
+  // Get total count of published blogs
+  getPublishedCount: async (): Promise<number> => {
+    try {
+      const blogsRef = collection(db, 'blogs');
+      const q = query(blogsRef, where('published', '==', true));
+      const snapshot = await getAggregateFromServer(q, { count: count() });
+      return snapshot.data().count;
+    } catch (error) {
+      console.error('Error getting published blogs count:', error);
+      // Fallback to getting all docs and counting (less efficient but works)
+      try {
+        const blogsRef = collection(db, 'blogs');
+        const q = query(blogsRef, where('published', '==', true));
+        const snapshot = await getDocs(q);
+        return snapshot.size;
+      } catch (fallbackError) {
+        console.error('Error with fallback count:', fallbackError);
+        return 0;
+      }
+    }
+  },
+
+  // Get filtered count of published blogs
+  getFilteredPublishedCount: async (searchTerm: string = '', selectedTag: string = ''): Promise<number> => {
+    try {
+      const blogsRef = collection(db, 'blogs');
+      let q = query(blogsRef, where('published', '==', true));
+      
+      // Add tag filter if specified
+      if (selectedTag) {
+        q = query(blogsRef, where('published', '==', true), where('tags', 'array-contains', selectedTag));
+      }
+      
+      const snapshot = await getDocs(q);
+      let docs = snapshot.docs;
+      
+      // Apply search filter in memory if specified
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        docs = docs.filter(doc => {
+          const data = doc.data();
+          return (
+            data.title?.toLowerCase().includes(searchLower) ||
+            data.content?.toLowerCase().includes(searchLower) ||
+            data.metaDescription?.toLowerCase().includes(searchLower)
+          );
+        });
+      }
+      
+      return docs.length;
+    } catch (error) {
+      console.error('Error getting filtered published blogs count:', error);
+      return 0;
     }
   },
 
