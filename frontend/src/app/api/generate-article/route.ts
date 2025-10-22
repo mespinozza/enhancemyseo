@@ -2336,8 +2336,208 @@ function calculateWebsitePageRelevance(
   if (page.pageType === 'blog') score += 3;
   
   return score;
+}// ============================================
+// HTML VALIDATION AND CLEANUP FUNCTIONS
+// ============================================
+
+/**
+ * Fast regex-based fix for embedded Markdown headers in HTML
+ */
+function fixEmbeddedMarkdownHeaders(html: string): string {
+  // Pattern: ## or ### inside <p> tags
+  const pattern = /<p>(.*?)(#{2,6})\s+([^<#]+?)(.*?)<\/p>/g;
+  
+  return html.replace(pattern, (match, before, hashes, headerText, after) => {
+    const level = hashes.length; // ## = 2, ### = 3, etc.
+    const headerTag = `h${level}`;
+    
+    let result = '';
+    
+    // Close previous paragraph if there's content before
+    if (before.trim()) {
+      result += `<p>${before.trim()}</p>\n`;
+    }
+    
+    // Add proper header tag
+    result += `<${headerTag}>${headerText.trim()}</${headerTag}>`;
+    
+    // Open new paragraph if there's content after
+    if (after.trim()) {
+      result += `\n<p>${after.trim()}</p>`;
+    }
+    
+    return result;
+  });
 }
 
+/**
+ * Remove empty HTML tags
+ */
+function removeEmptyTags(html: string): string {
+  return html
+    .replace(/<p>\s*<\/p>/g, '')
+    .replace(/<h[1-6]>\s*<\/h[1-6]>/g, '')
+    .replace(/<li>\s*<\/li>/g, '')
+    .replace(/<strong>\s*<\/strong>/g, '')
+    .replace(/<em>\s*<\/em>/g, '')
+    .replace(/<span>\s*<\/span>/g, '');
+}
+
+/**
+ * Fix long paragraphs by splitting at sentence boundaries (SEO best practice)
+ */
+function fixLongParagraphs(html: string): string {
+  const maxWords = 150;
+  
+  return html.replace(/<p>(.*?)<\/p>/g, (match, content) => {
+    // Skip if paragraph contains other block elements
+    if (content.includes('<div') || content.includes('<table')) {
+      return match;
+    }
+    
+    // Count words (ignore HTML tags)
+    const textOnly = content.replace(/<[^>]+>/g, '');
+    const wordCount = textOnly.split(/\s+/).filter((w: string) => w.length > 0).length;
+    
+    if (wordCount <= maxWords) return match;
+    
+    // Split at sentence boundaries (look for . ! ? followed by space and capital letter)
+    const sentences = content.match(/[^.!?]+[.!?]+(?:\s+(?=[A-Z])|(?=<))?/g) || [content];
+    
+    if (sentences.length <= 1) return match;
+    
+    const midpoint = Math.floor(sentences.length / 2);
+    const firstHalf = sentences.slice(0, midpoint).join(' ').trim();
+    const secondHalf = sentences.slice(midpoint).join(' ').trim();
+    
+    return `<p>${firstHalf}</p>\n<p>${secondHalf}</p>`;
+  });
+}
+
+/**
+ * Validate heading hierarchy (h1 -> h2 -> h3, no skipping levels)
+ */
+function validateHeadingHierarchy(html: string): string {
+  let lastLevel = 1; // Assume h1 is article title
+  
+  return html.replace(/<h(\d)>(.*?)<\/h\1>/g, (match, level, text) => {
+    const currentLevel = parseInt(level);
+    
+    // Skip h1 validation (it's the title)
+    if (currentLevel === 1) {
+      lastLevel = 1;
+      return match;
+    }
+    
+    // If level skip detected (h2 -> h4), adjust to proper level
+    if (currentLevel > lastLevel + 1) {
+      const correctedLevel = lastLevel + 1;
+      lastLevel = correctedLevel;
+      console.log(`🔧 Fixed heading hierarchy: h${currentLevel} → h${correctedLevel} ("${text.substring(0, 50)}...")`);
+      return `<h${correctedLevel}>${text}</h${correctedLevel}>`;
+    }
+    
+    lastLevel = currentLevel;
+    return match;
+  });
+}
+
+/**
+ * Detect if HTML has complex issues requiring AI cleanup
+ */
+function hasComplexHTMLIssues(html: string): boolean {
+  // Check for multiple markdown headers in same paragraph
+  const multipleHeadersInParagraph = /<p>.*?##.*?##.*?<\/p>/.test(html);
+  
+  // Check for severely malformed structure (headers inside lists, etc.)
+  const headersInLists = /<li>.*?<h[1-6]>.*?<\/li>/.test(html);
+  
+  // Check for tables with markdown inside
+  const markdownInTables = /<table>.*?##.*?<\/table>/.test(html);
+  
+  return multipleHeadersInParagraph || headersInLists || markdownInTables;
+}
+
+/**
+ * Main validation function - hybrid approach with fast regex + AI for complex cases
+ */
+async function validateAndCleanHTML(htmlContent: string, anthropic: any): Promise<string> {
+  console.log('📊 Original content length:', htmlContent.length);
+  
+  let cleaned = htmlContent;
+  const fixesApplied: string[] = [];
+  
+  // Step 1: Fast regex fixes for common issues
+  
+  // Fix embedded markdown headers
+  const beforeHeaders = (cleaned.match(/#{2,6}\s+/g) || []).length;
+  if (beforeHeaders > 0) {
+    cleaned = fixEmbeddedMarkdownHeaders(cleaned);
+    const afterHeaders = (cleaned.match(/#{2,6}\s+/g) || []).length;
+    if (beforeHeaders > afterHeaders) {
+      fixesApplied.push(`Fixed ${beforeHeaders - afterHeaders} markdown headers`);
+    }
+  }
+  
+  // Remove empty tags
+  const beforeLength = cleaned.length;
+  cleaned = removeEmptyTags(cleaned);
+  if (cleaned.length < beforeLength) {
+    fixesApplied.push('Removed empty tags');
+  }
+  
+  // Fix long paragraphs
+  const beforeParagraphs = (cleaned.match(/<p>/g) || []).length;
+  cleaned = fixLongParagraphs(cleaned);
+  const afterParagraphs = (cleaned.match(/<p>/g) || []).length;
+  if (afterParagraphs > beforeParagraphs) {
+    fixesApplied.push(`Split ${afterParagraphs - beforeParagraphs} long paragraphs`);
+  }
+  
+  // Validate heading hierarchy
+  cleaned = validateHeadingHierarchy(cleaned);
+  
+  // Step 2: Check if complex issues remain
+  if (hasComplexHTMLIssues(cleaned)) {
+    console.log('⚠️ Complex HTML issues detected, using AI cleanup...');
+    fixesApplied.push('Applied AI cleanup for complex issues');
+    
+    try {
+      const cleanupPrompt = `Please fix the following HTML content by:
+1. Converting any remaining Markdown headers (##, ###) to proper HTML tags (<h2>, <h3>)
+2. Splitting paragraphs that contain headers into separate elements
+3. Ensuring proper heading hierarchy (h2 -> h3, no skipping levels)
+4. Fixing any malformed nested structures (headers in lists, markdown in tables, etc.)
+5. Maintaining all existing links and styling exactly as they are
+
+Return ONLY the cleaned HTML with no explanation or additional text.
+
+HTML to clean:
+${cleaned}`;
+
+      const response = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 16000,
+        messages: [{ role: "user", content: cleanupPrompt }]
+      });
+      
+      cleaned = response.content[0].text;
+      console.log('✅ AI cleanup completed');
+    } catch (error) {
+      console.error('❌ AI cleanup failed, using regex-cleaned version:', error);
+      // Fall back to regex-cleaned version
+    }
+  }
+  
+  // Log summary
+  if (fixesApplied.length > 0) {
+    console.log('🔧 HTML fixes applied:', fixesApplied.join(', '));
+  } else {
+    console.log('✓ No HTML issues detected');
+  }
+  
+  return cleaned;
+}
 
 
 export async function POST(request: Request) {
@@ -2912,8 +3112,13 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     });
 
       // Get the generated content from the response
-      const generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
+      let generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
       console.log('Successfully generated article content');
+
+      // Validate and clean HTML structure
+      console.log('🔍 Validating and cleaning HTML structure...');
+      generatedContent = await validateAndCleanHTML(generatedContent, anthropic);
+      console.log('✅ HTML validation complete');
 
       // Check for generation issues
       const hasGenerationIssues = detectGenerationIssues(generatedContent);
