@@ -2639,11 +2639,47 @@ export async function POST(request: Request) {
           index === self.findIndex((p) => p.url === page.url)
         );
         
-        relatedWebsiteContentList = uniquePages.slice(0, 15).map(p => 
-          `• ${p.title} ${p.pageType ? `[${p.pageType.toUpperCase()}]` : ''} - ${p.url}`
-        ).join('\n');
+        // Group pages by type for better AI understanding
+        const products = uniquePages.filter(p => p.pageType === 'product');
+        const categories = uniquePages.filter(p => p.pageType === 'category');
+        const blogs = uniquePages.filter(p => p.pageType === 'blog');
+        const services = uniquePages.filter(p => p.pageType === 'service');
+        const other = uniquePages.filter(p => !['product', 'category', 'blog', 'service'].includes(p.pageType));
         
-        console.log(`✅ Found ${uniquePages.length} relevant website pages using unified approach`);
+        // Build structured content list with clear labels
+        let contentList = '';
+        
+        if (products.length > 0) {
+          contentList += '\n=== PRODUCT PAGES (Individual Items) ===\n';
+          contentList += 'Use these links when mentioning SPECIFIC individual products:\n';
+          contentList += products.slice(0, 8).map(p => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (categories.length > 0) {
+          contentList += '\n\n=== COLLECTION/CATEGORY PAGES (Product Groups) ===\n';
+          contentList += 'Use these links when mentioning COLLECTIONS, RANGES, or MULTIPLE products:\n';
+          contentList += categories.slice(0, 6).map(p => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (blogs.length > 0) {
+          contentList += '\n\n=== BLOG ARTICLES (Educational Content) ===\n';
+          contentList += 'Use these links for related guides, tips, or educational content:\n';
+          contentList += blogs.slice(0, 6).map(p => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (services.length > 0) {
+          contentList += '\n\n=== SERVICE PAGES ===\n';
+          contentList += services.slice(0, 4).map(p => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (other.length > 0) {
+          contentList += '\n\n=== OTHER RELEVANT PAGES ===\n';
+          contentList += other.slice(0, 3).map(p => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        relatedWebsiteContentList = contentList;
+        
+        console.log(`✅ Found ${uniquePages.length} relevant website pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
         
         // Log top results with scores and page types
         uniquePages.slice(0, 5).forEach((page, index) => {
@@ -2655,11 +2691,49 @@ export async function POST(request: Request) {
     async function handleManualWebsiteContent(contentSelection: any) {
       // Handle manually selected website content (unified approach)
       if (contentSelection.manualSelections.websiteContent && contentSelection.manualSelections.websiteContent.length > 0) {
-        relatedWebsiteContentList = contentSelection.manualSelections.websiteContent.map((p: any) => 
-          `• ${p.title} ${p.pageType ? `[${p.pageType.toUpperCase()}]` : ''} - ${p.url}`
-        ).join('\n');
+        const selectedPages = contentSelection.manualSelections.websiteContent;
         
-        console.log(`📋 Using ${contentSelection.manualSelections.websiteContent.length} manually selected website pages`);
+        // Group manually selected pages by type for better AI understanding
+        const products = selectedPages.filter((p: any) => p.pageType === 'product');
+        const categories = selectedPages.filter((p: any) => p.pageType === 'category');
+        const blogs = selectedPages.filter((p: any) => p.pageType === 'blog');
+        const services = selectedPages.filter((p: any) => p.pageType === 'service');
+        const other = selectedPages.filter((p: any) => !['product', 'category', 'blog', 'service'].includes(p.pageType));
+        
+        // Build structured content list with clear labels
+        let contentList = '';
+        
+        if (products.length > 0) {
+          contentList += '\n=== PRODUCT PAGES (Individual Items) ===\n';
+          contentList += 'Use these links when mentioning SPECIFIC individual products:\n';
+          contentList += products.map((p: any) => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (categories.length > 0) {
+          contentList += '\n\n=== COLLECTION/CATEGORY PAGES (Product Groups) ===\n';
+          contentList += 'Use these links when mentioning COLLECTIONS, RANGES, or MULTIPLE products:\n';
+          contentList += categories.map((p: any) => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (blogs.length > 0) {
+          contentList += '\n\n=== BLOG ARTICLES (Educational Content) ===\n';
+          contentList += 'Use these links for related guides, tips, or educational content:\n';
+          contentList += blogs.map((p: any) => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (services.length > 0) {
+          contentList += '\n\n=== SERVICE PAGES ===\n';
+          contentList += services.map((p: any) => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        if (other.length > 0) {
+          contentList += '\n\n=== OTHER RELEVANT PAGES ===\n';
+          contentList += other.map((p: any) => `• ${p.title} - ${p.url}`).join('\n');
+        }
+        
+        relatedWebsiteContentList = contentList;
+        
+        console.log(`📋 Using ${selectedPages.length} manually selected website pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
       }
     }
     
@@ -2679,12 +2753,43 @@ export async function POST(request: Request) {
       }
       
       if (websiteContent) {
-        prompt += `\n\nRELATED WEBSITE CONTENT TO MENTION:\n${websiteContent}`;
+        prompt += `\n\nRELATED WEBSITE CONTENT TO MENTION:${websiteContent}`;
       }
       
       if (prompt) {
         prompt = `\n\nIMPORTANT: Please naturally incorporate links to the following relevant content throughout the article where contextually appropriate:${prompt}`;
-        prompt += `\n\nWhen mentioning these items, use descriptive anchor text and ensure the links feel natural within the content flow.`;
+        
+        // Add comprehensive linking rules for proper context matching
+        prompt += `\n\n=== CRITICAL LINKING RULES ===
+Follow these rules to ensure correct link usage based on context:
+
+1. PRODUCT PAGES vs COLLECTION/CATEGORY PAGES:
+   • Use PRODUCT links when mentioning a SPECIFIC individual item (singular)
+     Example: "The 27-inch Sedona fire bowl features..." → link to /products/27-sedona-fire-bowl ✓
+   
+   • Use COLLECTION/CATEGORY links when mentioning:
+     - Product groups, ranges, series, or lines
+     - Multiple items or options
+     - Words like "collection", "range", "series", "line"
+     - Plural nouns (e.g., "fire bowls", "models", "options")
+     Example: "Our Sedona fire bowl collection includes..." → link to /collections/sedona ✓
+     Example: "Browse our fire bowls..." → link to /collections/fire-bowls ✓
+
+2. Context-based Link Selection:
+   • When writing about browsing, exploring, or viewing options → Use COLLECTION links
+   • When writing about a specific model, SKU, or size → Use PRODUCT links
+   • When saying "we offer", "available in", "choose from" → Use COLLECTION links
+   
+3. NEVER:
+   • Link the word "collection" to a /products/ URL
+   • Link plural product names to single product URLs
+   • Use a product link when describing multiple items or a product line
+
+4. Blog Articles:
+   • Use BLOG links for educational content, guides, tips, and how-to references
+   • Link when providing additional reading or related information
+
+When mentioning these items, use descriptive anchor text and ensure the links feel natural within the content flow.`;
       }
       
       return prompt;
@@ -2942,7 +3047,7 @@ async function discoverWebsiteStructure(websiteUrl: string): Promise<{
     
     for (const sitemapPath of commonSitemapUrls) {
       const sitemapUrl = `${websiteUrl.replace(/\/$/, '')}${sitemapPath}`;
-      const sitemapPages = await parseEnhancedSitemap(sitemapUrl);
+      const sitemapPages = await parseEnhancedSitemap(sitemapUrl, websiteUrl);
       if (sitemapPages.length > 0) {
         allPages.push(...sitemapPages.map(page => ({
           ...page,
@@ -3010,7 +3115,7 @@ async function parseRobotsTxt(websiteUrl: string): Promise<string[]> {
 }
 
 // Enhanced sitemap parser with better categorization
-async function parseEnhancedSitemap(sitemapUrl: string): Promise<Array<{
+async function parseEnhancedSitemap(sitemapUrl: string, userWebsiteUrl?: string): Promise<Array<{
   url: string;
   title: string;
   description?: string;
@@ -3035,7 +3140,7 @@ async function parseEnhancedSitemap(sitemapUrl: string): Promise<Array<{
       
       const allPages: any[] = [];
       for (const childSitemap of childSitemaps.slice(0, 10)) { // Limit to 10 child sitemaps
-        const childPages = await parseEnhancedSitemap(childSitemap);
+        const childPages = await parseEnhancedSitemap(childSitemap, userWebsiteUrl);
         allPages.push(...childPages);
       }
       return allPages;
@@ -3045,12 +3150,46 @@ async function parseEnhancedSitemap(sitemapUrl: string): Promise<Array<{
     const urlMatches = sitemapText.match(/<url>[\s\S]*?<\/url>/g) || [];
     const pages = [];
     
+    // Get user's preferred domain for URL normalization
+    let userDomain: string | null = null;
+    let domainNormalized = false;
+    if (userWebsiteUrl) {
+      try {
+        const parsedUserUrl = new URL(userWebsiteUrl);
+        userDomain = parsedUserUrl.origin; // e.g., "https://poshcave.shop"
+      } catch {
+        // Invalid URL, skip normalization
+      }
+    }
+    
     for (const urlBlock of urlMatches.slice(0, 500)) { // Limit to 500 URLs per sitemap
       const urlMatch = urlBlock.match(/<loc>(.*?)<\/loc>/);
       const lastModMatch = urlBlock.match(/<lastmod>(.*?)<\/lastmod>/);
       
       if (urlMatch) {
-        const url = urlMatch[1];
+        let url = urlMatch[1];
+        
+        // Normalize URL to use user's domain if provided
+        if (userDomain) {
+          try {
+            const parsedUrl = new URL(url);
+            const sitemapDomain = parsedUrl.origin; // e.g., "https://poshcave.com"
+            
+            // Replace sitemap domain with user's domain
+            if (sitemapDomain !== userDomain) {
+              url = url.replace(sitemapDomain, userDomain);
+              
+              // Log domain normalization only once
+              if (!domainNormalized) {
+                console.log(`🔄 Domain normalization: ${sitemapDomain} → ${userDomain}`);
+                domainNormalized = true;
+              }
+            }
+          } catch {
+            // Invalid URL, skip normalization for this entry
+          }
+        }
+        
         const title = extractTitleFromUrl(url);
         const pageType = categorizeWebsitePageAdvanced(url, title);
         const lastModified = lastModMatch ? new Date(lastModMatch[1]) : undefined;
