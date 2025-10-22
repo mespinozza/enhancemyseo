@@ -3047,7 +3047,7 @@ async function discoverWebsiteStructure(websiteUrl: string): Promise<{
     
     for (const sitemapPath of commonSitemapUrls) {
       const sitemapUrl = `${websiteUrl.replace(/\/$/, '')}${sitemapPath}`;
-      const sitemapPages = await parseEnhancedSitemap(sitemapUrl, websiteUrl);
+      const sitemapPages = await parseEnhancedSitemap(sitemapUrl);
       if (sitemapPages.length > 0) {
         allPages.push(...sitemapPages.map(page => ({
           ...page,
@@ -3115,7 +3115,7 @@ async function parseRobotsTxt(websiteUrl: string): Promise<string[]> {
 }
 
 // Enhanced sitemap parser with better categorization
-async function parseEnhancedSitemap(sitemapUrl: string, userWebsiteUrl?: string): Promise<Array<{
+async function parseEnhancedSitemap(sitemapUrl: string): Promise<Array<{
   url: string;
   title: string;
   description?: string;
@@ -3140,7 +3140,7 @@ async function parseEnhancedSitemap(sitemapUrl: string, userWebsiteUrl?: string)
       
       const allPages: any[] = [];
       for (const childSitemap of childSitemaps.slice(0, 10)) { // Limit to 10 child sitemaps
-        const childPages = await parseEnhancedSitemap(childSitemap, userWebsiteUrl);
+        const childPages = await parseEnhancedSitemap(childSitemap);
         allPages.push(...childPages);
       }
       return allPages;
@@ -3150,46 +3150,12 @@ async function parseEnhancedSitemap(sitemapUrl: string, userWebsiteUrl?: string)
     const urlMatches = sitemapText.match(/<url>[\s\S]*?<\/url>/g) || [];
     const pages = [];
     
-    // Get user's preferred domain for URL normalization
-    let userDomain: string | null = null;
-    let domainNormalized = false;
-    if (userWebsiteUrl) {
-      try {
-        const parsedUserUrl = new URL(userWebsiteUrl);
-        userDomain = parsedUserUrl.origin; // e.g., "https://poshcave.shop"
-      } catch {
-        // Invalid URL, skip normalization
-      }
-    }
-    
     for (const urlBlock of urlMatches.slice(0, 500)) { // Limit to 500 URLs per sitemap
       const urlMatch = urlBlock.match(/<loc>(.*?)<\/loc>/);
       const lastModMatch = urlBlock.match(/<lastmod>(.*?)<\/lastmod>/);
       
       if (urlMatch) {
-        let url = urlMatch[1];
-        
-        // Normalize URL to use user's domain if provided
-        if (userDomain) {
-          try {
-            const parsedUrl = new URL(url);
-            const sitemapDomain = parsedUrl.origin; // e.g., "https://poshcave.com"
-            
-            // Replace sitemap domain with user's domain
-            if (sitemapDomain !== userDomain) {
-              url = url.replace(sitemapDomain, userDomain);
-              
-              // Log domain normalization only once
-              if (!domainNormalized) {
-                console.log(`🔄 Domain normalization: ${sitemapDomain} → ${userDomain}`);
-                domainNormalized = true;
-              }
-            }
-          } catch {
-            // Invalid URL, skip normalization for this entry
-          }
-        }
-        
+        const url = urlMatch[1];
         const title = extractTitleFromUrl(url);
         const pageType = categorizeWebsitePageAdvanced(url, title);
         const lastModified = lastModMatch ? new Date(lastModMatch[1]) : undefined;
