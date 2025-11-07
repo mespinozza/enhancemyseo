@@ -788,6 +788,10 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   console.log('Searching products using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
   
+  if (identifiedVendor) {
+    console.log(`🎯 VENDOR FILTERING ACTIVE: Only products from "${identifiedVendor}" will be returned`);
+  }
+  
   // Step 1: Prioritize search terms by relevance
   const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
   console.log(`\nSearching ${prioritizedTerms.length} terms in priority order...`);
@@ -836,31 +840,34 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
       // Create comprehensive search queries to find exact phrases anywhere in the title
       const searchQueries = [];
       
+      // 🎯 VENDOR FILTERING: If vendor is identified, add vendor filter to ALL queries
+      const vendorFilter = identifiedVendor ? ` AND vendor:"${identifiedVendor}"` : '';
+      
       // For multi-word terms, search for exact phrase anywhere in title
       if (term.includes(' ')) {
         // Primary search: exact phrase match anywhere in title
-        searchQueries.push(`title:*${term}*`);
+        searchQueries.push(`title:*${term}*${vendorFilter}`);
         
         // Secondary search: try with quotes for exact phrase matching
-        searchQueries.push(`title:"${term}"`);
+        searchQueries.push(`title:"${term}"${vendorFilter}`);
         
         // Tertiary search: individual words that must all appear in title
         const words = term.split(' ').filter(word => word.length > 3);
         if (words.length > 1) {
-          searchQueries.push(`title:*${words[0]}* AND title:*${words[1]}*`);
+          searchQueries.push(`title:*${words[0]}* AND title:*${words[1]}*${vendorFilter}`);
           
           // If more than 2 words, try combinations
           if (words.length > 2) {
-            searchQueries.push(`title:*${words[0]}* AND title:*${words[1]}* AND title:*${words[2]}*`);
+            searchQueries.push(`title:*${words[0]}* AND title:*${words[1]}* AND title:*${words[2]}*${vendorFilter}`);
           }
         }
       } else {
         // For single words, search anywhere in title
-        searchQueries.push(`title:*${term}*`);
+        searchQueries.push(`title:*${term}*${vendorFilter}`);
         
         // Also try word boundary search if it's a significant term
         if (isSignificantTerm(term)) {
-          searchQueries.push(`title:"${term}"`);
+          searchQueries.push(`title:"${term}"${vendorFilter}`);
         }
       }
       
@@ -1223,7 +1230,67 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   
   // Step 3: Sort by score and select top collections
   candidateCollections.sort((a, b) => b.score - a.score);
-  const finalCollections = candidateCollections.slice(0, TARGET_COLLECTIONS).map(cc => cc.collection);
+  let finalCollections = candidateCollections.slice(0, TARGET_COLLECTIONS).map(cc => cc.collection);
+  
+  // 🎯 VENDOR FILTERING FOR COLLECTIONS: Filter collections by checking products within them
+  if (identifiedVendor && finalCollections.length > 0) {
+    console.log(`\n🎯 VENDOR FILTERING ACTIVE FOR COLLECTIONS: Checking products within collections for vendor "${identifiedVendor}"`);
+    
+    const vendorFilteredCollections = [];
+    
+    for (const collection of finalCollections) {
+      try {
+        // Fetch products in this collection
+        const collectionProductsQuery = `
+          query getCollectionProducts($id: ID!) {
+            collection(id: $id) {
+              products(first: 10) {
+                edges {
+                  node {
+                    vendor
+                  }
+                }
+              }
+            }
+          }
+        `;
+        
+        const response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': token,
+          },
+          body: JSON.stringify({
+            query: collectionProductsQuery,
+            variables: { id: collection.id }
+          }),
+        });
+        
+        const data = await response.json();
+        const products = data?.data?.collection?.products?.edges || [];
+        
+        // Check if any products in this collection match the target vendor
+        const hasVendorProducts = products.some((edge: any) => 
+          edge.node.vendor?.toLowerCase() === identifiedVendor.toLowerCase()
+        );
+        
+        if (hasVendorProducts) {
+          vendorFilteredCollections.push(collection);
+          console.log(`✓ Collection "${collection.title}" contains ${identifiedVendor} products - INCLUDED`);
+        } else {
+          console.log(`✗ Collection "${collection.title}" has no ${identifiedVendor} products - FILTERED OUT`);
+        }
+      } catch (error) {
+        console.error(`Error checking products in collection "${collection.title}":`, error);
+        // Include collection if error occurs (fail gracefully)
+        vendorFilteredCollections.push(collection);
+      }
+    }
+    
+    finalCollections = vendorFilteredCollections;
+    console.log(`📊 After vendor filtering: ${finalCollections.length}/${candidateCollections.slice(0, TARGET_COLLECTIONS).length} collections contain ${identifiedVendor} products`);
+  }
   
   console.log(`\n📊 Collection Selection Summary:`);
   console.log(`- Total candidates found: ${candidateCollections.length}`);
@@ -1231,8 +1298,8 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   
   if (finalCollections.length > 0) {
     console.log('\n🏆 Selected collections (by relevance score):');
-    candidateCollections.slice(0, TARGET_COLLECTIONS).forEach((cc, index) => {
-      console.log(`${index + 1}. "${cc.collection.title}" (Score: ${cc.score}, Term: "${cc.searchTerm}")`);
+    finalCollections.forEach((collection, index) => {
+      console.log(`${index + 1}. "${collection.title}"`);
     });
   }
   
@@ -1240,11 +1307,38 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
 }
 
 // Update the main search functions to use GraphQL only, with REST as fallback
-async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<Array<{ id: string; title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; handle?: string; relevanceScore?: number; [key: string]: unknown }>> {
+async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], preDetectedVendor: string | null = null): Promise<Array<{ id: string; title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; handle?: string; relevanceScore?: number; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // Step 1: Extract comprehensive terms using AI analysis (always do this first)
+  // 🎯 If vendor was pre-detected, use it and skip re-detection
+  if (preDetectedVendor) {
+    console.log(`\n🎯 USING PRE-DETECTED VENDOR: "${preDetectedVendor}" - Skipping internal vendor detection`);
+    
+    // Still extract terms but use pre-detected vendor
+    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+    const aiExtractedTerms = aiAnalysisResult.searchTerms;
+    
+    console.log(`AI extracted ${aiExtractedTerms.length} terms:`, aiExtractedTerms.join(', '));
+    
+    // Skip to GraphQL search with pre-detected vendor
+    try {
+      const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, aiExtractedTerms, preDetectedVendor, originalKeyword);
+      
+      if (graphqlResults.length > 0) {
+        console.log(`✅ GraphQL found ${graphqlResults.length} products for vendor "${preDetectedVendor}"`);
+        return graphqlResults;
+      } else {
+        console.log(`❌ No products found for vendor "${preDetectedVendor}"`);
+        return [];
+      }
+    } catch (error) {
+      console.error('❌ GraphQL search failed:', error);
+      return [];
+    }
+  }
+  
+  // Step 1: Extract comprehensive terms using AI analysis (only if vendor not pre-detected)
   console.log('\n=== STEP 1: AI Term Extraction ===');
   const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
@@ -1319,11 +1413,47 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   }
 }
 
-async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<Array<{ id: string; title: string; description?: string; handle: string; [key: string]: unknown }>> {
+async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], preDetectedVendor: string | null = null): Promise<Array<{ id: string; title: string; description?: string; handle: string; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // Step 1: Extract comprehensive terms using AI analysis (reuse from products search)
+  // 🎯 If vendor was pre-detected, use it and skip re-detection
+  if (preDetectedVendor) {
+    console.log(`\n🎯 USING PRE-DETECTED VENDOR FOR COLLECTIONS: "${preDetectedVendor}" - Skipping internal vendor detection`);
+    
+    // Still extract terms but use pre-detected vendor
+    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+    const aiExtractedTerms = aiAnalysisResult.searchTerms;
+    
+    console.log(`AI extracted ${aiExtractedTerms.length} terms for collections:`, aiExtractedTerms.join(', '));
+    
+    // Filter terms for collections (be more selective)
+    const validSearchTerms = aiExtractedTerms.filter((term: string) => {
+      if (term.length < 4) return false;
+      if (['how', 'the', 'and', 'for', 'with'].includes(term.toLowerCase())) return false;
+      return true;
+    });
+    
+    console.log(`Using ${validSearchTerms.length} filtered terms for collection search`);
+    
+    // Skip to GraphQL search with pre-detected vendor
+    try {
+      const graphqlResults = await searchCollectionsWithGraphQL(shopDomain, token, validSearchTerms, preDetectedVendor, originalKeyword);
+      
+      if (graphqlResults.length > 0) {
+        console.log(`✅ GraphQL found ${graphqlResults.length} collections for vendor "${preDetectedVendor}"`);
+        return graphqlResults;
+      } else {
+        console.log(`❌ No collections found for vendor "${preDetectedVendor}"`);
+        return [];
+      }
+    } catch (error) {
+      console.error('❌ GraphQL collections search failed:', error);
+      return [];
+    }
+  }
+  
+  // Step 1: Extract comprehensive terms using AI analysis (only if vendor not pre-detected)
   console.log('\n=== COLLECTIONS STEP 1: AI Term Extraction ===');
   const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
@@ -2668,6 +2798,7 @@ export async function POST(request: Request) {
     let relatedProductsList = '', relatedCollectionsList = '', relatedPagesList = '', relatedWebsiteContentList = '';
     let integrationPrompt = '';
     let integrationStatus = 'none'; // Track overall integration status
+    let detectedVendor: string | null = null; // Track detected vendor for vendor-specific filtering
     
     if (contentSelection) {
       // Create a brandProfile-like object for integration detection
@@ -2753,17 +2884,28 @@ export async function POST(request: Request) {
       }
       
       // Build integration prompt based on collected content
-      integrationPrompt = buildIntegrationPrompt(relatedProductsList, relatedCollectionsList, relatedPagesList, relatedWebsiteContentList);
+      integrationPrompt = buildIntegrationPrompt(relatedProductsList, relatedCollectionsList, relatedPagesList, relatedWebsiteContentList, detectedVendor);
     }
     
     // Helper functions for content handling
     async function handleAutomaticShopifyContent(contentSelection: any, shopDomain: string, accessToken: string, currentSearchTerms: string[], currentAvailableVendors: string[], storeUrl: string) {
       const searchQueries = currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
       
+      // 🎯 VENDOR DETECTION: Extract vendor from keyword before any searches
+      console.log('\n🔍 PRE-SEARCH VENDOR DETECTION');
+      const aiAnalysisResult = await extractKeyTerms('', keyword, currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchShopifyVendors(shopDomain, accessToken));
+      detectedVendor = aiAnalysisResult.primaryVendor;
+      
+      if (detectedVendor) {
+        console.log(`🎯 VENDOR DETECTED: "${detectedVendor}" - All content will be filtered to this vendor`);
+      } else {
+        console.log(`ℹ️  No specific vendor detected - Using all available content`);
+      }
+      
       // Search products if enabled
       if (contentSelection.automaticOptions.includeProducts) {
         console.log('🔍 Searching Shopify products...');
-        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, currentAvailableVendors);
+        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor);
         if (products.length > 0) {
           relatedProductsList = products.map(p => `• ${p.title} - ${storeUrl}/products/${p.handle}`).join('\n');
           console.log(`✅ Found ${products.length} relevant products`);
@@ -2773,7 +2915,7 @@ export async function POST(request: Request) {
       // Search collections if enabled
       if (contentSelection.automaticOptions.includeCollections) {
         console.log('🔍 Searching Shopify collections...');
-        const collections = await searchCollectionsWithGraphQL(shopDomain, accessToken, searchQueries, null, keyword);
+        const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor);
         if (collections.length > 0) {
           relatedCollectionsList = collections.map(c => `• ${c.title} - ${storeUrl}/collections/${c.handle}`).join('\n');
           console.log(`✅ Found ${collections.length} relevant collections`);
@@ -2937,7 +3079,7 @@ export async function POST(request: Request) {
       }
     }
     
-    function buildIntegrationPrompt(products: string, collections: string, pages: string, websiteContent: string): string {
+    function buildIntegrationPrompt(products: string, collections: string, pages: string, websiteContent: string, vendor: string | null = null): string {
       let prompt = '';
       
       if (products) {
@@ -2958,6 +3100,20 @@ export async function POST(request: Request) {
       
       if (prompt) {
         prompt = `\n\nIMPORTANT: Please naturally incorporate links to the following relevant content throughout the article where contextually appropriate:${prompt}`;
+        
+        // 🎯 Add vendor-specific linking restriction if vendor was detected
+        if (vendor) {
+          prompt += `\n\n⚠️  CRITICAL VENDOR RESTRICTION ⚠️
+This article is specifically about ${vendor} products. The content provided above has been pre-filtered to ONLY include ${vendor} products, collections, and pages.
+
+YOU MUST:
+- ONLY link to the ${vendor} products and collections listed above
+- DO NOT mention or link to ANY other brands (like Delfield, Garland, Frymaster, AccuTemp, etc.)
+- DO NOT create generic product examples from other brands
+- If you need to mention alternatives or comparisons, keep them general without brand names
+
+This restriction ensures brand consistency and relevance throughout the article.`;
+        }
         
         // Add comprehensive linking rules for proper context matching
         prompt += `\n\n=== CRITICAL LINKING RULES ===
