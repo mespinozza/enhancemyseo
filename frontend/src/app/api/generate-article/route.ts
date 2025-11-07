@@ -60,6 +60,77 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Helper function to extract primary keyword terms (main subject nouns)
+function extractPrimaryKeywordTerms(keyword: string): { 
+  primaryTerms: string[]; 
+  contextTerms: string[]; 
+  allWords: string[] 
+} {
+  const keywordLower = keyword.toLowerCase();
+  const words = keywordLower.split(' ').filter(w => w.length > 2);
+  
+  // Common filter/modifier words that are context, not primary subject
+  const contextWords = [
+    'best', 'top', 'good', 'great', 'quality', 'high',
+    'replacement', 'new', 'used', 'commercial', 'industrial',
+    'how', 'what', 'why', 'when', 'where', 'guide', 'tips'
+  ];
+  
+  // Common stopwords to exclude entirely
+  const stopWords = [
+    'the', 'a', 'an', 'and', 'or', 'but', 'for', 'with', 'from',
+    'to', 'of', 'in', 'on', 'at', 'by'
+  ];
+  
+  const primaryTerms: string[] = [];
+  const contextTerms: string[] = [];
+  
+  for (const word of words) {
+    if (stopWords.includes(word)) {
+      continue;
+    } else if (contextWords.includes(word)) {
+      contextTerms.push(word);
+    } else {
+      // These are the main subject terms (nouns)
+      primaryTerms.push(word);
+    }
+  }
+  
+  return { 
+    primaryTerms, 
+    contextTerms, 
+    allWords: words.filter(w => !stopWords.includes(w))
+  };
+}
+
+// Helper function to get word stem (remove common suffixes for fuzzy matching)
+function getWordStem(word: string): string {
+  const wordLower = word.toLowerCase();
+  
+  // Remove common plural and verb suffixes
+  // Order matters - check longer suffixes first
+  const suffixes = [
+    'ies',   // batteries → batter (will be handled by 'ies' → 'y')
+    'es',    // boxes → box, dishes → dish
+    'ed',    // heated → heat
+    'ing',   // heating → heat
+    's'      // evaporators → evaporator, freezers → freezer
+  ];
+  
+  for (const suffix of suffixes) {
+    if (wordLower.endsWith(suffix) && wordLower.length > suffix.length + 2) {
+      // Special case: 'ies' → 'y' (e.g., batteries → battery)
+      if (suffix === 'ies') {
+        return wordLower.slice(0, -3) + 'y';
+      }
+      // For other suffixes, just remove them
+      return wordLower.slice(0, -suffix.length);
+    }
+  }
+  
+  return wordLower;
+}
+
 // Function to extract key terms from topic breakdown
 async function extractKeyTerms(text: string, keyword: string, availableVendors: string[] = []): Promise<{ searchTerms: string[], primaryVendor: string | null }> {
   try {
@@ -125,24 +196,11 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // If we still couldn't find a vendor match, ONLY THEN fall back to using the first meaningful word
+    // If no vendor match found in actual Shopify vendors, return null (don't guess)
     if (!primaryVendor) {
-      console.log(`No vendor match found in available vendors list. Attempting to identify potential brand from keyword.`);
-      
-      // Find the first word that could be a brand (not a common word, not too short)
-      for (const word of keywordWords) {
-        if (word.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset", "find", "install", "remove", "repair", "help"].includes(word)) {
-          primaryVendor = word;
-          console.log(`Using word as potential brand: "${primaryVendor}"`);
-          break;
-        }
-      }
-      
-      // If still no vendor, use first word as last resort
-      if (!primaryVendor) {
-        primaryVendor = keywordWords[0];
-        console.log(`No meaningful brand words found. Using first word as fallback: "${primaryVendor}"`);
-      }
+      console.log(`✓ No vendor match found in Shopify store (checked ${availableVendors.length} vendors).`);
+      console.log(`→ Will search ALL vendors without filtering. Products from any brand matching keyword terms will be included.`);
+      // primaryVendor remains null - no guessing, no fallback
     }
     
     // Now extract component terms using the identified brand/vendor
@@ -1169,38 +1227,43 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
                 }
               }
             } else {
-              // For single words, use enhanced matching logic for collections
-              let shouldMatch = false;
+              // For single words, use tiered matching logic for collections with stem matching
+              const pattern = new RegExp(`\\b${escapeRegExp(searchTerm)}\\b`);
+              const termStem = getWordStem(searchTerm);
               
-              // Always match if it's a significant product term
-              if (isSignificantTerm(term)) {
-                shouldMatch = true;
-                score += 10;
-                console.log(`✓ Matching significant product term for collections: "${term}"`);
-              }
-              // Always match if it's the identified vendor
-              else if (identifiedVendor && term.toLowerCase() === identifiedVendor.toLowerCase()) {
-                shouldMatch = true;
-                score += 8;
-                console.log(`✓ Matching vendor term for collections: "${term}"`);
-              }
-              // Also match terms that are longer than 4 characters and not common words (likely meaningful)
-              else if (term.length > 4 && !COMMON_WORDS.includes(term.toLowerCase())) {
-                shouldMatch = true;
-                score += 6;
-                console.log(`✓ Matching meaningful term for collections: "${term}"`);
-              }
+              // Check for exact match or stem match
+              isMatch = pattern.test(collectionTitle) || collectionTitle.includes(termStem);
               
-              if (shouldMatch) {
-                const pattern = new RegExp(`\\b${escapeRegExp(searchTerm)}\\b`);
-                isMatch = pattern.test(collectionTitle);
-                if (isMatch) {
-                  console.log(`✓ Word "${term}" found in collection: "${collection.title}"`);
-                } else {
-                  console.log(`✗ Word "${term}" not found in collection: "${collection.title}"`);
+              if (isMatch) {
+                // Extract keyword structure for tiered scoring
+                const keywordStructure = extractPrimaryKeywordTerms(originalKeyword);
+                const { primaryTerms, contextTerms } = keywordStructure;
+                const termLower = term.toLowerCase();
+                
+                // TIER 1: Primary terms or vendor (main categories) - +15 points
+                if (primaryTerms.includes(termLower) || 
+                    (identifiedVendor && termLower === identifiedVendor.toLowerCase())) {
+                  score += 15;
+                  const matchType = pattern.test(collectionTitle) ? 'exact' : `stem: "${termStem}"`;
+                  console.log(`✓ [TIER 1 COLLECTION] Primary/Vendor term "${term}" (${matchType}) found in: "${collection.title}"`);
                 }
-              } else {
-                console.log(`⚠️ Skipping non-significant term for collections: "${term}"`);
+                // TIER 2: Context terms (category modifiers) - +10 points  
+                else if (contextTerms.includes(termLower)) {
+                  score += 10;
+                  const matchType = pattern.test(collectionTitle) ? 'exact' : `stem: "${termStem}"`;
+                  console.log(`✓ [TIER 2 COLLECTION] Context term "${term}" (${matchType}) found in: "${collection.title}"`);
+                }
+                // TIER 3: Component terms (specific parts) - +5 points
+                else if (term.length > 4 && !COMMON_WORDS.includes(termLower)) {
+                  score += 5;
+                  const matchType = pattern.test(collectionTitle) ? 'exact' : `stem: "${termStem}"`;
+                  console.log(`✓ [TIER 3 COLLECTION] Component term "${term}" (${matchType}) found in: "${collection.title}"`);
+                }
+                // Skip very generic/short terms
+                else {
+                  isMatch = false;
+                  console.log(`⚠️ Skipping non-significant term for collections: "${term}"`);
+                }
               }
             }
             
@@ -1643,6 +1706,7 @@ async function searchShopifyPages(shopDomain: string, token: string, searchTerms
 }
 
 // Function to search pages using GraphQL with intelligent scoring
+// NOTE: Shopify's pages field doesn't support query parameter, so we fetch ALL pages and filter client-side
 async function searchPagesWithGraphQL(shopDomain: string, token: string, searchTerms: string[], originalKeyword: string = ''): Promise<Array<{
   id: string;
   title: string;
@@ -1668,159 +1732,184 @@ async function searchPagesWithGraphQL(shopDomain: string, token: string, searchT
     'newsletter', 'subscribe', 'unsubscribe', 'sitemap', 'search'
   ];
   
-  console.log(`🔍 Starting GraphQL search for pages with ${searchTerms.length} terms`);
-  console.log(`Search terms: ${searchTerms.join(', ')}`);
+  console.log(`🔍 Fetching ALL pages from Shopify (pages field doesn't support search)`);
+  console.log(`Will filter client-side for terms: ${searchTerms.join(', ')}`);
   
-  for (const searchTerm of searchTerms) {
-    if (matchedPages.length >= 3) break; // Limit to top 3 pages
-    
-    console.log(`\n📄 Searching pages for: "${searchTerm}"`);
-    
-    const query = `
-      query searchPages($query: String!, $first: Int!) {
-        pages(first: $first, query: $query) {
-          edges {
-            node {
-              id
-              title
-              handle
-              bodySummary
-              createdAt
-              updatedAt
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
+  // Fetch ALL pages (no query parameter - not supported by Shopify)
+  const query = `
+    query getAllPages($first: Int!) {
+      pages(first: $first) {
+        edges {
+          node {
+            id
+            title
+            handle
+            bodySummary
+            createdAt
+            updatedAt
           }
         }
-      }
-    `;
-    
-    const variables = {
-      query: `title:*${searchTerm}*`,
-      first: 20
-    };
-    
-    try {
-      await sleep(200); // Rate limiting
-      
-      const response = await fetch(`https://${shopDomain}/admin/api/2023-10/graphql.json`, {
-        method: 'POST',
-        headers: {
-          'X-Shopify-Access-Token': token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query, variables })
-      });
-      
-      if (!response.ok) {
-        console.error(`GraphQL request failed: ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-      if (data.errors) {
-        console.error('GraphQL errors:', data.errors);
-        continue;
-      }
-      
-      const pages = data.data?.pages?.edges || [];
-      console.log(`Found ${pages.length} pages for term "${searchTerm}"`);
-      
-      for (const edge of pages) {
-        const page = edge.node;
-        
-        // Skip pages that are already included
-        if (matchedPages.some(p => p.id === page.id)) {
-          continue;
+        pageInfo {
+          hasNextPage
+          endCursor
         }
-        
-        // Calculate relevance score
-        const titleRelevanceScore = calculateTitleRelevanceScore(page.title, searchTerm, originalKeyword);
-        
-        // Filter out generic pages
-        const titleLower = page.title.toLowerCase();
-        const isGenericPage = genericPageKeywords.some(keyword => 
-          titleLower.includes(keyword)
-        );
-        
-        if (isGenericPage) {
-          console.log(`❌ Filtering out generic page: "${page.title}"`);
-          continue;
-        }
-        
-        // Only include pages with good relevance (score >= 2)
-        if (titleRelevanceScore >= 2) {
-          console.log(`✅ Including relevant page: "${page.title}" (score: ${titleRelevanceScore})`);
-          matchedPages.push({
-            ...page,
-            relevanceScore: titleRelevanceScore,
-            matchedTerm: searchTerm
-          });
-        } else {
-          console.log(`❌ Low relevance page: "${page.title}" (score: ${titleRelevanceScore})`);
-        }
-        
-        if (matchedPages.length >= 3) break;
       }
-    } catch (error) {
-      console.error(`Error searching pages for "${searchTerm}":`, error);
     }
+  `;
+  
+  const variables = {
+    first: 250 // Fetch up to 250 pages (most stores have far fewer)
+  };
+  
+  try {
+    await sleep(200); // Rate limiting
+    
+    const response = await fetch(`https://${shopDomain}/admin/api/2023-10/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, variables })
+    });
+    
+    if (!response.ok) {
+      console.error(`GraphQL request failed: ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    
+    if (data.errors) {
+      console.error('GraphQL errors:', data.errors);
+      return [];
+    }
+    
+    const allPages = data.data?.pages?.edges || [];
+    console.log(`✓ Fetched ${allPages.length} total pages from store`);
+    
+    // Now filter client-side for our search terms
+    for (const edge of allPages) {
+      if (matchedPages.length >= 3) break; // Limit to top 3 pages
+      
+      const page = edge.node;
+      const titleLower = page.title.toLowerCase();
+      const handleLower = page.handle.toLowerCase();
+      
+      // Filter out generic pages first
+      const isGenericPage = genericPageKeywords.some(keyword => 
+        titleLower.includes(keyword)
+      );
+      
+      if (isGenericPage) {
+        continue;
+      }
+      
+      // Check if page matches any of our search terms
+      let bestRelevanceScore = 0;
+      let matchedTerm = '';
+      
+      for (const searchTerm of searchTerms) {
+        const termLower = searchTerm.toLowerCase();
+        
+        // Check if term appears in title or handle
+        if (titleLower.includes(termLower) || handleLower.includes(termLower)) {
+          const relevanceScore = calculateTitleRelevanceScore(page.title, searchTerm, originalKeyword);
+          
+          if (relevanceScore > bestRelevanceScore) {
+            bestRelevanceScore = relevanceScore;
+            matchedTerm = searchTerm;
+          }
+        }
+      }
+      
+      // Only include pages with good relevance (score >= 2)
+      if (bestRelevanceScore >= 2) {
+        console.log(`✅ Including relevant page: "${page.title}" (score: ${bestRelevanceScore}, matched: "${matchedTerm}")`);
+        matchedPages.push({
+          ...page,
+          relevanceScore: bestRelevanceScore,
+          matchedTerm
+        });
+      }
+    }
+    
+    // Sort by relevance score (highest first)
+    matchedPages.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    
+    console.log(`\n✓ Found ${matchedPages.length} relevant pages after client-side filtering`);
+    
+    return matchedPages.slice(0, 3); // Return top 3
+    
+  } catch (error) {
+    console.error('❌ Error fetching pages:', error);
+    return [];
   }
-  
-  // Sort by relevance score (highest first) and return top 3
-  const sortedPages = matchedPages
-    .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
-    .slice(0, 3);
-  
-  console.log(`\n📄 Final page selection: ${sortedPages.length} pages`);
-  sortedPages.forEach(page => {
-    console.log(`- "${page.title}" (score: ${page.relevanceScore}, matched: "${page.matchedTerm}")`);
-  });
-  
-  return sortedPages;
 }
 
 // Helper function to calculate title relevance score for pages
 function calculateTitleRelevanceScore(title: string, searchTerm: string, originalKeyword: string): number {
   const titleLower = title.toLowerCase();
   const searchTermLower = searchTerm.toLowerCase();
-  const originalKeywordLower = originalKeyword.toLowerCase();
   
   let score = 0;
   
-  // Exact match with search term (highest priority)
-  if (titleLower === searchTermLower) {
-    score += 5;
-  } else if (titleLower.includes(searchTermLower)) {
+  // Extract keyword structure for tiered scoring
+  const keywordStructure = extractPrimaryKeywordTerms(originalKeyword);
+  const { primaryTerms, contextTerms } = keywordStructure;
+  
+  // TIERED SCORING FOR PAGES:
+  
+  // TIER 1: Primary keyword terms (main topic) - +15 points per term (using stem matching)
+  primaryTerms.forEach(term => {
+    const termStem = getWordStem(term);
+    const exactPattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    
+    // Check for exact match first
+    if (exactPattern.test(titleLower)) {
+      score += 15;
+      console.log(`  +15: [TIER 1 PAGE] Primary term "${term}" (exact match)`);
+    }
+    // If no exact match, check for stem match
+    else if (titleLower.includes(termStem)) {
+      score += 15;
+      console.log(`  +15: [TIER 1 PAGE] Primary term "${term}" (stem: "${termStem}")`);
+    }
+  });
+  
+  // Bonus for multiple primary terms (strong topic match)
+  const primaryTermsFoundCount = primaryTerms.filter(term => {
+    const termStem = getWordStem(term);
+    const exactPattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    return exactPattern.test(titleLower) || titleLower.includes(termStem);
+  }).length;
+  
+  if (primaryTermsFoundCount >= 2) {
+    score += 10;
+    console.log(`  +10: Multiple primary terms in page title (${primaryTermsFoundCount} terms)`);
+  }
+  
+  // TIER 2: Context/informational terms - +8 points per term
+  const pageContextWords = ['guide', 'installation', 'maintenance', 'troubleshooting', 'repair', 'manual', 'tutorial', 'tips'];
+  pageContextWords.forEach(term => {
+    if (titleLower.includes(term)) {
+      score += 8;
+      console.log(`  +8: [TIER 2 PAGE] Informational term "${term}"`);
+    }
+  });
+  
+  contextTerms.forEach(term => {
+    const pattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    if (pattern.test(titleLower)) {
+      score += 8;
+      console.log(`  +8: [TIER 2 PAGE] Context term "${term}"`);
+    }
+  });
+  
+  // TIER 3: Component/search term matches - +3 points
+  if (titleLower.includes(searchTermLower)) {
     score += 3;
-  }
-  
-  // Exact match with original keyword
-  if (titleLower === originalKeywordLower) {
-    score += 4;
-  } else if (titleLower.includes(originalKeywordLower)) {
-    score += 2;
-  }
-  
-  // Word-level matches
-  const titleWords = titleLower.split(/\s+/);
-  const searchWords = searchTermLower.split(/\s+/);
-  const keywordWords = originalKeywordLower.split(/\s+/);
-  
-  // Check for exact word matches
-  for (const word of searchWords) {
-    if (word.length > 3 && titleWords.includes(word)) {
-      score += 1;
-    }
-  }
-  
-  for (const word of keywordWords) {
-    if (word.length > 3 && titleWords.includes(word)) {
-      score += 1;
-    }
+    console.log(`  +3: [TIER 3 PAGE] Contains search term "${searchTerm}"`);
   }
   
   return score;
@@ -1930,52 +2019,69 @@ function isSignificantTerm(term: string): boolean {
 function calculateProductRelevanceScore(product: { title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; [key: string]: unknown }, searchTerm: string, originalKeyword: string, identifiedVendor: string | null): number {
   const productTitle = product.title.toLowerCase();
   const searchTermLower = searchTerm.toLowerCase();
-  const originalKeywordLower = originalKeyword.toLowerCase();
   
   let score = 0;
   
-  // Extract key topic words from original keyword (excluding vendor name)
-  const topicWords = originalKeywordLower.split(' ').filter(word => 
-    word.length > 3 && 
-    !COMMON_WORDS.includes(word) &&
-    (!identifiedVendor || word !== identifiedVendor.toLowerCase())
-  );
+  // Extract keyword structure with tiered weighting
+  const keywordStructure = extractPrimaryKeywordTerms(originalKeyword);
+  const { primaryTerms, contextTerms } = keywordStructure;
+  
+  // Remove vendor from primary terms if identified
+  const filteredPrimaryTerms = identifiedVendor 
+    ? primaryTerms.filter(t => t !== identifiedVendor.toLowerCase())
+    : primaryTerms;
   
   console.log(`Scoring product "${product.title}" for term "${searchTerm}"`);
-  console.log(`Topic words: [${topicWords.join(', ')}]`);
+  console.log(`Primary terms: [${filteredPrimaryTerms.join(', ')}] | Context: [${contextTerms.join(', ')}]`);
   
-  // SCORE CALCULATION:
+  // TIERED SCORING SYSTEM:
   
-  // +15 points: Contains all words from the search term
-  const searchWords = searchTermLower.split(' ').filter(word => word.length > 2);
-  const allWordsFound = searchWords.every(word => {
-    const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
-    return pattern.test(productTitle);
-  });
-  if (allWordsFound && searchWords.length > 1) {
-    score += 15;
-    console.log(`  +15: Contains all search words [${searchWords.join(', ')}]`);
-  }
-  
-  // +10 points: Multi-word term match vs single word (more specific)
-  if (searchTerm.includes(' ')) {
-    score += 10;
-    console.log(`  +10: Multi-word search term`);
-  }
-  
-  // +8 points per topic word found in product title
-  topicWords.forEach(word => {
-    const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
-    if (pattern.test(productTitle)) {
-      score += 8;
-      console.log(`  +8: Contains topic word "${word}"`);
+  // TIER 1: Primary Keyword Terms (Main Subject) - HIGHEST PRIORITY
+  // +20 points per primary term found in product title (using stem matching for flexibility)
+  filteredPrimaryTerms.forEach(term => {
+    const termStem = getWordStem(term);
+    
+    // Check for exact match first
+    const exactPattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    if (exactPattern.test(productTitle)) {
+      score += 20;
+      console.log(`  +20: [TIER 1] Primary term "${term}" (exact match)`);
+    }
+    // If no exact match, check for stem match (handles plural/singular variations)
+    else if (productTitle.includes(termStem)) {
+      score += 20;
+      console.log(`  +20: [TIER 1] Primary term "${term}" (stem: "${termStem}")`);
     }
   });
   
-  // +5 points: Exact phrase match anywhere in title
+  // Bonus: Multiple primary terms found (strong relevance indicator)
+  const primaryTermsFoundCount = filteredPrimaryTerms.filter(term => {
+    const termStem = getWordStem(term);
+    const exactPattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    return exactPattern.test(productTitle) || productTitle.includes(termStem);
+  }).length;
+  
+  if (primaryTermsFoundCount >= 2) {
+    const bonus = primaryTermsFoundCount * 5;
+    score += bonus;
+    console.log(`  +${bonus}: Multiple primary terms bonus (${primaryTermsFoundCount} terms)`);
+  }
+  
+  // TIER 2: Context/Modifier Terms - MEDIUM PRIORITY
+  // +10 points per context term found
+  contextTerms.forEach(term => {
+    const pattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    if (pattern.test(productTitle)) {
+      score += 10;
+      console.log(`  +10: [TIER 2] Context term "${term}"`);
+    }
+  });
+  
+  // TIER 3: Component/Search Terms - LOWER PRIORITY
+  // +5 points: Exact phrase match for the search term
   if (productTitle.includes(searchTermLower)) {
     score += 5;
-    console.log(`  +5: Contains exact phrase "${searchTerm}"`);
+    console.log(`  +5: [TIER 3] Contains search term "${searchTerm}"`);
   }
   
   // +3 points: Contains vendor name (baseline relevance)
@@ -1986,7 +2092,7 @@ function calculateProductRelevanceScore(product: { title: string; description?: 
   
   // PENALTY POINTS (reduce score for generic/irrelevant products):
   
-  // -5 points: Generic electronic components (less relevant for mixing bowls)
+  // -5 points: Generic electronic components
   const genericTerms = ['circuit', 'breaker', 'switch', 'board', 'light', 'gfci', 'terminal', 'jumper', 'bearing', 'washer', 'screw'];
   genericTerms.forEach(genericTerm => {
     if (productTitle.includes(genericTerm)) {
