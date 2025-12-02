@@ -131,30 +131,24 @@ function getWordStem(word: string): string {
   return wordLower;
 }
 
-// AI-based fallback vendor detection using business type context
+// AI-based fallback vendor detection using business type context (Claude)
 async function fallbackVendorDetectionWithAI(
   keyword: string, 
   availableVendors: string[], 
   businessType: string
 ): Promise<string | null> {
   try {
-    console.log('🔍 Using AI fallback vendor detection with business type context...');
-    
-    // Create vendor list preview (limit to avoid token overflow)
-    const vendorPreview = availableVendors.length > 20 
-      ? `${availableVendors.length} vendors available in store` 
-      : availableVendors.join(', ');
+    console.log('🔍 Using Claude fallback vendor detection with business type context...');
     
     const fallbackPrompt = `Given the following information:
 - Business Type: "${businessType}"
 - Article Keyword: "${keyword}"
-- Available Vendors: ${vendorPreview}
 
 Task: Identify which word or phrase in the article keyword most likely represents a VENDOR/BRAND name in the "${businessType}" business niche.
 
 Rules:
 1. Consider the business type context - what brands would make sense in this industry?
-2. Ignore common words like "how", "to", "the", "install", "guide", etc.
+2. Ignore common words like "how", "to", "the", "install", "guide", "often", "should", etc.
 3. Look for proper nouns or brand names
 4. Model numbers (like "SER-60711-05") are NOT vendors
 5. If multiple words could be vendors, choose the most prominent brand name
@@ -171,39 +165,44 @@ Business Type: "Coffee Machine Parts"
 Keyword: "Best practices for espresso machine maintenance"
 Answer: NONE
 
+Example 3:
+Business Type: "Restaurant Equipment Parts"
+Keyword: "How Often Should Traulsen Refrigeration Parts Be Replaced?"
+Answer: Traulsen
+
 Now analyze:
 Business Type: "${businessType}"
 Keyword: "${keyword}"
 Answer:`;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 50,
       messages: [
         { role: 'user', content: fallbackPrompt }
-      ],
-      max_tokens: 50,
-      temperature: 0.1, // Low temperature for consistency
+      ]
     });
     
-    const detectedVendor = response.choices[0].message.content?.trim() || 'NONE';
-    console.log(`AI fallback detected vendor: "${detectedVendor}"`);
+    const contentBlock = response.content[0];
+    const detectedVendor = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || 'NONE';
+    console.log(`Claude fallback detected vendor: "${detectedVendor}"`);
     
     // Validate against available vendors (case-insensitive)
     if (detectedVendor && detectedVendor !== 'NONE') {
       const matchedVendor = availableVendors.find(v => v.toLowerCase() === detectedVendor.toLowerCase());
       if (matchedVendor) {
-        console.log(`✓ AI-detected vendor "${detectedVendor}" validated against store vendors: "${matchedVendor}"`);
+        console.log(`✓ Claude-detected vendor "${detectedVendor}" validated against store vendors: "${matchedVendor}"`);
         return matchedVendor;
       } else {
-        console.log(`⚠️ AI-detected vendor "${detectedVendor}" not found in store vendors`);
+        console.log(`⚠️ Claude-detected vendor "${detectedVendor}" not found in store vendors`);
         return null;
       }
     }
     
-    console.log('AI fallback returned no vendor');
+    console.log('Claude fallback returned no vendor');
     return null;
   } catch (error) {
-    console.error('Error in AI fallback vendor detection:', error);
+    console.error('Error in Claude fallback vendor detection:', error);
     return null;
   }
 }
@@ -275,11 +274,27 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // If no vendor match found in actual Shopify vendors, return null (don't guess)
+    // If no vendor match found in collections, try AI fallback with business type context
     if (!primaryVendor) {
-      console.log(`✓ No vendor match found in Shopify store (checked ${availableVendors.length} vendors).`);
-      console.log(`→ Will search ALL vendors without filtering. Products from any brand matching keyword terms will be included.`);
-      // primaryVendor remains null - no guessing, no fallback
+      console.log(`✓ No vendor match found in collections (checked ${availableVendors.length} collection titles).`);
+      
+      // Try Claude AI fallback with business type context
+      if (businessType && availableVendors.length > 0) {
+        console.log(`🤖 Attempting Claude fallback vendor detection with business type context...`);
+        try {
+          primaryVendor = await fallbackVendorDetectionWithAI(keyword, availableVendors, businessType);
+          if (primaryVendor) {
+            console.log(`✅ Claude fallback successfully identified vendor: "${primaryVendor}"`);
+          } else {
+            console.log(`ℹ️ Claude fallback returned no vendor - will search ALL vendors without filtering`);
+          }
+        } catch (fallbackError) {
+          console.error('❌ Claude fallback vendor detection error:', fallbackError);
+          console.log(`→ Will search ALL vendors without filtering`);
+        }
+      } else {
+        console.log(`→ Will search ALL vendors without filtering (no business type or collections available for AI fallback)`);
+      }
     }
     
     // Now extract component terms using the identified brand/vendor
@@ -302,19 +317,19 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       Text: ${text}
     `;
     
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 150,
       messages: [
         { role: 'user', content: extractionPrompt }
-      ],
-      max_tokens: 150,
-      temperature: 0.3,
+      ]
     });
     
-    const keyTermsText = response.choices[0].message.content?.trim() || '';
+    const contentBlock = response.content[0];
+    const keyTermsText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
     // Remove any quotes that might appear in the terms
     const cleanedTermsText = keyTermsText.replace(/["']/g, '');
-    const componentTerms = cleanedTermsText.split(',').map(term => term.trim()).filter(Boolean);
+    const componentTerms = cleanedTermsText.split(',').map((term: string) => term.trim()).filter(Boolean);
     
     // Always include the original parts of the keyword
     const keywordParts = keyword.split(' ');
@@ -325,7 +340,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     // Only create brand combinations if we have a brand
     if (primaryVendor) {
       // Combine brand with each component term
-      componentTerms.forEach(term => {
+      componentTerms.forEach((term: string) => {
         brandComponentTerms.push(`${primaryVendor} ${term}`);
       });
       
@@ -499,32 +514,34 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
   }
 }
 
-// Function to fetch all available vendors from a Shopify store with pagination
-async function fetchShopifyVendors(shopDomain: string, token: string): Promise<string[]> {
-  console.log('Fetching all available vendors from Shopify store using GraphQL with pagination...');
+// Function to fetch vendor names from Shopify collections (much faster and more accurate)
+async function fetchVendorsFromCollections(shopDomain: string, token: string): Promise<string[]> {
+  console.log('🏷️ Fetching vendors from Shopify collections (collection-based vendor detection)...');
   const vendors: string[] = [];
   
   try {
     let hasNextPage = true;
     let cursor: string | null = null;
     let pageCount = 0;
-    const MAX_PAGES = 10; // Safety limit: 10 pages * 250 = 2,500 vendors max
+    const MAX_PAGES = 10; // Most stores have < 2,500 collections
     
     while (hasNextPage && pageCount < MAX_PAGES) {
       pageCount++;
       
-      // GraphQL query with pagination support
+      // GraphQL query to fetch collections
       const graphqlQuery: string = `
         query {
-          shop {
-            productVendors(first: 250${cursor ? `, after: "${cursor}"` : ''}) {
-              edges {
-                node
+          collections(first: 250${cursor ? `, after: "${cursor}"` : ''}) {
+            edges {
+              node {
+                id
+                title
+                handle
               }
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
             }
           }
         }
@@ -539,155 +556,60 @@ async function fetchShopifyVendors(shopDomain: string, token: string): Promise<s
         body: JSON.stringify({ query: graphqlQuery }),
       });
       
-      console.log(`Vendor fetch page ${pageCount} response status:`, response.status);
+      console.log(`Collection fetch page ${pageCount} response status:`, response.status);
       
       if (!response.ok) {
         if (response.status === 429) {
-          // Handle rate limiting
           const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
           console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
           await sleep(retryAfter * 1000);
-          pageCount--; // Retry this page
-          continue;
-        }
-        
-        // If GraphQL fails, fall back to the original REST approach with optimizations
-        console.log('GraphQL vendor fetch failed, falling back to REST approach...');
-        return fetchShopifyVendorsWithREST(shopDomain, token);
-      }
-      
-      const data: any = await response.json();
-      
-      if (data.data?.shop?.productVendors) {
-        const vendorData: any = data.data.shop.productVendors;
-        
-        // Extract vendors from GraphQL response (preserve original case for proper matching)
-        vendorData.edges.forEach((edge: { node: string }) => {
-          if (edge.node && typeof edge.node === 'string' && edge.node.trim()) {
-            vendors.push(edge.node.trim());
-          }
-        });
-        
-        console.log(`Page ${pageCount}: Found ${vendorData.edges.length} vendors (total so far: ${vendors.length})`);
-        
-        // Check if there are more pages
-        hasNextPage = vendorData.pageInfo?.hasNextPage || false;
-        cursor = vendorData.pageInfo?.endCursor || null;
-        
-        if (!hasNextPage) {
-          console.log(`✓ Reached last page of vendors`);
-        }
-        
-        // Add small delay between pages to avoid rate limiting
-        if (hasNextPage) {
-          await sleep(300);
-        }
-      } else {
-        console.log('GraphQL vendor response missing expected data, falling back to REST approach...');
-        return fetchShopifyVendorsWithREST(shopDomain, token);
-      }
-    }
-    
-    if (pageCount >= MAX_PAGES && hasNextPage) {
-      console.log(`⚠️ Reached maximum page limit (${MAX_PAGES} pages, ${vendors.length} vendors). There may be more vendors.`);
-    }
-    
-    console.log(`✓ Completed vendor fetch with GraphQL. Found ${vendors.length} unique vendors across ${pageCount} page(s).`);
-    return vendors;
-  } catch (error) {
-    console.error('Error fetching vendors with GraphQL:', error);
-    console.log('Falling back to REST approach...');
-    return fetchShopifyVendorsWithREST(shopDomain, token);
-  }
-}
-
-// Fallback function using REST API but with optimizations
-async function fetchShopifyVendorsWithREST(shopDomain: string, token: string): Promise<string[]> {
-  console.log('Fetching all available vendors from Shopify store using REST API...');
-  const vendorSet = new Set<string>();
-  
-  try {
-    // Use larger page size and fetch fewer fields to improve efficiency
-    let hasNextPage = true;
-    let nextPageUrl: string | null = `https://${shopDomain}/admin/api/2023-01/products.json?fields=vendor&limit=250`;
-    let pageCount = 1;
-    const MAX_PAGES = 20; // Limit pages to avoid excessive API calls
-    
-    while (hasNextPage && nextPageUrl && pageCount <= MAX_PAGES) {
-      console.log(`Fetching vendors page ${pageCount}...`);
-      
-      // Add rate limiting
-      await sleep(500);
-      
-      const response = await fetch(nextPageUrl, {
-        headers: {
-          'X-Shopify-Access-Token': token,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      console.log(`Vendor fetch response status (page ${pageCount}):`, response.status);
-      
-      if (!response.ok) {
-        if (response.status === 429) {
-          // Handle rate limiting
-          const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
-          console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
-          await sleep(retryAfter * 1000);
-          pageCount--; // Retry this page
+          pageCount--;
           continue;
         }
         throw new Error(`Shopify API returned ${response.status}`);
       }
       
-      // Check for Link header which contains pagination info
-      const linkHeader: string | null = response.headers.get('Link');
-      nextPageUrl = null;
+      const data: any = await response.json();
       
-      if (linkHeader) {
-        // Parse Link header to get next page URL
-        const links: string[] = linkHeader.split(',');
-        for (const link of links) {
-          const match: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="([^"]+)"/);
-          if (match && match[2] === 'next') {
-            nextPageUrl = match[1];
-            break;
-          }
-        }
-      }
-      
-      hasNextPage = !!nextPageUrl;
-      
-      const data = await response.json();
-      
-      if (data.products && data.products.length > 0) {
-        // Extract vendors and add to set (preserve original case for proper matching)
-        data.products.forEach((product: { vendor?: string }) => {
-          if (product.vendor && product.vendor.trim()) {
-            vendorSet.add(product.vendor.trim());
+      if (data.data?.collections) {
+        const collectionData: any = data.data.collections;
+        
+        // Extract collection titles as potential vendor names (preserve original case)
+        collectionData.edges.forEach((edge: { node: { title: string } }) => {
+          if (edge.node && edge.node.title && edge.node.title.trim()) {
+            const collectionTitle = edge.node.title.trim();
+            // Add collection title as a potential vendor
+            vendors.push(collectionTitle);
           }
         });
         
-        console.log(`Found ${vendorSet.size} unique vendors so far`);
-      }
-      
-      pageCount++;
-      
-      // If we have a good number of vendors, we can exit early
-      if (vendorSet.size >= 50) {
-        console.log('Found sufficient number of vendors, stopping pagination');
+        console.log(`Page ${pageCount}: Found ${collectionData.edges.length} collections (total: ${vendors.length})`);
+        
+        hasNextPage = collectionData.pageInfo?.hasNextPage || false;
+        cursor = collectionData.pageInfo?.endCursor || null;
+        
+        if (!hasNextPage) {
+          console.log(`✓ Reached last page of collections`);
+        }
+        
+        if (hasNextPage) {
+          await sleep(300);
+        }
+      } else {
+        console.log('GraphQL collections response missing expected data');
         break;
       }
     }
     
-    // Convert set to array
-    const vendors = Array.from(vendorSet);
-    console.log(`Completed vendor fetch with REST. Found ${vendors.length} unique vendors.`);
+    if (pageCount >= MAX_PAGES && hasNextPage) {
+      console.log(`⚠️ Reached maximum page limit (${MAX_PAGES} pages, ${vendors.length} collections). There may be more.`);
+    }
     
+    console.log(`✓ Completed collection-based vendor fetch. Found ${vendors.length} collection titles to use as vendor names.`);
     return vendors;
   } catch (error) {
-    console.error('Error fetching vendors with REST:', error);
-    return Array.from(vendorSet); // Return whatever we've collected so far
+    console.error('Error fetching vendors from collections:', error);
+    return vendors; // Return whatever we've collected so far
   }
 }
 
@@ -760,8 +682,8 @@ async function identifyVendorFromKeyword(
   let vendorsList = availableVendors;
   
   if (vendorsList.length === 0) {
-    console.log('No vendors list provided, fetching vendors from store...');
-    vendorsList = await fetchShopifyVendors(shopDomain, token);
+    console.log('No vendors list provided, fetching vendors from collections...');
+    vendorsList = await fetchVendorsFromCollections(shopDomain, token);
   }
   
   // If we have existing terms, this is an enhancement call
@@ -1238,12 +1160,77 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   console.log('Searching collections using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy for collections: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
   
+  // 🎯 PRIORITY STEP: If vendor detected, immediately fetch vendor collection (guaranteed include)
+  let vendorCollection: { id: string; title: string; description?: string; handle: string; [key: string]: unknown } | null = null;
+  
+  if (identifiedVendor) {
+    console.log(`\n🎯 Attempting to fetch vendor collection for: "${identifiedVendor}"`);
+    try {
+      const vendorCollectionQuery = `
+        query searchVendorCollection($query: String!) {
+          collections(first: 5, query: $query) {
+            edges {
+              node {
+                id
+                title
+                handle
+                description
+              }
+            }
+          }
+        }
+      `;
+      
+      const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: vendorCollectionQuery,
+          variables: { query: `title:${identifiedVendor}` }
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const collections = data.data?.collections?.edges || [];
+        
+        // Find exact match (case-insensitive)
+        const exactMatch = collections.find((edge: any) => 
+          edge.node.title.toLowerCase() === identifiedVendor.toLowerCase()
+        );
+        
+        if (exactMatch && exactMatch.node) {
+          vendorCollection = exactMatch.node;
+          console.log(`✅ Found vendor collection: "${exactMatch.node.title}" - This will be prioritized and included`);
+        } else {
+          console.log(`ℹ️  No exact collection match found for vendor "${identifiedVendor}"`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching vendor collection:`, error);
+    }
+  }
+  
   // Step 1: Prioritize search terms by relevance (reuse same logic as products)
   const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
   console.log(`\nSearching ${prioritizedTerms.length} terms for collections in priority order...`);
   
   // Step 2: Collect collections with basic scoring
-  const candidateCollections: { collection: { id: string; title: string; description?: string; handle: string; [key: string]: unknown }, score: number, searchTerm: string }[] = [];
+  const candidateCollections: { collection: { id: string; title: string; description?: string; handle: string; [key: string]: unknown }, score: number, searchTerm: string, isVendorCollection?: boolean }[] = [];
+  
+  // Add vendor collection first with highest score if found
+  if (vendorCollection && identifiedVendor) {
+    candidateCollections.push({
+      collection: vendorCollection,
+      score: 100, // Highest priority score
+      searchTerm: identifiedVendor,
+      isVendorCollection: true // Mark to skip vendor filtering
+    });
+    console.log(`🎯 Vendor collection "${vendorCollection.title}" added as priority collection (Score: 100)`);
+  }
   const TARGET_COLLECTIONS = 5;
   
   for (const term of prioritizedTerms) {
@@ -1320,9 +1307,14 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
           collections.forEach((edge: { node: { id: string; title: string; description?: string; handle: string; [key: string]: unknown } }) => {
             const collection = edge.node;
             
-            // Check if we already have this collection
+            // Check if we already have this collection (including vendor collection)
             if (candidateCollections.some(cc => cc.collection.id === collection.id)) {
               return; // Skip duplicates
+            }
+            
+            // Skip if this is the vendor collection (already added as priority)
+            if (vendorCollection !== null && collection.id === vendorCollection.id) {
+              return; // Already added as vendor collection
             }
             
             // Check if collection title actually contains our search term (case insensitive)
@@ -1426,7 +1418,8 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   
   // Step 3: Sort by score and select top collections
   candidateCollections.sort((a, b) => b.score - a.score);
-  let finalCollections = candidateCollections.slice(0, TARGET_COLLECTIONS).map(cc => cc.collection);
+  const topCandidates = candidateCollections.slice(0, TARGET_COLLECTIONS);
+  let finalCollections = topCandidates.map(cc => cc.collection);
   
   // 🎯 VENDOR FILTERING FOR COLLECTIONS: Filter collections by checking products within them
   if (identifiedVendor && finalCollections.length > 0) {
@@ -1434,7 +1427,17 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
     
     const vendorFilteredCollections = [];
     
-    for (const collection of finalCollections) {
+    for (let i = 0; i < finalCollections.length; i++) {
+      const collection = finalCollections[i];
+      const candidate = topCandidates[i];
+      
+      // Skip vendor filtering for the vendor collection itself (it's the brand collection)
+      if (candidate.isVendorCollection) {
+        vendorFilteredCollections.push(collection);
+        console.log(`✓ Collection "${collection.title}" is the vendor collection - AUTO-INCLUDED (no filtering needed)`);
+        continue;
+      }
+      
       try {
         // Fetch products in this collection
         const collectionProductsQuery = `
@@ -1485,7 +1488,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
     }
     
     finalCollections = vendorFilteredCollections;
-    console.log(`📊 After vendor filtering: ${finalCollections.length}/${candidateCollections.slice(0, TARGET_COLLECTIONS).length} collections contain ${identifiedVendor} products`);
+    console.log(`📊 After vendor filtering: ${finalCollections.length}/${topCandidates.length} collections contain ${identifiedVendor} products`);
   }
   
   console.log(`\n📊 Collection Selection Summary:`);
@@ -1556,8 +1559,8 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
     // Quick vendor check first
     let vendorsList = availableVendors;
     if (vendorsList.length === 0) {
-      console.log('Fetching vendors for validation...');
-      vendorsList = await fetchShopifyVendors(shopDomain, token);
+      console.log('Fetching vendors for validation from collections...');
+      vendorsList = await fetchVendorsFromCollections(shopDomain, token);
     }
     
     const quickVendor = await quickVendorCheck(originalKeyword, vendorsList);
@@ -1671,8 +1674,8 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
     // Quick vendor check first
     let vendorsList = availableVendors;
     if (vendorsList.length === 0) {
-      console.log('Fetching vendors for validation...');
-      vendorsList = await fetchShopifyVendors(shopDomain, token);
+      console.log('Fetching vendors for validation from collections...');
+      vendorsList = await fetchVendorsFromCollections(shopDomain, token);
     }
     
     const quickVendor = await quickVendorCheck(originalKeyword, vendorsList);
@@ -3011,22 +3014,22 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('Starting topic breakdown generation with OpenAI');
-    // 1. Generate topic breakdown with OpenAI
-    const topicBreakdownPrompt = `Do not chat back to me in any way. Start immediately with the answer.\nResearch the topic: "${keyword}" using the latest available web information.\nWrite a clear, well-organized, and factual 500-word breakdown that covers:\n- The core concept and definition of the topic\n- Key facts, statistics, or recent developments\n- Major subtopics or components\n- Common misconceptions or challenges\n- Why this topic matters in its field or industry\nDo not include any conversational or meta language. Only provide the breakdown.`;
+    console.log('Starting topic breakdown generation with Claude');
+    // 1. Generate topic breakdown with Claude
+    const topicBreakdownPrompt = `Research the topic: "${keyword}" using the latest available web information.\nWrite a clear, well-organized, and factual 500-word breakdown that covers:\n- The core concept and definition of the topic\n- Key facts, statistics, or recent developments\n- Major subtopics or components\n- Common misconceptions or challenges\n- Why this topic matters in its field or industry\nProvide only the breakdown without any conversational or meta language.`;
 
     let topicBreakdown = '';
     try {
-      console.log('Calling OpenAI API for topic breakdown');
-      const openaiRes = await openai.chat.completions.create({
-        model: 'gpt-4o',
+      console.log('Calling Claude API for topic breakdown');
+      const claudeRes = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
         messages: [
           { role: 'user', content: topicBreakdownPrompt }
-        ],
-        max_tokens: 800,
-        temperature: 0.7,
+        ]
       });
-      topicBreakdown = openaiRes.choices[0].message.content || '';
+      const contentBlock = claudeRes.content[0];
+      topicBreakdown = (contentBlock.type === 'text' ? contentBlock.text : '') || '';
       console.log('Successfully generated topic breakdown');
     } catch (err) {
       console.error('Error generating topic breakdown:', err);
@@ -3130,9 +3133,14 @@ export async function POST(request: Request) {
     async function handleAutomaticShopifyContent(contentSelection: any, shopDomain: string, accessToken: string, currentSearchTerms: string[], currentAvailableVendors: string[], storeUrl: string) {
       const searchQueries = currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
       
-      // 🎯 VENDOR DETECTION: Extract vendor from keyword before any searches
-      console.log('\n🔍 PRE-SEARCH VENDOR DETECTION');
-      const aiAnalysisResult = await extractKeyTerms('', keyword, currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchShopifyVendors(shopDomain, accessToken), businessType);
+      // 🎯 VENDOR DETECTION: Extract vendor from keyword before any searches (using collections)
+      console.log('\n🔍 PRE-SEARCH VENDOR DETECTION (Collection-Based)');
+      
+      // Fetch vendors from collections if not already provided
+      const vendorsFromCollections = currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchVendorsFromCollections(shopDomain, accessToken);
+      
+      // Extract vendor using the collection list
+      const aiAnalysisResult = await extractKeyTerms('', keyword, vendorsFromCollections, businessType);
       detectedVendor = aiAnalysisResult.primaryVendor;
       
       if (detectedVendor) {
@@ -3144,7 +3152,7 @@ export async function POST(request: Request) {
       // Search products if enabled
       if (contentSelection.automaticOptions.includeProducts) {
         console.log('🔍 Searching Shopify products...');
-        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor, businessType);
+        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (products.length > 0) {
           relatedProductsList = products.map(p => `• ${p.title} - ${storeUrl}/products/${p.handle}`).join('\n');
           console.log(`✅ Found ${products.length} relevant products`);
@@ -3154,7 +3162,7 @@ export async function POST(request: Request) {
       // Search collections if enabled
       if (contentSelection.automaticOptions.includeCollections) {
         console.log('🔍 Searching Shopify collections...');
-        const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor, businessType);
+        const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (collections.length > 0) {
           relatedCollectionsList = collections.map(c => `• ${c.title} - ${storeUrl}/collections/${c.handle}`).join('\n');
           console.log(`✅ Found ${collections.length} relevant collections`);
