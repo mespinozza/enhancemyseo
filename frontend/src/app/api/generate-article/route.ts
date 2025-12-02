@@ -131,8 +131,85 @@ function getWordStem(word: string): string {
   return wordLower;
 }
 
+// AI-based fallback vendor detection using business type context
+async function fallbackVendorDetectionWithAI(
+  keyword: string, 
+  availableVendors: string[], 
+  businessType: string
+): Promise<string | null> {
+  try {
+    console.log('🔍 Using AI fallback vendor detection with business type context...');
+    
+    // Create vendor list preview (limit to avoid token overflow)
+    const vendorPreview = availableVendors.length > 20 
+      ? `${availableVendors.length} vendors available in store` 
+      : availableVendors.join(', ');
+    
+    const fallbackPrompt = `Given the following information:
+- Business Type: "${businessType}"
+- Article Keyword: "${keyword}"
+- Available Vendors: ${vendorPreview}
+
+Task: Identify which word or phrase in the article keyword most likely represents a VENDOR/BRAND name in the "${businessType}" business niche.
+
+Rules:
+1. Consider the business type context - what brands would make sense in this industry?
+2. Ignore common words like "how", "to", "the", "install", "guide", etc.
+3. Look for proper nouns or brand names
+4. Model numbers (like "SER-60711-05") are NOT vendors
+5. If multiple words could be vendors, choose the most prominent brand name
+
+Return ONLY the vendor name as it appears in the keyword, or return "NONE" if no vendor can be identified.
+
+Example 1:
+Business Type: "Restaurant Equipment Parts"
+Keyword: "How to Install the Traulsen SER-60711-05 Control Kit"
+Answer: Traulsen
+
+Example 2:
+Business Type: "Coffee Machine Parts"
+Keyword: "Best practices for espresso machine maintenance"
+Answer: NONE
+
+Now analyze:
+Business Type: "${businessType}"
+Keyword: "${keyword}"
+Answer:`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'user', content: fallbackPrompt }
+      ],
+      max_tokens: 50,
+      temperature: 0.1, // Low temperature for consistency
+    });
+    
+    const detectedVendor = response.choices[0].message.content?.trim() || 'NONE';
+    console.log(`AI fallback detected vendor: "${detectedVendor}"`);
+    
+    // Validate against available vendors (case-insensitive)
+    if (detectedVendor && detectedVendor !== 'NONE') {
+      const matchedVendor = availableVendors.find(v => v.toLowerCase() === detectedVendor.toLowerCase());
+      if (matchedVendor) {
+        console.log(`✓ AI-detected vendor "${detectedVendor}" validated against store vendors: "${matchedVendor}"`);
+        return matchedVendor;
+      } else {
+        console.log(`⚠️ AI-detected vendor "${detectedVendor}" not found in store vendors`);
+        return null;
+      }
+    }
+    
+    console.log('AI fallback returned no vendor');
+    return null;
+  } catch (error) {
+    console.error('Error in AI fallback vendor detection:', error);
+    return null;
+  }
+}
+
 // Function to extract key terms from topic breakdown
-async function extractKeyTerms(text: string, keyword: string, availableVendors: string[] = []): Promise<{ searchTerms: string[], primaryVendor: string | null }> {
+async function extractKeyTerms(text: string, keyword: string, availableVendors: string[] = [], businessType: string = ''): Promise<{ searchTerms: string[], primaryVendor: string | null }> {
   try {
     console.log('Extracting key terms from topic breakdown');
     
@@ -146,8 +223,9 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       console.log(`Checking keyword against ${availableVendors.length} available vendors...`);
       
       // First check if any vendor matches the keyword exactly (rare but possible)
-      if (availableVendors.includes(keywordLower)) {
-        primaryVendor = keywordLower;
+      const exactKeywordMatch = availableVendors.find(v => v.toLowerCase() === keywordLower);
+      if (exactKeywordMatch) {
+        primaryVendor = exactKeywordMatch;
         console.log(`Found exact vendor match: "${primaryVendor}" is the entire keyword`);
       }
       
@@ -155,7 +233,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       if (!primaryVendor) {
         // 1. First check for multi-word vendors that appear as phrases in the keyword
         for (const vendor of availableVendors) {
-          if (vendor.includes(' ') && keywordLower.includes(vendor)) {
+          if (vendor.includes(' ') && keywordLower.includes(vendor.toLowerCase())) {
             primaryVendor = vendor;
             console.log(`Found multi-word vendor match: "${primaryVendor}" in keyword`);
             break;
@@ -170,9 +248,10 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
               continue;
             }
             
-            // Check for exact vendor match
-            if (availableVendors.includes(word)) {
-              primaryVendor = word;
+            // Check for exact vendor match (case-insensitive)
+            const matchedVendor = availableVendors.find(v => v.toLowerCase() === word);
+            if (matchedVendor) {
+              primaryVendor = matchedVendor;
               console.log(`Found exact vendor match: "${primaryVendor}"`);
               break;
             }
@@ -181,9 +260,9 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
         
         // 3. Finally, check for partial vendor matches
         if (!primaryVendor) {
-          // Find vendors that might be contained in the keyword
+          // Find vendors that might be contained in the keyword (case-insensitive)
           const partialMatches = availableVendors.filter(vendor => 
-            keywordLower.includes(vendor)
+            keywordLower.includes(vendor.toLowerCase())
           );
           
           if (partialMatches.length > 0) {
@@ -224,7 +303,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     `;
     
     const response = await openai.chat.completions.create({
-      model: 'gpt-4-1106-preview',
+      model: 'gpt-4o',
       messages: [
         { role: 'user', content: extractionPrompt }
       ],
@@ -314,24 +393,36 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     return { searchTerms: uniqueTerms, primaryVendor };
   } catch (error) {
     console.error('Error extracting key terms:', error);
-    // Fallback to simpler extraction if AI fails
+    // Multi-tier fallback approach
     const keywordParts = keyword.split(' ');
     
     // Try to identify a potential vendor from the keyword parts
     let primaryVendor: string | null = null;
     
-    // Check each word against the vendor list
-    if (availableVendors.length > 0) {
-      // First check for multi-word vendors
+    // TIER 1: Try AI-based fallback with business type context (if available)
+    if (businessType && availableVendors.length > 0) {
+      try {
+        primaryVendor = await fallbackVendorDetectionWithAI(keyword, availableVendors, businessType);
+        if (primaryVendor) {
+          console.log(`✓ AI fallback successfully identified vendor: "${primaryVendor}"`);
+        }
+      } catch (aiError) {
+        console.error('AI fallback vendor detection failed:', aiError);
+      }
+    }
+    
+    // TIER 2: Check each word against the vendor list (if AI fallback didn't work)
+    if (!primaryVendor && availableVendors.length > 0) {
+      // First check for multi-word vendors (case-insensitive)
       for (const vendor of availableVendors) {
-        if (vendor.includes(' ') && keyword.toLowerCase().includes(vendor)) {
+        if (vendor.includes(' ') && keyword.toLowerCase().includes(vendor.toLowerCase())) {
           primaryVendor = vendor;
           console.log(`Fallback found multi-word vendor: "${primaryVendor}"`);
           break;
         }
       }
       
-      // If no multi-word vendor found, check individual words
+      // If no multi-word vendor found, check individual words (case-insensitive)
       if (!primaryVendor) {
         for (const word of keywordParts) {
           // Skip common words
@@ -339,8 +430,9 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
             continue;
           }
           
-          if (availableVendors.includes(word.toLowerCase())) {
-            primaryVendor = word;
+          const matchedVendor = availableVendors.find(v => v.toLowerCase() === word.toLowerCase());
+          if (matchedVendor) {
+            primaryVendor = matchedVendor;
             console.log(`Fallback found vendor: "${primaryVendor}"`);
             break;
           }
@@ -348,20 +440,28 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // If no vendor found, default to first non-common word
+    // TIER 3: Naive word selection as absolute last resort (improved filter)
     if (!primaryVendor) {
+      const extendedCommonWords = [
+        "how", "to", "the", "and", "for", "with", "what", "why", "when", "where", 
+        "install", "installation", "installing", "using", "use", "used",
+        "guide", "complete", "ultimate", "best", "top", "reset", "setup",
+        "make", "making", "create", "creating", "build", "building",
+        "get", "getting", "find", "finding", "choose", "choosing"
+      ];
+      
       for (const part of keywordParts) {
-        if (part.length > 3 && !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where", "reset"].includes(part.toLowerCase())) {
+        if (part.length > 3 && !extendedCommonWords.includes(part.toLowerCase())) {
           primaryVendor = part;
-          console.log(`Fallback using non-common word as potential brand: "${primaryVendor}"`);
+          console.log(`⚠️ Last resort fallback using non-common word as potential brand: "${primaryVendor}"`);
           break;
         }
       }
       
-      // If still no vendor, use first word as last resort
+      // If still no vendor, use first word as absolute last resort
       if (!primaryVendor) {
         primaryVendor = keywordParts[0];
-        console.log(`Fallback to first word: "${primaryVendor}"`);
+        console.log(`⚠️ Absolute last resort fallback to first word: "${primaryVendor}"`);
       }
     }
     
@@ -399,67 +499,100 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
   }
 }
 
-// Function to fetch all available vendors from a Shopify store
+// Function to fetch all available vendors from a Shopify store with pagination
 async function fetchShopifyVendors(shopDomain: string, token: string): Promise<string[]> {
-  console.log('Fetching all available vendors from Shopify store using GraphQL...');
+  console.log('Fetching all available vendors from Shopify store using GraphQL with pagination...');
   const vendors: string[] = [];
   
   try {
-    // GraphQL query to fetch unique vendors
-    const graphqlQuery = `
-      query {
-        shop {
-          productVendors(first: 250) {
-            edges {
-              node
+    let hasNextPage = true;
+    let cursor: string | null = null;
+    let pageCount = 0;
+    const MAX_PAGES = 10; // Safety limit: 10 pages * 250 = 2,500 vendors max
+    
+    while (hasNextPage && pageCount < MAX_PAGES) {
+      pageCount++;
+      
+      // GraphQL query with pagination support
+      const graphqlQuery: string = `
+        query {
+          shop {
+            productVendors(first: 250${cursor ? `, after: "${cursor}"` : ''}) {
+              edges {
+                node
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
             }
           }
         }
-      }
-    `;
-    
-    const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
-      method: 'POST',
-      headers: {
-        'X-Shopify-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query: graphqlQuery }),
-    });
-    
-    console.log(`Vendor fetch response status:`, response.status);
-    
-    if (!response.ok) {
-      if (response.status === 429) {
-        // Handle rate limiting
-        const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
-        console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
-        await sleep(retryAfter * 1000);
-        // Retry this request
-        return fetchShopifyVendors(shopDomain, token);
-      }
+      `;
       
-      // If GraphQL fails, fall back to the original REST approach with optimizations
-      console.log('GraphQL vendor fetch failed, falling back to REST approach...');
-      return fetchShopifyVendorsWithREST(shopDomain, token);
-    }
-    
-    const data = await response.json();
-    
-    if (data.data?.shop?.productVendors?.edges) {
-      // Extract vendors from GraphQL response
-      data.data.shop.productVendors.edges.forEach((edge: { node: string }) => {
-        if (edge.node && typeof edge.node === 'string' && edge.node.trim()) {
-          vendors.push(edge.node.toLowerCase().trim());
-        }
+      const response: Response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: graphqlQuery }),
       });
       
-      console.log(`Completed vendor fetch with GraphQL. Found ${vendors.length} unique vendors.`);
-    } else {
-      console.log('GraphQL vendor response missing expected data, falling back to REST approach...');
-      return fetchShopifyVendorsWithREST(shopDomain, token);
+      console.log(`Vendor fetch page ${pageCount} response status:`, response.status);
+      
+      if (!response.ok) {
+        if (response.status === 429) {
+          // Handle rate limiting
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
+          console.log(`Rate limited. Waiting ${retryAfter} seconds before retrying...`);
+          await sleep(retryAfter * 1000);
+          pageCount--; // Retry this page
+          continue;
+        }
+        
+        // If GraphQL fails, fall back to the original REST approach with optimizations
+        console.log('GraphQL vendor fetch failed, falling back to REST approach...');
+        return fetchShopifyVendorsWithREST(shopDomain, token);
+      }
+      
+      const data: any = await response.json();
+      
+      if (data.data?.shop?.productVendors) {
+        const vendorData: any = data.data.shop.productVendors;
+        
+        // Extract vendors from GraphQL response (preserve original case for proper matching)
+        vendorData.edges.forEach((edge: { node: string }) => {
+          if (edge.node && typeof edge.node === 'string' && edge.node.trim()) {
+            vendors.push(edge.node.trim());
+          }
+        });
+        
+        console.log(`Page ${pageCount}: Found ${vendorData.edges.length} vendors (total so far: ${vendors.length})`);
+        
+        // Check if there are more pages
+        hasNextPage = vendorData.pageInfo?.hasNextPage || false;
+        cursor = vendorData.pageInfo?.endCursor || null;
+        
+        if (!hasNextPage) {
+          console.log(`✓ Reached last page of vendors`);
+        }
+        
+        // Add small delay between pages to avoid rate limiting
+        if (hasNextPage) {
+          await sleep(300);
+        }
+      } else {
+        console.log('GraphQL vendor response missing expected data, falling back to REST approach...');
+        return fetchShopifyVendorsWithREST(shopDomain, token);
+      }
     }
     
+    if (pageCount >= MAX_PAGES && hasNextPage) {
+      console.log(`⚠️ Reached maximum page limit (${MAX_PAGES} pages, ${vendors.length} vendors). There may be more vendors.`);
+    }
+    
+    console.log(`✓ Completed vendor fetch with GraphQL. Found ${vendors.length} unique vendors across ${pageCount} page(s).`);
     return vendors;
   } catch (error) {
     console.error('Error fetching vendors with GraphQL:', error);
@@ -528,10 +661,10 @@ async function fetchShopifyVendorsWithREST(shopDomain: string, token: string): P
       const data = await response.json();
       
       if (data.products && data.products.length > 0) {
-        // Extract vendors and add to set
+        // Extract vendors and add to set (preserve original case for proper matching)
         data.products.forEach((product: { vendor?: string }) => {
           if (product.vendor && product.vendor.trim()) {
-            vendorSet.add(product.vendor.toLowerCase().trim());
+            vendorSet.add(product.vendor.trim());
           }
         });
         
@@ -1370,7 +1503,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
 }
 
 // Update the main search functions to use GraphQL only, with REST as fallback
-async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], preDetectedVendor: string | null = null): Promise<Array<{ id: string; title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; handle?: string; relevanceScore?: number; [key: string]: unknown }>> {
+async function searchShopifyProducts(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], preDetectedVendor: string | null = null, businessType: string = ''): Promise<Array<{ id: string; title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; handle?: string; relevanceScore?: number; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
@@ -1379,7 +1512,7 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
     console.log(`\n🎯 USING PRE-DETECTED VENDOR: "${preDetectedVendor}" - Skipping internal vendor detection`);
     
     // Still extract terms but use pre-detected vendor
-    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
     const aiExtractedTerms = aiAnalysisResult.searchTerms;
     
     console.log(`AI extracted ${aiExtractedTerms.length} terms:`, aiExtractedTerms.join(', '));
@@ -1403,7 +1536,7 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   
   // Step 1: Extract comprehensive terms using AI analysis (only if vendor not pre-detected)
   console.log('\n=== STEP 1: AI Term Extraction ===');
-  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
   const primaryVendor = aiAnalysisResult.primaryVendor;
   
@@ -1476,7 +1609,7 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   }
 }
 
-async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], preDetectedVendor: string | null = null): Promise<Array<{ id: string; title: string; description?: string; handle: string; [key: string]: unknown }>> {
+async function searchShopifyCollections(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], preDetectedVendor: string | null = null, businessType: string = ''): Promise<Array<{ id: string; title: string; description?: string; handle: string; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
@@ -1485,7 +1618,7 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
     console.log(`\n🎯 USING PRE-DETECTED VENDOR FOR COLLECTIONS: "${preDetectedVendor}" - Skipping internal vendor detection`);
     
     // Still extract terms but use pre-detected vendor
-    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
     const aiExtractedTerms = aiAnalysisResult.searchTerms;
     
     console.log(`AI extracted ${aiExtractedTerms.length} terms for collections:`, aiExtractedTerms.join(', '));
@@ -1518,7 +1651,7 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
   
   // Step 1: Extract comprehensive terms using AI analysis (only if vendor not pre-detected)
   console.log('\n=== COLLECTIONS STEP 1: AI Term Extraction ===');
-  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
   const primaryVendor = aiAnalysisResult.primaryVendor;
   
@@ -1634,13 +1767,13 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
 }
 
 // Function to search Shopify pages with intelligent filtering
-async function searchShopifyPages(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = []): Promise<Array<{ id: string; title: string; handle: string; bodySummary?: string; relevanceScore?: number; [key: string]: unknown }>> {
+async function searchShopifyPages(shopDomain: string, token: string, searchTerms: string[], availableVendors: string[] = [], businessType: string = ''): Promise<Array<{ id: string; title: string; handle: string; bodySummary?: string; relevanceScore?: number; [key: string]: unknown }>> {
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
   // Step 1: Extract comprehensive terms using AI analysis (reuse from products search)
   console.log('\n=== PAGES STEP 1: AI Term Extraction ===');
-  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors);
+  const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
   const primaryVendor = aiAnalysisResult.primaryVendor;
   
@@ -2886,7 +3019,7 @@ export async function POST(request: Request) {
     try {
       console.log('Calling OpenAI API for topic breakdown');
       const openaiRes = await openai.chat.completions.create({
-        model: 'gpt-4-1106-preview',
+        model: 'gpt-4o',
         messages: [
           { role: 'user', content: topicBreakdownPrompt }
         ],
@@ -2999,7 +3132,7 @@ export async function POST(request: Request) {
       
       // 🎯 VENDOR DETECTION: Extract vendor from keyword before any searches
       console.log('\n🔍 PRE-SEARCH VENDOR DETECTION');
-      const aiAnalysisResult = await extractKeyTerms('', keyword, currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchShopifyVendors(shopDomain, accessToken));
+      const aiAnalysisResult = await extractKeyTerms('', keyword, currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchShopifyVendors(shopDomain, accessToken), businessType);
       detectedVendor = aiAnalysisResult.primaryVendor;
       
       if (detectedVendor) {
@@ -3011,7 +3144,7 @@ export async function POST(request: Request) {
       // Search products if enabled
       if (contentSelection.automaticOptions.includeProducts) {
         console.log('🔍 Searching Shopify products...');
-        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor);
+        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor, businessType);
         if (products.length > 0) {
           relatedProductsList = products.map(p => `• ${p.title} - ${storeUrl}/products/${p.handle}`).join('\n');
           console.log(`✅ Found ${products.length} relevant products`);
@@ -3021,7 +3154,7 @@ export async function POST(request: Request) {
       // Search collections if enabled
       if (contentSelection.automaticOptions.includeCollections) {
         console.log('🔍 Searching Shopify collections...');
-        const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor);
+        const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, currentAvailableVendors, detectedVendor, businessType);
         if (collections.length > 0) {
           relatedCollectionsList = collections.map(c => `• ${c.title} - ${storeUrl}/collections/${c.handle}`).join('\n');
           console.log(`✅ Found ${collections.length} relevant collections`);
@@ -3063,7 +3196,7 @@ export async function POST(request: Request) {
     async function handleAutomaticWebsiteContent(contentSelection: any, websiteUrl: string, currentSearchTerms: string[]) {
       // 🔥 USE SHOPIFY-STYLE AI ENHANCEMENT
       console.log('🧠 Using Shopify-style AI term extraction for website content...');
-      const aiAnalysisResult = await extractKeyTerms('', keyword, []);
+      const aiAnalysisResult = await extractKeyTerms('', keyword, [], businessType);
       const aiExtractedTerms = aiAnalysisResult.searchTerms;
       const identifiedVendor = aiAnalysisResult.primaryVendor;
       
