@@ -55,17 +55,320 @@ function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
+// ============================================================================
+// HYPHEN/DASH NORMALIZATION
+// Converts all Unicode hyphen-like characters to standard ASCII hyphen
+// This fixes matching issues when keywords contain special Unicode hyphens
+// (e.g., U+2011 NON-BREAKING HYPHEN vs U+002D standard hyphen)
+// ============================================================================
+function normalizeHyphens(text: string): string {
+  return text
+    // Replace various Unicode hyphens/dashes with standard ASCII hyphen (U+002D)
+    .replace(/[\u2010-\u2015]/g, '-')  // HYPHEN, NON-BREAKING HYPHEN, FIGURE DASH, EN DASH, EM DASH, HORIZONTAL BAR
+    .replace(/\u2212/g, '-')           // MINUS SIGN
+    .replace(/\uFE58/g, '-')           // SMALL EM DASH
+    .replace(/\uFE63/g, '-')           // SMALL HYPHEN-MINUS
+    .replace(/\uFF0D/g, '-')           // FULLWIDTH HYPHEN-MINUS
+    .replace(/\u00AD/g, '');           // Remove SOFT HYPHEN (invisible)
+}
+
 // Add sleep function for rate limiting
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ============================================================================
+// SEGMENT-BASED KEYWORD PARSING
+// Parses keywords using connector words (with, and, for, how to) as delimiters
+// to extract the actual product phrase from article-context phrases
+// ============================================================================
+
+interface KeywordSegment {
+  text: string;
+  type: 'product' | 'context' | 'action';
+  position: number;
+}
+
+interface ParsedKeyword {
+  segments: KeywordSegment[];
+  productPhrase: string | null;
+  contextPhrases: string[];
+  originalKeyword: string;
+}
+
+/**
+ * Parses an article keyword by splitting on connector words to identify
+ * the product/subject phrase vs context/article-type phrases.
+ * 
+ * Example: "Common Problems with Witt Evaporator Coil and How to Troubleshoot"
+ * Becomes:
+ *   - productPhrase: "Witt Evaporator Coil"
+ *   - contextPhrases: ["Common Problems", "How to Troubleshoot"]
+ */
+function parseKeywordByConnectors(keyword: string): ParsedKeyword {
+  console.log(`\n📐 SEGMENT-BASED KEYWORD PARSING`);
+  console.log(`Input keyword: "${keyword}"`);
+  
+  const keywordLower = keyword.toLowerCase();
+  
+  // Connector patterns that act as segment delimiters (order matters - check longer patterns first)
+  const connectorPatterns: Array<{ pattern: RegExp; afterType: 'product' | 'context' | 'action'; name: string }> = [
+    { pattern: /\s+and\s+how\s+to\s+/i, afterType: 'action', name: 'and how to' },
+    { pattern: /\s+how\s+to\s+/i, afterType: 'action', name: 'how to' },
+    { pattern: /^how\s+to\s+/i, afterType: 'action', name: 'how to (start)' },
+    { pattern: /\s+with\s+/i, afterType: 'product', name: 'with' },
+    { pattern: /\s+for\s+/i, afterType: 'product', name: 'for' },
+    { pattern: /\s+using\s+/i, afterType: 'product', name: 'using' },
+    { pattern: /\s+vs\.?\s+/i, afterType: 'product', name: 'vs' },
+    { pattern: /\s+versus\s+/i, afterType: 'product', name: 'versus' },
+    { pattern: /\s+and\s+/i, afterType: 'context', name: 'and' },
+  ];
+  
+  // Article context indicators - segments containing these are NOT product phrases
+  const contextIndicators = [
+    'problems', 'issues', 'guide', 'tips', 'troubleshoot', 'troubleshooting',
+    'maintenance', 'repair', 'install', 'installation', 'replace', 'replacement',
+    'common', 'best', 'top', 'ultimate', 'complete', 'comprehensive',
+    'how to', 'what is', 'why', 'when to', 'benefits', 'advantages',
+    'review', 'comparison', 'buying guide', 'choosing', 'selecting'
+  ];
+  
+  // Try to split the keyword by connectors
+  let segments: KeywordSegment[] = [];
+  let remainingText = keyword;
+  let position = 0;
+  
+  // Find all connector positions
+  interface ConnectorMatch {
+    index: number;
+    length: number;
+    afterType: 'product' | 'context' | 'action';
+    name: string;
+  }
+  
+  const connectorMatches: ConnectorMatch[] = [];
+  
+  for (const { pattern, afterType, name } of connectorPatterns) {
+    let match;
+    const testText = keyword;
+    const regex = new RegExp(pattern.source, 'gi');
+    
+    while ((match = regex.exec(testText)) !== null) {
+      // Check if this position overlaps with an existing match
+      const overlaps = connectorMatches.some(cm => 
+        (match!.index >= cm.index && match!.index < cm.index + cm.length) ||
+        (cm.index >= match!.index && cm.index < match!.index + match![0].length)
+      );
+      
+      if (!overlaps) {
+        connectorMatches.push({
+          index: match.index,
+          length: match[0].length,
+          afterType,
+          name
+        });
+      }
+    }
+  }
+  
+  // Sort connector matches by position
+  connectorMatches.sort((a, b) => a.index - b.index);
+  
+  if (connectorMatches.length === 0) {
+    // No connectors found - treat entire keyword as potential product phrase
+    console.log(`No connectors found - analyzing entire keyword`);
+    segments.push({
+      text: keyword.trim(),
+      type: isContextPhrase(keyword, contextIndicators) ? 'context' : 'product',
+      position: 0
+    });
+  } else {
+    // Split by connectors
+    let currentIndex = 0;
+    
+    for (let i = 0; i < connectorMatches.length; i++) {
+      const connector = connectorMatches[i];
+      
+      // Get text before this connector
+      if (connector.index > currentIndex) {
+        const beforeText = keyword.substring(currentIndex, connector.index).trim();
+        if (beforeText) {
+          // Determine type based on content and position
+          let segmentType: 'product' | 'context' | 'action';
+          if (i === 0) {
+            // First segment before a connector - likely context
+            segmentType = isContextPhrase(beforeText, contextIndicators) ? 'context' : 'product';
+          } else {
+            // Use the afterType from the previous connector
+            segmentType = connectorMatches[i - 1].afterType;
+          }
+          
+          segments.push({
+            text: beforeText,
+            type: segmentType,
+            position: segments.length
+          });
+          console.log(`  Segment ${segments.length}: "${beforeText}" → ${segmentType.toUpperCase()}`);
+        }
+      }
+      
+      currentIndex = connector.index + connector.length;
+    }
+    
+    // Get text after the last connector
+    if (currentIndex < keyword.length) {
+      const afterText = keyword.substring(currentIndex).trim();
+      if (afterText) {
+        const lastConnector = connectorMatches[connectorMatches.length - 1];
+        let segmentType = lastConnector.afterType;
+        
+        // Override if it clearly looks like context
+        if (isContextPhrase(afterText, contextIndicators)) {
+          segmentType = 'context';
+        }
+        
+        segments.push({
+          text: afterText,
+          type: segmentType,
+          position: segments.length
+        });
+        console.log(`  Segment ${segments.length}: "${afterText}" → ${segmentType.toUpperCase()}`);
+      }
+    }
+  }
+  
+  // Extract product phrase (first segment marked as 'product', or best candidate)
+  let productPhrase: string | null = null;
+  const contextPhrases: string[] = [];
+  
+  // Prioritize segments marked as 'product'
+  const productSegments = segments.filter(s => s.type === 'product');
+  const contextSegments = segments.filter(s => s.type === 'context' || s.type === 'action');
+  
+  if (productSegments.length > 0) {
+    // Use the longest product segment as the main product phrase
+    productSegments.sort((a, b) => b.text.length - a.text.length);
+    productPhrase = productSegments[0].text;
+    
+    // Add remaining product segments to context (they might be secondary products)
+    for (let i = 1; i < productSegments.length; i++) {
+      contextPhrases.push(productSegments[i].text);
+    }
+  } else if (segments.length > 0) {
+    // No explicit product segments - try to find the best candidate
+    // Look for segment with potential vendor/brand name (capitalized words, not common words)
+    for (const segment of segments) {
+      if (!isContextPhrase(segment.text, contextIndicators)) {
+        productPhrase = segment.text;
+        break;
+      }
+    }
+  }
+  
+  // Collect context phrases
+  for (const segment of contextSegments) {
+    contextPhrases.push(segment.text);
+  }
+  
+  console.log(`\n📦 PARSING RESULT:`);
+  console.log(`  Product Phrase: "${productPhrase || 'None detected'}"`);
+  console.log(`  Context Phrases: [${contextPhrases.map(p => `"${p}"`).join(', ')}]`);
+  
+  return {
+    segments,
+    productPhrase,
+    contextPhrases,
+    originalKeyword: keyword
+  };
+}
+
+/**
+ * Helper function to determine if a phrase is likely article context (not a product)
+ */
+function isContextPhrase(phrase: string, contextIndicators: string[]): boolean {
+  const phraseLower = phrase.toLowerCase();
+  
+  // Check if phrase starts with or contains context indicators
+  for (const indicator of contextIndicators) {
+    if (phraseLower.includes(indicator)) {
+      return true;
+    }
+  }
+  
+  // Check for question-like patterns
+  if (/^(how|what|why|when|where|which)\b/i.test(phrase)) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Extracts product-focused search terms from a product phrase
+ */
+function extractProductPhraseTerms(productPhrase: string): string[] {
+  const terms: string[] = [];
+  const words = productPhrase.split(' ').filter(w => w.length > 2);
+  
+  // Add the full phrase first
+  terms.push(productPhrase);
+  
+  // Add individual words (filtered)
+  const skipWords = ['the', 'a', 'an', 'and', 'or', 'for', 'with', 'from', 'to', 'of', 'in', 'on'];
+  for (const word of words) {
+    if (!skipWords.includes(word.toLowerCase())) {
+      terms.push(word);
+    }
+  }
+  
+  // Add adjacent word pairs
+  for (let i = 0; i < words.length - 1; i++) {
+    if (!skipWords.includes(words[i].toLowerCase()) && !skipWords.includes(words[i + 1].toLowerCase())) {
+      terms.push(`${words[i]} ${words[i + 1]}`);
+    }
+  }
+  
+  return terms;
+}
+
 // Helper function to extract primary keyword terms (main subject nouns)
-function extractPrimaryKeywordTerms(keyword: string): { 
+// Now accepts optional productPhrase for more accurate term classification
+function extractPrimaryKeywordTerms(keyword: string, productPhrase?: string | null): { 
   primaryTerms: string[]; 
   contextTerms: string[]; 
   allWords: string[] 
 } {
+  // If we have a parsed productPhrase, use it to define primary terms
+  if (productPhrase) {
+    const productWords = productPhrase.toLowerCase().split(' ').filter(w => w.length > 2);
+    const allWords = keyword.toLowerCase().split(' ').filter(w => w.length > 2);
+    
+    // Stopwords to exclude
+    const stopWords = [
+      'the', 'a', 'an', 'and', 'or', 'but', 'for', 'with', 'from',
+      'to', 'of', 'in', 'on', 'at', 'by'
+    ];
+    
+    // Filter stopwords from product words
+    const primaryTerms = productWords.filter(w => !stopWords.includes(w));
+    
+    // Everything NOT in the product phrase is context
+    const contextTerms = allWords.filter(w => 
+      !stopWords.includes(w) && !primaryTerms.includes(w)
+    );
+    
+    console.log(`Using PRODUCT PHRASE for term classification:`);
+    console.log(`  Primary (product): [${primaryTerms.join(', ')}]`);
+    console.log(`  Context (ignored): [${contextTerms.join(', ')}]`);
+    
+    return {
+      primaryTerms,
+      contextTerms,
+      allWords: allWords.filter(w => !stopWords.includes(w))
+    };
+  }
+  
+  // Fallback: Original logic when no productPhrase available
   const keywordLower = keyword.toLowerCase();
   const words = keywordLower.split(' ').filter(w => w.length > 2);
   
@@ -208,9 +511,22 @@ Answer:`;
 }
 
 // Function to extract key terms from topic breakdown
-async function extractKeyTerms(text: string, keyword: string, availableVendors: string[] = [], businessType: string = ''): Promise<{ searchTerms: string[], primaryVendor: string | null }> {
+// Now uses segment-based keyword parsing for more accurate product phrase extraction
+async function extractKeyTerms(text: string, keyword: string, availableVendors: string[] = [], businessType: string = ''): Promise<{ searchTerms: string[], primaryVendor: string | null, productPhrase: string | null }> {
   try {
     console.log('Extracting key terms from topic breakdown');
+    
+    // 🆕 STEP 0: Parse keyword using connector-based segmentation
+    const parsedKeyword = parseKeywordByConnectors(keyword);
+    const { productPhrase, contextPhrases } = parsedKeyword;
+    
+    // Use productPhrase for vendor detection if available (more focused search)
+    const searchTarget = productPhrase || keyword;
+    const searchTargetLower = searchTarget.toLowerCase();
+    const searchTargetWords = searchTargetLower.split(' ');
+    
+    console.log(`\n🎯 SEGMENT-BASED SEARCH STRATEGY:`);
+    console.log(`  Search Target: "${searchTarget}" (${productPhrase ? 'from product phrase' : 'full keyword'})`);
     
     // First, identify any vendors in the keyword
     let primaryVendor: string | null = null;
@@ -218,37 +534,43 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     const keywordWords = keywordLower.split(' ');
     
     // Check if we have vendors to match against
+    // 🆕 Now searches in productPhrase first (more focused), then falls back to full keyword
+    // 🆕 Also filters out product category collections (e.g., "Evaporators", "Motors")
     if (availableVendors.length > 0) {
-      console.log(`Checking keyword against ${availableVendors.length} available vendors...`);
+      // Filter out product category collections before vendor matching
+      const actualVendors = availableVendors.filter(v => !isProductCategory(v));
+      const filteredCount = availableVendors.length - actualVendors.length;
       
-      // First check if any vendor matches the keyword exactly (rare but possible)
-      const exactKeywordMatch = availableVendors.find(v => v.toLowerCase() === keywordLower);
+      console.log(`Checking ${productPhrase ? 'product phrase' : 'keyword'} against ${actualVendors.length} actual vendors (filtered out ${filteredCount} category collections)...`);
+      
+      // First check if any vendor matches the search target exactly (rare but possible)
+      const exactKeywordMatch = actualVendors.find(v => v.toLowerCase() === searchTargetLower);
       if (exactKeywordMatch) {
         primaryVendor = exactKeywordMatch;
-        console.log(`Found exact vendor match: "${primaryVendor}" is the entire keyword`);
+        console.log(`Found exact vendor match: "${primaryVendor}" is the entire ${productPhrase ? 'product phrase' : 'keyword'}`);
       }
       
       // If not, do more thorough checks
       if (!primaryVendor) {
-        // 1. First check for multi-word vendors that appear as phrases in the keyword
-        for (const vendor of availableVendors) {
-          if (vendor.includes(' ') && keywordLower.includes(vendor.toLowerCase())) {
+        // 1. First check for multi-word vendors that appear as phrases in the search target
+        for (const vendor of actualVendors) {
+          if (vendor.includes(' ') && searchTargetLower.includes(vendor.toLowerCase())) {
             primaryVendor = vendor;
-            console.log(`Found multi-word vendor match: "${primaryVendor}" in keyword`);
+            console.log(`Found multi-word vendor match: "${primaryVendor}" in ${productPhrase ? 'product phrase' : 'keyword'}`);
             break;
           }
         }
         
-        // 2. Then check for single-word vendors that match exact words in the keyword
+        // 2. Then check for single-word vendors that match exact words in the search target
         if (!primaryVendor) {
-          for (const word of keywordWords) {
+          for (const word of searchTargetWords) {
             // Skip very short words and common words that wouldn't be vendors
             if (word.length <= 2 || ["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(word)) {
               continue;
             }
             
-            // Check for exact vendor match (case-insensitive)
-            const matchedVendor = availableVendors.find(v => v.toLowerCase() === word);
+            // Check for exact vendor match (case-insensitive) - only against actual vendors
+            const matchedVendor = actualVendors.find(v => v.toLowerCase() === word);
             if (matchedVendor) {
               primaryVendor = matchedVendor;
               console.log(`Found exact vendor match: "${primaryVendor}"`);
@@ -257,18 +579,18 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
           }
         }
         
-        // 3. Finally, check for partial vendor matches
+        // 3. Finally, check for partial vendor matches in the search target
         if (!primaryVendor) {
-          // Find vendors that might be contained in the keyword (case-insensitive)
-          const partialMatches = availableVendors.filter(vendor => 
-            keywordLower.includes(vendor.toLowerCase())
+          // Find vendors that might be contained in the search target (case-insensitive)
+          const partialMatches = actualVendors.filter(vendor => 
+            searchTargetLower.includes(vendor.toLowerCase())
           );
           
           if (partialMatches.length > 0) {
             // Sort by length (descending) to prioritize longer vendor names
             partialMatches.sort((a, b) => b.length - a.length);
             primaryVendor = partialMatches[0];
-            console.log(`Found partial vendor match: "${primaryVendor}" in keyword`);
+            console.log(`Found partial vendor match: "${primaryVendor}" in ${productPhrase ? 'product phrase' : 'keyword'}`);
           }
         }
       }
@@ -367,15 +689,43 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // Final terms in priority order:
-    // 1. Full keyword
-    // 2. Brand/vendor name (if found)
-    // 3. Brand + component combinations
-    // 4. Component terms by themselves
-    // 5. Other meaningful combinations
-    // 6. Keyword parts (except very short or common ones)
+    // 🆕 UPDATED: Final terms in priority order with PRODUCT PHRASE prioritization:
+    // 1. Product phrase (if detected) - HIGHEST PRIORITY
+    // 2. Full keyword
+    // 3. Brand/vendor name (if found)
+    // 4. Brand + component combinations
+    // 5. Component terms by themselves
+    // 6. Other meaningful combinations from PRODUCT PHRASE (not full keyword)
+    // 7. Individual words from product phrase (not context words)
     
-    const finalTerms: string[] = [keyword];
+    const finalTerms: string[] = [];
+    
+    // 🆕 Add product phrase FIRST if available (highest priority for compound search)
+    if (productPhrase) {
+      finalTerms.push(productPhrase);
+      console.log(`🎯 Prioritizing product phrase: "${productPhrase}"`);
+      
+      // Add product phrase terms (individual words from product phrase only)
+      const productPhraseWords = productPhrase.split(' ').filter(w => 
+        w.length > 3 && 
+        !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(w.toLowerCase())
+      );
+      
+      // Create pairs from product phrase words
+      for (let i = 0; i < productPhraseWords.length - 1; i++) {
+        finalTerms.push(`${productPhraseWords[i]} ${productPhraseWords[i + 1]}`);
+      }
+      
+      // Add individual product phrase words
+      productPhraseWords.forEach(word => {
+        if (!primaryVendor || word.toLowerCase() !== primaryVendor.toLowerCase()) {
+          finalTerms.push(word);
+        }
+      });
+    }
+    
+    // Add full keyword (lower priority than product phrase)
+    finalTerms.push(keyword);
     
     // Add brand/vendor if we found one
     if (primaryVendor) {
@@ -388,24 +738,27 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     // Add component terms by themselves
     finalTerms.push(...componentTerms);
     
-    // Add other combinations
-    finalTerms.push(...otherCombinations);
-    
-    // Add individual keyword parts if they're meaningful
-    keywordParts.forEach(part => {
-      if (part.length > 3 && 
-         !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
-         (!primaryVendor || part.toLowerCase() !== primaryVendor.toLowerCase())) {
-        finalTerms.push(part);
-      }
-    });
+    // Add other combinations (only if no product phrase was detected)
+    if (!productPhrase) {
+      finalTerms.push(...otherCombinations);
+      
+      // Add individual keyword parts if they're meaningful (fallback only)
+      keywordParts.forEach(part => {
+        if (part.length > 3 && 
+           !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
+           (!primaryVendor || part.toLowerCase() !== primaryVendor.toLowerCase())) {
+          finalTerms.push(part);
+        }
+      });
+    }
     
     // Remove duplicates
     const uniqueTerms = Array.from(new Set(finalTerms.map(term => term.toLowerCase())))
       .map(term => term);
     
     console.log('Extracted search terms:', uniqueTerms);
-    return { searchTerms: uniqueTerms, primaryVendor };
+    console.log(`Product phrase for scoring: "${productPhrase || 'None'}"`);
+    return { searchTerms: uniqueTerms, primaryVendor, productPhrase };
   } catch (error) {
     console.error('Error extracting key terms:', error);
     // Multi-tier fallback approach
@@ -509,8 +862,18 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     const uniqueTerms = Array.from(new Set(fallbackTerms.map(term => term.toLowerCase())))
       .map(term => term);
     
+    // 🆕 Try to parse product phrase even in fallback
+    let fallbackProductPhrase: string | null = null;
+    try {
+      const parsedKeyword = parseKeywordByConnectors(keyword);
+      fallbackProductPhrase = parsedKeyword.productPhrase;
+    } catch {
+      // Ignore parsing errors in fallback
+    }
+    
     console.log('Fallback search terms:', uniqueTerms);
-    return { searchTerms: uniqueTerms, primaryVendor };
+    console.log(`Fallback product phrase: "${fallbackProductPhrase || 'None'}"`);
+    return { searchTerms: uniqueTerms, primaryVendor, productPhrase: fallbackProductPhrase };
   }
 }
 
@@ -637,12 +1000,103 @@ const COMMON_WORDS = [
   'and', 'or', 'but', 'nor', 'so', 'yet', 'unless', 'although', 'because'
 ];
 
+// ============================================================================
+// PRODUCT CATEGORY WORDS - These are product types, NOT vendor/brand names
+// Collections with these names should NOT be used as vendor filters
+// ============================================================================
+const PRODUCT_CATEGORY_WORDS = [
+  // Refrigeration/HVAC components
+  'evaporators', 'evaporator', 'condensers', 'condenser', 'compressors', 'compressor',
+  'refrigerants', 'refrigerant', 'coils', 'coil', 'fans', 'fan', 'blowers', 'blower',
+  
+  // Motors and electrical
+  'motors', 'motor', 'switches', 'switch', 'controls', 'control', 'controllers', 'controller',
+  'thermostats', 'thermostat', 'sensors', 'sensor', 'probes', 'probe', 'boards', 'board',
+  'relays', 'relay', 'capacitors', 'capacitor', 'transformers', 'transformer',
+  
+  // Mechanical parts
+  'valves', 'valve', 'gaskets', 'gasket', 'seals', 'seal', 'bearings', 'bearing',
+  'belts', 'belt', 'pulleys', 'pulley', 'gears', 'gear', 'shafts', 'shaft',
+  'pumps', 'pump', 'filters', 'filter', 'strainers', 'strainer',
+  
+  // Structural/hardware
+  'hinges', 'hinge', 'handles', 'handle', 'latches', 'latch', 'locks', 'lock',
+  'doors', 'door', 'shelves', 'shelf', 'racks', 'rack', 'trays', 'tray',
+  'pans', 'pan', 'drawers', 'drawer', 'bins', 'bin', 'baskets', 'basket',
+  
+  // Plumbing/drainage
+  'drains', 'drain', 'hoses', 'hose', 'fittings', 'fitting', 'connectors', 'connector',
+  'pipes', 'pipe', 'tubing', 'tube', 'clamps', 'clamp', 'brackets', 'bracket',
+  
+  // Heating elements
+  'heaters', 'heater', 'elements', 'element', 'burners', 'burner', 'igniters', 'igniter',
+  'pilots', 'pilot', 'thermocouples', 'thermocouple',
+  
+  // Knobs and controls
+  'knobs', 'knob', 'dials', 'dial', 'buttons', 'button', 'levers', 'lever',
+  
+  // Generic categories
+  'parts', 'part', 'components', 'component', 'accessories', 'accessory',
+  'supplies', 'supply', 'replacements', 'replacement', 'kits', 'kit'
+];
+
+/**
+ * Check if a collection name is a product category (not a brand/vendor)
+ * Returns true if the name matches a known product category pattern
+ */
+function isProductCategory(collectionName: string): boolean {
+  const nameLower = collectionName.toLowerCase().trim();
+  
+  // Direct match against category words
+  if (PRODUCT_CATEGORY_WORDS.includes(nameLower)) {
+    return true;
+  }
+  
+  // Check if name starts with a category word (e.g., "Evaporator Parts", "Motor Accessories")
+  for (const category of PRODUCT_CATEGORY_WORDS) {
+    if (nameLower.startsWith(category + ' ') || nameLower.startsWith(category + 's ')) {
+      return true;
+    }
+  }
+  
+  // Pattern: Simple plural nouns ending in common suffixes are likely categories
+  // But only if they're short (1-2 words) and match common patterns
+  const words = nameLower.split(' ');
+  if (words.length === 1) {
+    // Single word ending in -s, -ers, -ors, -ies that's a common equipment term
+    if (/^[a-z]+(ers|ors|ies|s)$/.test(nameLower) && nameLower.length < 15) {
+      // Additional check: Does it look like a brand? (has unusual capitalization, numbers, hyphens in original)
+      const hasNumbers = /\d/.test(collectionName);
+      const hasHyphen = collectionName.includes('-');
+      const hasMixedCase = /[a-z][A-Z]/.test(collectionName); // camelCase pattern
+      
+      // If it has brand-like characteristics, it's probably NOT a category
+      if (hasNumbers || hasHyphen || hasMixedCase) {
+        return false;
+      }
+    }
+  }
+  
+  return false;
+}
+
 // Quick vendor validation function to avoid unnecessary processing
 async function quickVendorCheck(keyword: string, availableVendors: string[]): Promise<string | null> {
   const keywordLower = keyword.toLowerCase();
   
+  // 🆕 STEP 1: Filter out product category collections from vendor candidates
+  const actualVendors = availableVendors.filter(vendor => {
+    if (isProductCategory(vendor)) {
+      // Skip logging for common categories to reduce noise
+      return false;
+    }
+    return true;
+  });
+  
+  console.log(`Filtered vendors: ${availableVendors.length} collections → ${actualVendors.length} actual vendors (removed ${availableVendors.length - actualVendors.length} category collections)`);
+  
   // Check for exact vendor matches first (most reliable)
-  const exactMatches = availableVendors.filter(vendor => 
+  const exactMatches = actualVendors.filter(vendor => 
     keywordLower.includes(vendor.toLowerCase())
   ).sort((a, b) => b.length - a.length); // Sort by length to prefer longer matches
   
@@ -656,7 +1110,7 @@ async function quickVendorCheck(keyword: string, availableVendors: string[]): Pr
   
   // Check for strong partial matches
   const words = keywordLower.split(' ').filter(word => word.length > 3);
-  for (const vendor of availableVendors) {
+  for (const vendor of actualVendors) {
     if (vendor.length > 3) {
       const vendorLower = vendor.toLowerCase();
       // Check if vendor name appears as a complete word in keyword
@@ -669,6 +1123,60 @@ async function quickVendorCheck(keyword: string, availableVendors: string[]): Pr
   
   console.log('✗ Quick vendor check: No vendor found in keyword');
   return null;
+}
+
+/**
+ * Validate that a vendor actually exists in product vendor fields
+ * This prevents using collection names that don't correspond to actual product vendors
+ */
+async function validateVendorInProducts(shopDomain: string, token: string, vendorName: string): Promise<boolean> {
+  try {
+    console.log(`🔍 Validating vendor "${vendorName}" exists in product vendor fields...`);
+    
+    const graphqlQuery = `
+      query checkVendor($query: String!) {
+        products(first: 1, query: $query) {
+          edges {
+            node {
+              id
+              vendor
+            }
+          }
+        }
+      }
+    `;
+    
+    const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: graphqlQuery,
+        variables: { query: `vendor:"${vendorName}"` }
+      }),
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Vendor validation request failed, assuming vendor is valid`);
+      return true; // Assume valid on error to avoid blocking
+    }
+    
+    const data = await response.json();
+    const hasProducts = data.data?.products?.edges?.length > 0;
+    
+    if (hasProducts) {
+      console.log(`✅ Vendor "${vendorName}" confirmed - products exist with this vendor`);
+      return true;
+    } else {
+      console.log(`❌ Vendor "${vendorName}" NOT FOUND in product vendor fields - likely a category collection`);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error validating vendor:', error);
+    return true; // Assume valid on error to avoid blocking
+  }
 }
 
 // Enhanced function that can either identify vendor OR enhance existing terms
@@ -710,10 +1218,14 @@ async function identifyVendorFromKeyword(
   
   // Original vendor identification logic (fallback for legacy calls)
   const keywordLower = keyword.toLowerCase();
-  console.log(`Checking keyword "${keyword}" against ${vendorsList.length} vendors`);
+  
+  // 🆕 Filter out product category collections before vendor matching
+  const actualVendors = vendorsList.filter(v => !isProductCategory(v));
+  const filteredCount = vendorsList.length - actualVendors.length;
+  console.log(`Checking keyword "${keyword}" against ${actualVendors.length} actual vendors (filtered out ${filteredCount} category collections)`);
   
   // First check for exact brand names in the full keyword
-  const exactMatches = vendorsList.filter(vendor => 
+  const exactMatches = actualVendors.filter(vendor => 
     keywordLower.includes(vendor.toLowerCase())
   ).sort((a, b) => b.length - a.length);
   
@@ -727,7 +1239,7 @@ async function identifyVendorFromKeyword(
   }
   
   // Check for partial matches with minimum length
-  const partialMatches = vendorsList.filter(vendor => 
+  const partialMatches = actualVendors.filter(vendor => 
     vendor.length > 3 && 
     keywordLower.split(' ').some(word => 
       vendor.toLowerCase().includes(word) || 
@@ -887,7 +1399,8 @@ function generateSearchTerms(keyword: string, vendor: string | null): string[] {
 }
 
 // Function to search products using GraphQL for better performance with hybrid prioritization approach
-async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = ''): Promise<Array<{
+// 🆕 Now accepts productPhrase for compound phrase search and improved scoring
+async function searchProductsWithGraphQL(shopDomain: string, token: string, searchTerms: string[], identifiedVendor: string | null = null, originalKeyword: string = '', productPhrase: string | null = null): Promise<Array<{
   id: string;
   title: string;
   description?: string;
@@ -901,18 +1414,154 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   console.log('Searching products using GraphQL with hybrid prioritization approach...');
   console.log(`Using matching strategy: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
   
+  if (productPhrase) {
+    console.log(`🎯 PRODUCT PHRASE DETECTED: "${productPhrase}" - Using compound phrase search first`);
+  }
+  
   if (identifiedVendor) {
     console.log(`🎯 VENDOR FILTERING ACTIVE: Only products from "${identifiedVendor}" will be returned`);
   }
-  
-  // Step 1: Prioritize search terms by relevance
-  const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
-  console.log(`\nSearching ${prioritizedTerms.length} terms in priority order...`);
   
   // Step 2: Collect products with scores from all relevant terms
   const candidateProducts: { product: { id: string; title: string; description?: string; vendor?: string; [key: string]: unknown }, score: number, searchTerm: string }[] = [];
   const QUALITY_THRESHOLD = 10; // Minimum score for a product to be considered relevant
   const TARGET_PRODUCTS = 5;
+  
+  // GraphQL query template
+  const graphqlQuery = `
+    query searchProducts($query: String!) {
+      products(first: 20, query: $query) {
+        edges {
+          node {
+            id
+            title
+            handle
+            vendor
+            productType
+            tags
+            variants(first: 1) {
+              edges {
+                node {
+                  id
+                  price
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+  
+  // 🆕 STEP 1: COMPOUND PHRASE SEARCH (if productPhrase is available)
+  // This is the most accurate search method - searches for all words from the product phrase
+  if (productPhrase && productPhrase.split(' ').length >= 2) {
+    console.log(`\n🔍 COMPOUND PHRASE SEARCH: "${productPhrase}"`);
+    
+    const phraseWords = productPhrase.split(' ').filter(w => 
+      w.length > 2 && !['the', 'a', 'an', 'and', 'or', 'for', 'with', 'of'].includes(w.toLowerCase())
+    );
+    
+    if (phraseWords.length >= 2) {
+      // Build compound query: title:*word1* AND title:*word2* AND title:*word3*
+      const vendorFilter = identifiedVendor ? ` AND vendor:"${identifiedVendor}"` : '';
+      const compoundQuery = phraseWords.map(w => `title:*${w}*`).join(' AND ') + vendorFilter;
+      
+      console.log(`Compound GraphQL query: "${compoundQuery}"`);
+      
+      try {
+        const response = await fetch(`https://${shopDomain}/admin/api/2023-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: graphqlQuery,
+            variables: { query: compoundQuery }
+          }),
+        });
+        
+        await sleep(300);
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.data?.products?.edges) {
+            const products = data.data.products.edges;
+            console.log(`✅ Compound search returned ${products.length} products`);
+            
+            // Score and add products
+            for (const edge of products) {
+              const product = edge.node;
+              
+              // Check if already added
+              if (candidateProducts.some(cp => cp.product.id === product.id)) continue;
+              
+              // Verify all phrase words appear in title
+              // 🆕 Normalize hyphens to handle Unicode variations (e.g., ‑ vs -)
+              const productTitle = normalizeHyphens(product.title.toLowerCase());
+              const allWordsMatch = phraseWords.every(word => 
+                productTitle.includes(normalizeHyphens(word.toLowerCase()))
+              );
+              
+              if (allWordsMatch) {
+                const relevanceScore = calculateProductRelevanceScore(product, productPhrase, originalKeyword, identifiedVendor, productPhrase);
+                
+                // Compound matches get a bonus
+                const compoundBonus = phraseWords.length * 10;
+                const totalScore = relevanceScore + compoundBonus;
+                
+                if (totalScore >= QUALITY_THRESHOLD) {
+                  const transformedProduct = {
+                    id: product.id,
+                    title: product.title,
+                    handle: product.handle,
+                    vendor: product.vendor,
+                    product_type: product.productType,
+                    tags: product.tags,
+                    variants: product.variants?.edges?.map((v: { node: { id: string; price: string } }) => ({
+                      id: v.node.id,
+                      price: v.node.price
+                    })) || []
+                  };
+                  
+                  candidateProducts.push({
+                    product: transformedProduct,
+                    score: totalScore,
+                    searchTerm: productPhrase
+                  });
+                  
+                  console.log(`✓ COMPOUND MATCH: "${product.title}" (Score: ${totalScore}, includes +${compoundBonus} compound bonus)`);
+                }
+              }
+            }
+            
+            // If we found enough high-quality products from compound search, return early
+            if (candidateProducts.length >= TARGET_PRODUCTS) {
+              console.log(`\n🎯 Found ${candidateProducts.length} products from compound phrase search - returning early`);
+              
+              candidateProducts.sort((a, b) => b.score - a.score);
+              const finalProducts = candidateProducts.slice(0, TARGET_PRODUCTS).map(cp => cp.product);
+              
+              console.log('\n🏆 Selected products (compound phrase search):');
+              candidateProducts.slice(0, TARGET_PRODUCTS).forEach((cp, index) => {
+                console.log(`${index + 1}. "${cp.product.title}" (Score: ${cp.score})`);
+              });
+              
+              return finalProducts;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Compound phrase search error:', error);
+      }
+    }
+  }
+  
+  // Step 1.5: Prioritize search terms by relevance (original logic)
+  const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
+  console.log(`\nSearching ${prioritizedTerms.length} terms in priority order...`);
   
   for (const term of prioritizedTerms) {
     // Skip very short or common terms
@@ -924,32 +1573,6 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
     console.log(`\nSearching with GraphQL for prioritized term: "${term}"`);
     
     try {
-      // GraphQL query to search products by title
-      const graphqlQuery = `
-        query searchProducts($query: String!) {
-          products(first: 20, query: $query) {
-            edges {
-              node {
-                id
-                title
-                handle
-                vendor
-                productType
-                tags
-                variants(first: 1) {
-                  edges {
-                    node {
-                      id
-                      price
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `;
-      
       // Create comprehensive search queries to find exact phrases anywhere in the title
       const searchQueries = [];
       
@@ -1039,15 +1662,17 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
             }
             
             // Double-check that product title actually contains our search term (case insensitive)
-            const productTitle = product.title.toLowerCase();
-            const searchTerm = term.toLowerCase();
+            // 🆕 Normalize hyphens to handle Unicode variations (e.g., ‑ vs -)
+            const productTitle = normalizeHyphens(product.title.toLowerCase());
+            const searchTerm = normalizeHyphens(term.toLowerCase());
             
             let isMatch = false;
             
             // For multi-word terms, use different strategies based on vendor presence
-            if (term.includes(' ')) {
+            if (term.includes(' ') || normalizeHyphens(term).includes(' ')) {
               // Strategy A: Vendor identified - flexible matching (check if all words exist individually)
-              if (identifiedVendor && searchTerm.includes(identifiedVendor.toLowerCase())) {
+              const normalizedVendor = identifiedVendor ? normalizeHyphens(identifiedVendor.toLowerCase()) : null;
+              if (normalizedVendor && searchTerm.includes(normalizedVendor)) {
                 const words = searchTerm.split(' ').filter(word => word.length > 2);
                 isMatch = words.every(word => {
                   const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`);
@@ -1082,7 +1707,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
             
             // If product matches, calculate its relevance score
             if (isMatch) {
-              const relevanceScore = calculateProductRelevanceScore(product, term, originalKeyword, identifiedVendor);
+              const relevanceScore = calculateProductRelevanceScore(product, term, originalKeyword, identifiedVendor, productPhrase);
               
               // Only add products that meet the quality threshold
               if (relevanceScore >= QUALITY_THRESHOLD) {
@@ -1517,12 +2142,15 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
     // Still extract terms but use pre-detected vendor
     const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
     const aiExtractedTerms = aiAnalysisResult.searchTerms;
+    const productPhrase = aiAnalysisResult.productPhrase; // 🆕 Get product phrase
     
     console.log(`AI extracted ${aiExtractedTerms.length} terms:`, aiExtractedTerms.join(', '));
+    console.log(`Product phrase for search: "${productPhrase || 'None'}"`);
     
     // Skip to GraphQL search with pre-detected vendor
     try {
-      const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, aiExtractedTerms, preDetectedVendor, originalKeyword);
+      // 🆕 Pass productPhrase for compound search
+      const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, aiExtractedTerms, preDetectedVendor, originalKeyword, productPhrase);
       
       if (graphqlResults.length > 0) {
         console.log(`✅ GraphQL found ${graphqlResults.length} products for vendor "${preDetectedVendor}"`);
@@ -1542,9 +2170,11 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
   const aiExtractedTerms = aiAnalysisResult.searchTerms;
   const primaryVendor = aiAnalysisResult.primaryVendor;
+  const productPhrase = aiAnalysisResult.productPhrase; // 🆕 Get product phrase
   
   console.log(`AI extracted ${aiExtractedTerms.length} terms:`, aiExtractedTerms.join(', '));
   console.log(`AI identified primary vendor: "${primaryVendor || 'None'}"`);
+  console.log(`Product phrase for compound search: "${productPhrase || 'None'}"`);
   
   // Step 2: Smart vendor detection and conditional enhancement
   console.log('\n=== STEP 2: Smart Vendor Detection & Conditional Enhancement ===');
@@ -1596,7 +2226,8 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   // Step 4: Execute GraphQL search
   console.log('\n=== STEP 4: GraphQL Product Search ===');
   try {
-    const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, enhancedTerms, finalVendor, originalKeyword);
+    // 🆕 Pass productPhrase for compound search and better scoring
+    const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, enhancedTerms, finalVendor, originalKeyword, productPhrase);
     
     if (graphqlResults.length > 0) {
       console.log(`✅ GraphQL found ${graphqlResults.length} products`);
@@ -2152,33 +2783,43 @@ function isSignificantTerm(term: string): boolean {
 }
 
 // Product relevance scoring system for better matching
-function calculateProductRelevanceScore(product: { title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; [key: string]: unknown }, searchTerm: string, originalKeyword: string, identifiedVendor: string | null): number {
-  const productTitle = product.title.toLowerCase();
-  const searchTermLower = searchTerm.toLowerCase();
+// 🆕 Now accepts productPhrase for more accurate primary term identification
+// 🆕 Normalizes hyphens to handle Unicode variations (e.g., ‑ vs -)
+function calculateProductRelevanceScore(product: { title: string; description?: string; vendor?: string; productType?: string; tags?: string[]; [key: string]: unknown }, searchTerm: string, originalKeyword: string, identifiedVendor: string | null, productPhrase: string | null = null): number {
+  // Normalize hyphens in product title and search term for consistent matching
+  const productTitle = normalizeHyphens(product.title.toLowerCase());
+  const searchTermLower = normalizeHyphens(searchTerm.toLowerCase());
   
   let score = 0;
   
-  // Extract keyword structure with tiered weighting
-  const keywordStructure = extractPrimaryKeywordTerms(originalKeyword);
+  // 🆕 Extract keyword structure using productPhrase if available
+  // This ensures we only score based on PRODUCT terms, not context words like "common", "problems"
+  // Also normalize the keyword and product phrase for hyphen consistency
+  const normalizedKeyword = normalizeHyphens(originalKeyword);
+  const normalizedProductPhrase = productPhrase ? normalizeHyphens(productPhrase) : null;
+  const keywordStructure = extractPrimaryKeywordTerms(normalizedKeyword, normalizedProductPhrase);
   const { primaryTerms, contextTerms } = keywordStructure;
   
   // Remove vendor from primary terms if identified
-  const filteredPrimaryTerms = identifiedVendor 
-    ? primaryTerms.filter(t => t !== identifiedVendor.toLowerCase())
+  const normalizedVendor = identifiedVendor ? normalizeHyphens(identifiedVendor.toLowerCase()) : null;
+  const filteredPrimaryTerms = normalizedVendor 
+    ? primaryTerms.filter(t => normalizeHyphens(t) !== normalizedVendor)
     : primaryTerms;
   
   console.log(`Scoring product "${product.title}" for term "${searchTerm}"`);
-  console.log(`Primary terms: [${filteredPrimaryTerms.join(', ')}] | Context: [${contextTerms.join(', ')}]`);
+  console.log(`Primary terms${productPhrase ? ' (from product phrase)' : ''}: [${filteredPrimaryTerms.join(', ')}] | Context (ignored): [${contextTerms.join(', ')}]`);
   
   // TIERED SCORING SYSTEM:
   
   // TIER 1: Primary Keyword Terms (Main Subject) - HIGHEST PRIORITY
   // +20 points per primary term found in product title (using stem matching for flexibility)
   filteredPrimaryTerms.forEach(term => {
-    const termStem = getWordStem(term);
+    // Normalize the term for hyphen consistency
+    const normalizedTerm = normalizeHyphens(term);
+    const termStem = getWordStem(normalizedTerm);
     
     // Check for exact match first
-    const exactPattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    const exactPattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`);
     if (exactPattern.test(productTitle)) {
       score += 20;
       console.log(`  +20: [TIER 1] Primary term "${term}" (exact match)`);
@@ -2192,8 +2833,9 @@ function calculateProductRelevanceScore(product: { title: string; description?: 
   
   // Bonus: Multiple primary terms found (strong relevance indicator)
   const primaryTermsFoundCount = filteredPrimaryTerms.filter(term => {
-    const termStem = getWordStem(term);
-    const exactPattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
+    const normalizedTerm = normalizeHyphens(term);
+    const termStem = getWordStem(normalizedTerm);
+    const exactPattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`);
     return exactPattern.test(productTitle) || productTitle.includes(termStem);
   }).length;
   
@@ -2204,14 +2846,41 @@ function calculateProductRelevanceScore(product: { title: string; description?: 
   }
   
   // TIER 2: Context/Modifier Terms - MEDIUM PRIORITY
-  // +10 points per context term found
-  contextTerms.forEach(term => {
-    const pattern = new RegExp(`\\b${escapeRegExp(term)}\\b`);
-    if (pattern.test(productTitle)) {
-      score += 10;
-      console.log(`  +10: [TIER 2] Context term "${term}"`);
+  // 🆕 When productPhrase is used, SKIP context term scoring entirely
+  // Context terms like "common", "problems" are article words, not product identifiers
+  if (!productPhrase) {
+    // Only score context terms when we don't have a product phrase
+    contextTerms.forEach(term => {
+      const normalizedTerm = normalizeHyphens(term);
+      const pattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`);
+      if (pattern.test(productTitle)) {
+        score += 10;
+        console.log(`  +10: [TIER 2] Context term "${term}"`);
+      }
+    });
+  } else {
+    // When productPhrase is available, penalize products that match ONLY context terms
+    const matchesAnyPrimaryTerm = filteredPrimaryTerms.some(term => {
+      const normalizedTerm = normalizeHyphens(term);
+      const termStem = getWordStem(normalizedTerm);
+      const exactPattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`);
+      return exactPattern.test(productTitle) || productTitle.includes(termStem);
+    });
+    
+    if (!matchesAnyPrimaryTerm) {
+      // Check if it matches any context term (this would be a false positive)
+      const matchesContextTerm = contextTerms.some(term => {
+        const normalizedTerm = normalizeHyphens(term);
+        const pattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`);
+        return pattern.test(productTitle);
+      });
+      
+      if (matchesContextTerm) {
+        score -= 15;
+        console.log(`  -15: Matches context term but NO primary terms (likely irrelevant)`);
+      }
     }
-  });
+  }
   
   // TIER 3: Component/Search Terms - LOWER PRIORITY
   // +5 points: Exact phrase match for the search term
@@ -2221,7 +2890,7 @@ function calculateProductRelevanceScore(product: { title: string; description?: 
   }
   
   // +3 points: Contains vendor name (baseline relevance)
-  if (identifiedVendor && productTitle.includes(identifiedVendor.toLowerCase())) {
+  if (normalizedVendor && productTitle.includes(normalizedVendor)) {
     score += 3;
     console.log(`  +3: Contains vendor "${identifiedVendor}"`);
   }
@@ -2713,33 +3382,116 @@ function calculateWebsitePageRelevance(
 // ============================================
 
 /**
- * Fast regex-based fix for embedded Markdown headers in HTML
+ * Comprehensive Markdown to HTML sanitization
+ * Converts any Markdown syntax that slipped through to proper HTML
+ * This is a safety net for when Claude outputs Markdown despite instructions
  */
-function fixEmbeddedMarkdownHeaders(html: string): string {
-  // Pattern: ## or ### inside <p> tags
-  const pattern = /<p>(.*?)(#{2,6})\s+([^<#]+?)(.*?)<\/p>/g;
+function sanitizeMarkdownToHTML(html: string): string {
+  let result = html;
   
-  return html.replace(pattern, (match, before, hashes, headerText, after) => {
-    const level = hashes.length; // ## = 2, ### = 3, etc.
+  // Track if we made any changes for logging
+  let changesMade = 0;
+  
+  // 1. Fix Markdown headers (##, ###, etc.) - multiple patterns
+  
+  // Pattern A: Headers inside <p> tags
+  const insideParagraphPattern = /<p>([^<]*?)(#{2,6})\s+([^<#\n]+)([^<]*?)<\/p>/g;
+  result = result.replace(insideParagraphPattern, (match, before, hashes, headerText, after) => {
+    changesMade++;
+    const level = hashes.length;
     const headerTag = `h${level}`;
     
-    let result = '';
-    
-    // Close previous paragraph if there's content before
+    let replacement = '';
     if (before.trim()) {
-      result += `<p>${before.trim()}</p>\n`;
+      replacement += `<p>${before.trim()}</p>\n`;
     }
-    
-    // Add proper header tag
-    result += `<${headerTag}>${headerText.trim()}</${headerTag}>`;
-    
-    // Open new paragraph if there's content after
+    replacement += `<${headerTag}>${headerText.trim()}</${headerTag}>`;
     if (after.trim()) {
-      result += `\n<p>${after.trim()}</p>`;
+      replacement += `\n<p>${after.trim()}</p>`;
     }
-    
-    return result;
+    return replacement;
   });
+  
+  // Pattern B: Standalone headers (## at start of line or after closing tag)
+  const standalonePattern = /(>|\n|^)\s*(#{2,6})\s+([^\n<]+?)(\s*\n|<)/g;
+  result = result.replace(standalonePattern, (match, before, hashes, headerText, after) => {
+    changesMade++;
+    const level = hashes.length;
+    const headerTag = `h${level}`;
+    return `${before}\n<${headerTag}>${headerText.trim()}</${headerTag}>\n${after === '<' ? '<' : ''}`;
+  });
+  
+  // 2. Fix Markdown bold (**text** or __text__)
+  const boldPattern = /\*\*([^*]+)\*\*|__([^_]+)__/g;
+  result = result.replace(boldPattern, (match, stars, underscores) => {
+    changesMade++;
+    return `<strong>${stars || underscores}</strong>`;
+  });
+  
+  // 3. Fix Markdown italic (*text* or _text_) - but not inside URLs or already processed
+  // Be careful not to match ** (bold) or * in other contexts
+  const italicPattern = /(?<!\*)\*(?!\*)([^*\n]+)(?<!\*)\*(?!\*)|(?<!_)_(?!_)([^_\n]+)(?<!_)_(?!_)/g;
+  result = result.replace(italicPattern, (match, stars, underscores) => {
+    // Skip if this looks like it's part of a URL or code
+    if (match.includes('://') || match.includes('.com') || match.includes('.org')) {
+      return match;
+    }
+    changesMade++;
+    return `<em>${stars || underscores}</em>`;
+  });
+  
+  // 4. Fix Markdown links [text](url)
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  result = result.replace(linkPattern, (match, text, url) => {
+    changesMade++;
+    return `<a href="${url}">${text}</a>`;
+  });
+  
+  // 5. Fix Markdown unordered lists (- item or * item at start of line)
+  // Only if not already in a list context
+  const listItemPattern = /(?:^|\n)\s*[-*]\s+([^\n]+)/g;
+  let listMatches = result.match(listItemPattern);
+  if (listMatches && listMatches.length > 0 && !result.includes('<ul>') && !result.includes('<li>')) {
+    // Convert to HTML list
+    result = result.replace(/(?:(?:^|\n)\s*[-*]\s+([^\n]+))+/g, (match) => {
+      changesMade++;
+      const items = match.trim().split(/\n/).map(item => {
+        const content = item.replace(/^\s*[-*]\s+/, '').trim();
+        return content ? `<li>${content}</li>` : '';
+      }).filter(Boolean).join('\n');
+      return `\n<ul>\n${items}\n</ul>\n`;
+    });
+  }
+  
+  // 6. Clean up any resulting issues
+  
+  // Remove empty paragraphs that might result from our transformations
+  result = result.replace(/<p>\s*<\/p>/g, '');
+  
+  // Fix double paragraph tags
+  result = result.replace(/<\/p>\s*<\/p>/g, '</p>');
+  result = result.replace(/<p>\s*<p>/g, '<p>');
+  
+  // Fix paragraph before heading (should close paragraph before heading)
+  result = result.replace(/<p>([^<]*)<(h[2-6])>/g, '<p>$1</p>\n<$2>');
+  
+  // Fix heading followed by text without paragraph (should open paragraph after heading)
+  result = result.replace(/<\/(h[2-6])>([^<\n]+)(?=\n|<)/g, '</$1>\n<p>$2</p>');
+  
+  if (changesMade > 0) {
+    console.log(`🔧 Markdown sanitization: Fixed ${changesMade} Markdown syntax instances`);
+  }
+  
+  return result;
+}
+
+/**
+ * Fast regex-based fix for embedded Markdown headers in HTML (legacy function)
+ * Now calls the more comprehensive sanitizeMarkdownToHTML
+ */
+function fixEmbeddedMarkdownHeaders(html: string): string {
+  // Delegate to the comprehensive sanitization function
+  return sanitizeMarkdownToHTML(html);
 }
 
 /**
@@ -3432,6 +4184,17 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       DO NOT INCLUDE ANY EXTERNAL LINKS TO COMPETITORS.
       Start writing immediately with <h1>
       DO NOT START BY TALKING TO ME.
+
+      CRITICAL HTML-ONLY FORMATTING RULES (MUST FOLLOW):
+      - Output ONLY valid HTML markup - absolutely NO Markdown syntax anywhere
+      - Headings: Use <h2>, <h3>, <h4> tags - NEVER use ##, ###, or #### Markdown syntax
+      - Bold text: Use <strong>text</strong> - NEVER use **text** or __text__
+      - Italic text: Use <em>text</em> - NEVER use *text* or _text_
+      - Lists: Use <ul><li>item</li></ul> or <ol><li>item</li></ol> - NEVER use - or * bullets
+      - Links: Use <a href="url">text</a> - NEVER use [text](url)
+      - Paragraphs: Each paragraph must be wrapped in <p></p> tags
+      - Section breaks: Always close </p> before starting a new <h2> or <h3>, then open new <p> after
+      - NEVER embed ## or ### inside paragraph text - always use proper HTML heading tags
 
       Here is a detailed breakdown of the topic to guide your writing:
       ${topicBreakdown}

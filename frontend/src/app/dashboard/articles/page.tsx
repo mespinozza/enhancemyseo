@@ -1828,181 +1828,241 @@ export default function ArticlesPage() {
       {/* Right Panel - Bulk Generation Results */}
       <div className="w-full md:w-1/2 p-4 md:p-6 bg-white flex flex-col h-full">
         <div className="w-full flex flex-col h-full">
-          {isGenerating ? (
-            <div className="flex flex-col space-y-6">
-              {/* Generation Progress */}
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h3 className="text-lg font-semibold text-blue-900 mb-3">Bulk Generation Progress</h3>
-                <div className="space-y-2">
-                  {keywords.filter(k => k.trim().length > 0).map((keyword, index) => {
-                    const status = bulkGenerationStatus[index] || 'pending';
-                    return (
-                      <div key={index} className="flex items-center space-x-3">
-                        <div className={`w-4 h-4 rounded-full ${
-                          status === 'completed' ? 'bg-green-500' :
-                          status === 'generating' ? 'bg-blue-500 animate-pulse' :
-                          status === 'error' ? 'bg-red-500' :
-                          'bg-gray-300'
-                        }`} />
-                        <span className="text-sm font-medium truncate">{keyword}</span>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          status === 'completed' ? 'bg-green-100 text-green-700' :
-                          status === 'generating' ? 'bg-blue-100 text-blue-700' :
-                          status === 'error' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {status === 'completed' ? '✓ Complete' :
-                           status === 'generating' ? '🔄 Generating...' :
-                           status === 'error' ? '✗ Error' :
-                           '⏳ Pending'}
+          {/* Show content when generating OR has articles */}
+          {(isGenerating || generatedArticles.length > 0) ? (
+            <div className="flex flex-col h-full">
+              {/* Sticky Progress Bar - Only during generation */}
+              {isGenerating && (
+                <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg mb-4 shadow-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-3">
+                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                      <span className="font-semibold">
+                        Generating: {Object.values(bulkGenerationStatus).filter(s => s === 'completed').length}/{Object.keys(bulkGenerationStatus).length}
+                      </span>
+                    </div>
+                    <span className="text-sm text-blue-100">
+                      {Math.round((Object.values(bulkGenerationStatus).filter(s => s === 'completed').length / Object.keys(bulkGenerationStatus).length) * 100)}% complete
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="w-full bg-blue-800 rounded-full h-2 mb-2">
+                    <div 
+                      className="bg-white rounded-full h-2 transition-all duration-500 ease-out"
+                      style={{ 
+                        width: `${(Object.values(bulkGenerationStatus).filter(s => s === 'completed').length / Object.keys(bulkGenerationStatus).length) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  {/* Currently generating keyword */}
+                  {(() => {
+                    const currentIndex = keywords.filter(k => k.trim().length > 0).findIndex((_, idx) => bulkGenerationStatus[idx] === 'generating');
+                    const currentKeyword = currentIndex >= 0 ? keywords.filter(k => k.trim().length > 0)[currentIndex] : null;
+                    return currentKeyword ? (
+                      <p className="text-sm text-blue-100 truncate">
+                        <span className="text-blue-200">Currently writing:</span> {currentKeyword}
+                      </p>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+
+              {/* Collapsible Pending Queue - Right below progress bar */}
+              {isGenerating && (
+                <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
+                  <details className="group">
+                    <summary className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-medium text-gray-700">
+                          Pending Queue ({keywords.filter(k => k.trim().length > 0).filter((_, idx) => !bulkGenerationStatus[idx] || bulkGenerationStatus[idx] === 'pending' || bulkGenerationStatus[idx] === 'generating').length} remaining)
                         </span>
                       </div>
-                    );
-                  })}
+                      <svg className="w-5 h-5 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </summary>
+                    <div className="p-3 bg-white max-h-48 overflow-y-auto">
+                      <div className="space-y-2">
+                        {keywords.filter(k => k.trim().length > 0).map((keyword, index) => {
+                          const status = bulkGenerationStatus[index] || 'pending';
+                          // Only show pending and generating items (not completed)
+                          if (status === 'completed') return null;
+                          return (
+                            <div key={index} className="flex items-center space-x-3 py-1">
+                              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                                status === 'generating' ? 'bg-blue-500 animate-pulse' :
+                                status === 'error' ? 'bg-red-500' :
+                                'bg-gray-300'
+                              }`} />
+                              <span className="text-sm text-gray-600 truncate flex-1">{keyword}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
+                                status === 'generating' ? 'bg-blue-100 text-blue-700' :
+                                status === 'error' ? 'bg-red-100 text-red-700' :
+                                'bg-gray-100 text-gray-500'
+                              }`}>
+                                {status === 'generating' ? '🔄 Writing...' :
+                                 status === 'error' ? '✗ Error' :
+                                 '⏳ Pending'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </details>
                 </div>
-              </div>
+              )}
 
-              {/* Overall Progress Message */}
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-lg font-medium text-gray-700 mb-2">
-                  Generating articles. {Object.values(bulkGenerationStatus).filter(s => s === 'completed').length}/{Object.keys(bulkGenerationStatus).length} have been written
-                </p>
-                <p className="text-sm text-gray-500 max-w-md mx-auto">
-                  Please wait while we craft high-quality, SEO-optimized content for each keyword. This may take a few minutes.
-                </p>
-              </div>
-            </div>
-          ) : generatedArticles.length > 0 ? (
-            <div className="flex flex-col h-full">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">
-                  Generated Articles ({generatedArticles.length})
-                </h3>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleDownloadAll}
-                    className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                  >
-                    <Download size={16} />
-                    <span>Download All</span>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setShowShopifyModal(true);
-                      if (selectedBrandId) {
-                        await fetchShopifyBlogs(selectedBrandId);
-                      }
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
-                  >
-                    📤 Push to Shopify
-                  </button>
+              {/* Header with actions - show when articles exist */}
+              {generatedArticles.length > 0 && (
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">
+                    Generated Articles ({generatedArticles.length})
+                  </h3>
+                  {!isGenerating && (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleDownloadAll}
+                        className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                      >
+                        <Download size={16} />
+                        <span>Download All</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setShowShopifyModal(true);
+                          if (selectedBrandId) {
+                            await fetchShopifyBlogs(selectedBrandId);
+                          }
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
+                      >
+                        📤 Push to Shopify
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
               
-              {/* Articles Grid - Scrollable */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-y-auto pr-2">
-                {generatedArticles.map((article, index) => (
-                  <div
-                    key={article.id}
-                    className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
-                      expandedArticle === index
-                        ? 'border-blue-500 bg-blue-50 lg:col-span-2'
-                        : 'border-gray-200 hover:border-blue-300 hover:shadow-md'
-                    }`}
-                    onClick={() => setExpandedArticle(expandedArticle === index ? null : index)}
-                  >
-                    {expandedArticle === index ? (
-                      /* Expanded Article View */
-                      <div className="h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4">
-                          <h4 className="text-lg font-semibold truncate">{article.title}</h4>
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setViewMode(viewMode === 'preview' ? 'raw' : 'preview');
-                              }}
-                              className={`px-3 py-1 text-xs font-medium rounded ${
-                                viewMode === 'preview'
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-gray-200 text-gray-700'
-                              }`}
-                            >
-                              {viewMode === 'preview' ? 'Preview' : 'HTML'}
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownloadHTML(article);
-                              }}
-                              className="p-1 text-gray-600 hover:text-blue-600"
-                              title="Download"
-                            >
-                              <Download size={16} />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopyHTML(article);
-                              }}
-                              className="p-1 text-gray-600 hover:text-blue-600"
-                              title="Copy HTML"
-                            >
-                              <Copy size={16} />
-                            </button>
+              {/* Articles Grid - Shows completed articles during generation */}
+              {generatedArticles.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-y-auto pr-2 mb-4">
+                  {generatedArticles.map((article, index) => (
+                    <div
+                      key={article.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
+                        expandedArticle === index
+                          ? 'border-blue-500 bg-blue-50 lg:col-span-2'
+                          : 'border-gray-200 hover:border-blue-300 hover:shadow-md'
+                      }`}
+                      onClick={() => setExpandedArticle(expandedArticle === index ? null : index)}
+                    >
+                      {expandedArticle === index ? (
+                        /* Expanded Article View */
+                        <div className="h-full flex flex-col">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-lg font-semibold truncate">{article.title}</h4>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewMode(viewMode === 'preview' ? 'raw' : 'preview');
+                                }}
+                                className={`px-3 py-1 text-xs font-medium rounded ${
+                                  viewMode === 'preview'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-200 text-gray-700'
+                                }`}
+                              >
+                                {viewMode === 'preview' ? 'Preview' : 'HTML'}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownloadHTML(article);
+                                }}
+                                className="p-1 text-gray-600 hover:text-blue-600"
+                                title="Download"
+                              >
+                                <Download size={16} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopyHTML(article);
+                                }}
+                                className="p-1 text-gray-600 hover:text-blue-600"
+                                title="Copy HTML"
+                              >
+                                <Copy size={16} />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-white rounded p-3 flex-1 overflow-auto max-h-96">
+                            {viewMode === 'preview' ? (
+                              <div
+                                className="prose prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{ 
+                                  __html: article.content.replace(
+                                    /<img[^>]*>/g, 
+                                    (match) => {
+                                      // Remove problematic images or add error handling
+                                      if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
+                                        return ''; // Remove problematic images
+                                      }
+                                      return match.replace(/>$/, ' onerror="this.style.display=\'none\'" style="max-width: 100%; height: auto;">')
+                                    }
+                                  )
+                                }}
+                              />
+                            ) : (
+                              <pre className="whitespace-pre-wrap break-words text-xs text-gray-800">
+                                {article.content}
+                              </pre>
+                            )}
                           </div>
                         </div>
-                        
-                        <div className="bg-white rounded p-3 flex-1 overflow-auto max-h-96">
-                          {viewMode === 'preview' ? (
-                            <div
-                              className="prose prose-sm max-w-none"
-                              dangerouslySetInnerHTML={{ 
-                                __html: article.content.replace(
-                                  /<img[^>]*>/g, 
-                                  (match) => {
-                                    // Remove problematic images or add error handling
-                                    if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
-                                      return ''; // Remove problematic images
-                                    }
-                                    return match.replace(/>$/, ' onerror="this.style.display=\'none\'" style="max-width: 100%; height: auto;">')
-                                  }
-                                )
-                              }}
-                            />
-                          ) : (
-                            <pre className="whitespace-pre-wrap break-words text-xs text-gray-800">
-                              {article.content}
-                            </pre>
-                          )}
+                      ) : (
+                        /* Compact Article Card */
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-2 line-clamp-2">
+                            {article.title}
+                          </h4>
+                          <p className="text-sm text-gray-600 mb-3">
+                            Created {article.createdAt instanceof Date 
+                              ? article.createdAt.toLocaleDateString() 
+                              : (article.createdAt as any)?.toDate?.()?.toLocaleDateString() || 'Unknown'}
+                          </p>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                              ✓ Generated
+                            </span>
+                            <span className="text-xs text-blue-600 font-medium">
+                              Click to expand
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      /* Compact Article Card */
-                      <div>
-                        <h4 className="font-semibold text-gray-900 mb-2 line-clamp-2">
-                          {article.title}
-                        </h4>
-                        <p className="text-sm text-gray-600 mb-3">
-                          Created {article.createdAt instanceof Date 
-                            ? article.createdAt.toLocaleDateString() 
-                            : (article.createdAt as any)?.toDate?.()?.toLocaleDateString() || 'Unknown'}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                            ✓ Generated
-                          </span>
-                          <span className="text-xs text-blue-600 font-medium">
-                            Click to expand
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Empty state during generation when no articles yet */}
+              {isGenerating && generatedArticles.length === 0 && (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center text-gray-500">
+                    <div className="animate-pulse mb-4">
+                      <svg className="w-12 h-12 mx-auto text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm">First article being generated...</p>
+                    <p className="text-xs text-gray-400 mt-1">Articles will appear here as they complete</p>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center text-gray-500 py-12">
@@ -2011,10 +2071,10 @@ export default function ArticlesPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-                             <h3 className="text-lg font-medium text-gray-900 mb-2">Ready for Article Generation</h3>
-               <p className="text-gray-600">
-                 Generate one or more articles at a time. Generated article(s) will appear here.
-               </p>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Ready for Article Generation</h3>
+              <p className="text-gray-600">
+                Generate one or more articles at a time. Generated article(s) will appear here.
+              </p>
             </div>
           )}
         </div>
