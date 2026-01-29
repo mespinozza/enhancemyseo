@@ -581,37 +581,60 @@ Status: ${blog.status}`;
     try {
       const selectedBlogs = blogs.filter(blog => selectedBlogIds.includes(blog.id!));
       
-      // Create a combined text file with all articles
-      let combinedContent = '';
-      selectedBlogs.forEach((blog, index) => {
-        const textContent = `${blog.title}
-${'='.repeat(blog.title.length)}
-
-${blog.content ? blog.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') : 'No content available'}
-
----
-Generated: ${blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
-Keyword: ${blog.keyword || 'Not specified'}
-Status: ${blog.status}
+      // Create an HTML file with all articles
+      const brandName = brandProfiles.find(b => b.id === selectedBrandFilter)?.brandName || 'Articles';
+      let htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${brandName} - ${selectedBlogs.length} Articles</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+    .article { margin-bottom: 60px; padding-bottom: 40px; border-bottom: 2px solid #e5e5e5; }
+    .article:last-child { border-bottom: none; }
+    .article-title { font-size: 28px; font-weight: bold; margin-bottom: 10px; color: #1a1a1a; }
+    .article-meta { font-size: 14px; color: #666; margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px; }
+    .article-content { font-size: 16px; }
+    .article-content img { max-width: 100%; height: auto; }
+    .article-content h1, .article-content h2, .article-content h3 { margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <h1 style="text-align: center; margin-bottom: 40px;">${brandName} - ${selectedBlogs.length} Article${selectedBlogs.length !== 1 ? 's' : ''}</h1>
 `;
-        combinedContent += textContent;
-        if (index < selectedBlogs.length - 1) {
-          combinedContent += '\n\n' + '━'.repeat(50) + '\n\n';
-        }
+
+      selectedBlogs.forEach((blog) => {
+        htmlContent += `
+  <article class="article">
+    <h2 class="article-title">${blog.title}</h2>
+    <div class="article-meta">
+      <strong>Keyword:</strong> ${blog.keyword || 'Not specified'} | 
+      <strong>Generated:</strong> ${blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'} | 
+      <strong>Status:</strong> ${blog.status}
+    </div>
+    <div class="article-content">
+      ${blog.content || '<p>No content available</p>'}
+    </div>
+  </article>
+`;
       });
 
-      const blob = new Blob([combinedContent], { type: 'text/plain' });
+      htmlContent += `
+</body>
+</html>`;
+
+      const blob = new Blob([htmlContent], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const brandName = brandProfiles.find(b => b.id === selectedBrandFilter)?.brandName || 'articles';
-      a.download = `${brandName.toLowerCase().replace(/\s+/g, '-')}-${selectedBlogs.length}-articles.txt`;
+      a.download = `${brandName.toLowerCase().replace(/\s+/g, '-')}-${selectedBlogs.length}-articles.html`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      toast.success(`Downloaded ${selectedBlogs.length} article${selectedBlogs.length !== 1 ? 's' : ''}`);
+      toast.success(`Downloaded ${selectedBlogs.length} article${selectedBlogs.length !== 1 ? 's' : ''} as HTML`);
     } catch (error) {
       console.error('Error downloading articles:', error);
       toast.error('Failed to download articles');
@@ -1517,7 +1540,7 @@ Status: ${blog.status}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
                 >
                   <Download className="w-4 h-4" />
-                  {isDownloading ? 'Downloading...' : 'Download TXT'}
+                  {isDownloading ? 'Downloading...' : 'Download HTML'}
                 </button>
                 <button
                   onClick={handleBulkPushToShopify}
