@@ -740,16 +740,16 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     
     // Add other combinations (only if no product phrase was detected)
     if (!productPhrase) {
-      finalTerms.push(...otherCombinations);
-      
+    finalTerms.push(...otherCombinations);
+    
       // Add individual keyword parts if they're meaningful (fallback only)
-      keywordParts.forEach(part => {
-        if (part.length > 3 && 
-           !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
-           (!primaryVendor || part.toLowerCase() !== primaryVendor.toLowerCase())) {
-          finalTerms.push(part);
-        }
-      });
+    keywordParts.forEach(part => {
+      if (part.length > 3 && 
+         !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(part.toLowerCase()) && 
+         (!primaryVendor || part.toLowerCase() !== primaryVendor.toLowerCase())) {
+        finalTerms.push(part);
+      }
+    });
     }
     
     // Remove duplicates
@@ -1428,31 +1428,31 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   const TARGET_PRODUCTS = 5;
   
   // GraphQL query template
-  const graphqlQuery = `
-    query searchProducts($query: String!) {
-      products(first: 20, query: $query) {
-        edges {
-          node {
-            id
-            title
-            handle
-            vendor
-            productType
-            tags
-            variants(first: 1) {
-              edges {
-                node {
-                  id
-                  price
+      const graphqlQuery = `
+        query searchProducts($query: String!) {
+          products(first: 20, query: $query) {
+            edges {
+              node {
+                id
+                title
+                handle
+                vendor
+                productType
+                tags
+                variants(first: 1) {
+                  edges {
+                    node {
+                      id
+                      price
+                    }
+                  }
                 }
               }
             }
           }
         }
-      }
-    }
-  `;
-  
+      `;
+      
   // 🆕 STEP 1: COMPOUND PHRASE SEARCH (if productPhrase is available)
   // This is the most accurate search method - searches for all words from the product phrase
   if (productPhrase && productPhrase.split(' ').length >= 2) {
@@ -2850,14 +2850,14 @@ function calculateProductRelevanceScore(product: { title: string; description?: 
   // Context terms like "common", "problems" are article words, not product identifiers
   if (!productPhrase) {
     // Only score context terms when we don't have a product phrase
-    contextTerms.forEach(term => {
+  contextTerms.forEach(term => {
       const normalizedTerm = normalizeHyphens(term);
       const pattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`);
-      if (pattern.test(productTitle)) {
-        score += 10;
-        console.log(`  +10: [TIER 2] Context term "${term}"`);
-      }
-    });
+    if (pattern.test(productTitle)) {
+      score += 10;
+      console.log(`  +10: [TIER 2] Context term "${term}"`);
+    }
+  });
   } else {
     // When productPhrase is available, penalize products that match ONLY context terms
     const matchesAnyPrimaryTerm = filteredPrimaryTerms.some(term => {
@@ -3480,9 +3480,9 @@ function sanitizeMarkdownToHTML(html: string): string {
   
   if (changesMade > 0) {
     console.log(`🔧 Markdown sanitization: Fixed ${changesMade} Markdown syntax instances`);
-  }
-  
-  return result;
+    }
+    
+    return result;
 }
 
 /**
