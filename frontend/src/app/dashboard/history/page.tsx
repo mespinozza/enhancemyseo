@@ -47,6 +47,13 @@ export default function HistoryPage() {
   const highlightedItemRef = useRef<HTMLDivElement>(null);
   const lastLogTimeRef = useRef<number>(0);
   
+  // Brand filter state
+  const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>('all');
+  
+  // Main page selection states (for bulk actions when brand is selected)
+  const [selectedBlogIds, setSelectedBlogIds] = useState<string[]>([]);
+  const [isDownloading, setIsDownloading] = useState(false);
+  
   // Shopify push states
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [selectedArticleIds, setSelectedArticleIds] = useState<string[]>([]);
@@ -546,10 +553,97 @@ Status: ${blog.status}`;
     window.location.href = '/dashboard/articles';
   };
 
+  // Main page blog selection handlers
+  const handleSelectBlog = (blogId: string) => {
+    setSelectedBlogIds(prev => 
+      prev.includes(blogId) 
+        ? prev.filter(id => id !== blogId)
+        : [...prev, blogId]
+    );
+  };
+
+  const handleSelectAllBlogs = () => {
+    const filteredBlogs = getFilteredBlogs(blogs);
+    if (selectedBlogIds.length === filteredBlogs.length) {
+      setSelectedBlogIds([]);
+    } else {
+      setSelectedBlogIds(filteredBlogs.map(blog => blog.id!).filter(Boolean));
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    if (selectedBlogIds.length === 0) {
+      toast.error('Please select at least one article to download');
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      const selectedBlogs = blogs.filter(blog => selectedBlogIds.includes(blog.id!));
+      
+      // Create a combined text file with all articles
+      let combinedContent = '';
+      selectedBlogs.forEach((blog, index) => {
+        const textContent = `${blog.title}
+${'='.repeat(blog.title.length)}
+
+${blog.content ? blog.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') : 'No content available'}
+
+---
+Generated: ${blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
+Keyword: ${blog.keyword || 'Not specified'}
+Status: ${blog.status}
+`;
+        combinedContent += textContent;
+        if (index < selectedBlogs.length - 1) {
+          combinedContent += '\n\n' + '━'.repeat(50) + '\n\n';
+        }
+      });
+
+      const blob = new Blob([combinedContent], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const brandName = brandProfiles.find(b => b.id === selectedBrandFilter)?.brandName || 'articles';
+      a.download = `${brandName.toLowerCase().replace(/\s+/g, '-')}-${selectedBlogs.length}-articles.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Downloaded ${selectedBlogs.length} article${selectedBlogs.length !== 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Error downloading articles:', error);
+      toast.error('Failed to download articles');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleBulkPushToShopify = () => {
+    // Pre-select the current brand filter and selected articles, then open modal
+    setSelectedArticleIds(selectedBlogIds);
+    if (selectedBrandFilter !== 'all') {
+      setSelectedBrandId(selectedBrandFilter);
+      fetchShopifyBlogs(selectedBrandFilter);
+    }
+    setShowShopifyModal(true);
+    initializeModalArticles();
+  };
+
+  // Get filtered blogs based on selected brand
+  const getFilteredBlogs = useCallback((blogsData: Blog[]) => {
+    if (selectedBrandFilter === 'all') {
+      return blogsData;
+    }
+    return blogsData.filter(blog => blog.brandId === selectedBrandFilter);
+  }, [selectedBrandFilter]);
+
   // Main page pagination functionality
   // Initialize blogs for main page
   const initializeMainPageBlogs = useCallback((blogsData: Blog[]) => {
-    const sortedBlogs = [...blogsData].sort((a, b) => {
+    const filteredBlogs = getFilteredBlogs(blogsData);
+    const sortedBlogs = [...filteredBlogs].sort((a, b) => {
       const dateA = a.createdAt?.toDate?.() || new Date(0);
       const dateB = b.createdAt?.toDate?.() || new Date(0);
       return dateB.getTime() - dateA.getTime(); // Most recent first
@@ -558,13 +652,15 @@ Status: ${blog.status}`;
     const initial = sortedBlogs.slice(0, blogsPerPage);
     console.log('Initializing main page blogs:', {
       totalBlogs: blogsData.length,
+      filteredBlogs: filteredBlogs.length,
       initialDisplayed: initial.length,
-      hasMore: sortedBlogs.length > blogsPerPage
+      hasMore: sortedBlogs.length > blogsPerPage,
+      brandFilter: selectedBrandFilter
     });
     
     setDisplayedBlogs(initial);
     setHasMoreBlogs(sortedBlogs.length > blogsPerPage);
-  }, [blogsPerPage]);
+  }, [blogsPerPage, getFilteredBlogs, selectedBrandFilter]);
 
   // Load more blogs for main page
   const loadMoreBlogs = useCallback(() => {
@@ -572,7 +668,8 @@ Status: ${blog.status}`;
       isLoadingMoreBlogs,
       hasMoreBlogs,
       currentDisplayed: displayedBlogs.length,
-      totalBlogs: blogs.length
+      totalBlogs: blogs.length,
+      brandFilter: selectedBrandFilter
     });
     
     if (isLoadingMoreBlogs || !hasMoreBlogs) {
@@ -583,7 +680,8 @@ Status: ${blog.status}`;
     setIsLoadingMoreBlogs(true);
     
     setTimeout(() => {
-      const sortedBlogs = [...blogs].sort((a, b) => {
+      const filteredBlogs = getFilteredBlogs(blogs);
+      const sortedBlogs = [...filteredBlogs].sort((a, b) => {
         const dateA = a.createdAt?.toDate?.() || new Date(0);
         const dateB = b.createdAt?.toDate?.() || new Date(0);
         return dateB.getTime() - dateA.getTime(); // Most recent first
@@ -604,7 +702,7 @@ Status: ${blog.status}`;
       setHasMoreBlogs(displayedBlogs.length + nextBlogs.length < sortedBlogs.length);
       setIsLoadingMoreBlogs(false);
     }, 300); // Small delay for smooth UX
-  }, [isLoadingMoreBlogs, hasMoreBlogs, blogs, displayedBlogs.length, blogsPerPage]);
+  }, [isLoadingMoreBlogs, hasMoreBlogs, blogs, displayedBlogs.length, blogsPerPage, selectedBrandFilter, getFilteredBlogs]);
 
   // Ensure displayedBlogs is updated when blogs change
   useEffect(() => {
@@ -613,6 +711,16 @@ Status: ${blog.status}`;
       initializeMainPageBlogs(blogs);
     }
   }, [blogs, displayedBlogs.length, initializeMainPageBlogs]);
+
+  // Reinitialize when brand filter changes
+  useEffect(() => {
+    if (blogs.length > 0) {
+      console.log('Brand filter changed, reinitializing blogs:', selectedBrandFilter);
+      initializeMainPageBlogs(blogs);
+      // Clear selection when brand filter changes
+      setSelectedBlogIds([]);
+    }
+  }, [selectedBrandFilter, blogs, initializeMainPageBlogs]);
 
   // Handle scroll in main page with useCallback
   const handleMainPageScroll = useCallback(() => {
@@ -939,23 +1047,58 @@ Status: ${blog.status}`;
         </div>
       )}
       
+      {/* Show message when brand filter has no articles */}
+      {displayedBlogs.length === 0 && blogs.length > 0 && selectedBrandFilter !== 'all' && (
+        <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+          <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500 mb-2">No articles found for this brand</p>
+          <button
+            onClick={() => setSelectedBrandFilter('all')}
+            className="text-blue-600 hover:text-blue-500 text-sm font-medium"
+          >
+            View all articles
+          </button>
+        </div>
+      )}
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {displayedBlogs.map((blog) => {
         const isHighlighted = searchParams.get('highlight') === blog.id;
+        const isSelected = selectedBlogIds.includes(blog.id!);
+        const showCheckbox = selectedBrandFilter !== 'all';
+        
         return (
           <div
             key={blog.id}
             ref={isHighlighted ? highlightedItemRef : undefined}
-            className={`bg-white rounded-lg border p-6 transition-all duration-300 overflow-hidden ${
+            className={`bg-white rounded-lg border p-6 transition-all duration-300 overflow-hidden relative ${
               isHighlighted 
                 ? 'border-blue-500 shadow-lg ring-2 ring-blue-200' 
+                : isSelected
+                ? 'border-green-500 ring-2 ring-green-200'
                 : 'border-gray-200 hover:border-blue-300'
             }`}
             style={{ contain: 'layout style' }}
           >
+            {/* Selection Checkbox - Only show when brand is selected */}
+            {showCheckbox && (
+              <button
+                onClick={() => handleSelectBlog(blog.id!)}
+                className="absolute top-3 right-3 z-10"
+              >
+                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-all ${
+                  isSelected
+                    ? 'bg-green-500 border-green-500'
+                    : 'bg-white border-gray-300 hover:border-gray-400'
+                }`}>
+                  {isSelected && <Check className="w-4 h-4 text-white" />}
+                </div>
+              </button>
+            )}
+            
             <div className="flex items-center mb-4">
               <FileText className="w-5 h-5 text-blue-600 mr-2" />
-              <h3 className="text-lg font-semibold truncate">{blog.title}</h3>
+              <h3 className={`text-lg font-semibold truncate ${showCheckbox ? 'pr-8' : ''}`}>{blog.title}</h3>
             </div>
             <div className="mb-4">
               <p className="text-sm text-gray-500">
@@ -1037,7 +1180,7 @@ Status: ${blog.status}`;
             onClick={loadMoreBlogs}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
-            Load More ({displayedBlogs.length} of {blogs.length})
+            Load More ({displayedBlogs.length} of {selectedBrandFilter === 'all' ? blogs.length : blogs.filter(b => b.brandId === selectedBrandFilter).length})
           </button>
         </div>
       )}
@@ -1292,6 +1435,101 @@ Status: ${blog.status}`;
             ))}
           </nav>
         </div>
+        
+        {/* Brand Subtabs - Only show when on blogs tab and there are brand profiles */}
+        {activeTab === 'blogs' && brandProfiles.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setSelectedBrandFilter('all')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                selectedBrandFilter === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              All Brands
+              <span className="ml-1.5 text-xs opacity-75">({blogs.length})</span>
+            </button>
+            {brandProfiles.map((brand) => {
+              const brandArticleCount = blogs.filter(blog => blog.brandId === brand.id).length;
+              return (
+                <button
+                  key={brand.id}
+                  onClick={() => setSelectedBrandFilter(brand.id || '')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors flex items-center gap-2 ${
+                    selectedBrandFilter === brand.id
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <div
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: brand.brandColor }}
+                  />
+                  {brand.brandName}
+                  <span className="text-xs opacity-75">({brandArticleCount})</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        
+        {/* Bulk Action Bar - Show when a specific brand is selected */}
+        {activeTab === 'blogs' && selectedBrandFilter !== 'all' && displayedBlogs.length > 0 && (
+          <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSelectAllBlogs}
+                className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+              >
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                  selectedBlogIds.length === getFilteredBlogs(blogs).length && selectedBlogIds.length > 0
+                    ? 'bg-blue-600 border-blue-600'
+                    : selectedBlogIds.length > 0
+                    ? 'bg-blue-600 border-blue-600'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}>
+                  {selectedBlogIds.length > 0 && (
+                    selectedBlogIds.length === getFilteredBlogs(blogs).length 
+                      ? <Check className="w-3 h-3 text-white" />
+                      : <div className="w-2 h-0.5 bg-white" />
+                  )}
+                </div>
+                {selectedBlogIds.length === getFilteredBlogs(blogs).length 
+                  ? 'Deselect All' 
+                  : selectedBlogIds.length > 0 
+                  ? `${selectedBlogIds.length} selected`
+                  : 'Select All'}
+              </button>
+              
+              {selectedBlogIds.length > 0 && (
+                <span className="text-sm text-gray-500">
+                  {selectedBlogIds.length} of {getFilteredBlogs(blogs).length} articles selected
+                </span>
+              )}
+            </div>
+            
+            {selectedBlogIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBulkDownload}
+                  disabled={isDownloading}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  {isDownloading ? 'Downloading...' : 'Download TXT'}
+                </button>
+                <button
+                  onClick={handleBulkPushToShopify}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
+                >
+                  <Send className="w-4 h-4" />
+                  Push to Shopify
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tab Content */}

@@ -1868,50 +1868,54 @@ export default function ArticlesPage() {
               )}
 
               {/* Collapsible Pending Queue - Right below progress bar */}
-              {isGenerating && (
-                <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
-                  <details className="group">
-                    <summary className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm font-medium text-gray-700">
-                          Pending Queue ({keywords.filter(k => k.trim().length > 0).filter((_, idx) => !bulkGenerationStatus[idx] || bulkGenerationStatus[idx] === 'pending' || bulkGenerationStatus[idx] === 'generating').length} remaining)
-                        </span>
-                      </div>
-                      <svg className="w-5 h-5 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </summary>
-                    <div className="p-3 bg-white max-h-48 overflow-y-auto">
-                      <div className="space-y-2">
-                        {keywords.filter(k => k.trim().length > 0).map((keyword, index) => {
-                          const status = bulkGenerationStatus[index] || 'pending';
-                          // Only show pending and generating items (not completed)
-                          if (status === 'completed') return null;
-                          return (
-                            <div key={index} className="flex items-center space-x-3 py-1">
+              {isGenerating && (() => {
+                // Get valid keywords and their statuses
+                const validKeywords = keywords.filter(k => k.trim().length > 0);
+                const pendingCount = Object.values(bulkGenerationStatus).filter(s => s === 'pending' || s === 'generating').length;
+                const pendingItems = validKeywords
+                  .map((keyword, index) => ({ keyword, index, status: bulkGenerationStatus[index] || 'pending' }))
+                  .filter(item => item.status !== 'completed');
+                
+                return (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
+                    <details className="group">
+                      <summary className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-medium text-gray-700">
+                            Pending Queue ({pendingCount} remaining)
+                          </span>
+                        </div>
+                        <svg className="w-5 h-5 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </summary>
+                      <div className="p-3 bg-white max-h-48 overflow-y-auto">
+                        <div className="space-y-2">
+                          {pendingItems.map((item) => (
+                            <div key={item.index} className="flex items-center space-x-3 py-1">
                               <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                                status === 'generating' ? 'bg-blue-500 animate-pulse' :
-                                status === 'error' ? 'bg-red-500' :
+                                item.status === 'generating' ? 'bg-blue-500 animate-pulse' :
+                                item.status === 'error' ? 'bg-red-500' :
                                 'bg-gray-300'
                               }`} />
-                              <span className="text-sm text-gray-600 truncate flex-1">{keyword}</span>
+                              <span className="text-sm text-gray-600 truncate flex-1">{item.keyword}</span>
                               <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
-                                status === 'generating' ? 'bg-blue-100 text-blue-700' :
-                                status === 'error' ? 'bg-red-100 text-red-700' :
+                                item.status === 'generating' ? 'bg-blue-100 text-blue-700' :
+                                item.status === 'error' ? 'bg-red-100 text-red-700' :
                                 'bg-gray-100 text-gray-500'
                               }`}>
-                                {status === 'generating' ? '🔄 Writing...' :
-                                 status === 'error' ? '✗ Error' :
+                                {item.status === 'generating' ? '🔄 Writing...' :
+                                 item.status === 'error' ? '✗ Error' :
                                  '⏳ Pending'}
                               </span>
                             </div>
-                          );
-                        })}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  </details>
-                </div>
-              )}
+                    </details>
+                  </div>
+                );
+              })()}
 
               {/* Header with actions - show when articles exist */}
               {generatedArticles.length > 0 && (
