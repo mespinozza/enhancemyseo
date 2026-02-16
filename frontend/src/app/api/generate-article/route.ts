@@ -10,14 +10,50 @@ import OpenAI from 'openai';
 // Log the environment variable at module load time
 console.log('--- generate-article route loaded by Next.js server ---');
 
+// ============================================================================
+// REQUEST-SCOPED LOGGING SYSTEM
+// Captures all generation logs for the current request
+// ============================================================================
+let currentRequestLog: string[] = [];
+let isLoggingEnabled = false;
+
+/**
+ * Logs a message to both console and the current request's log array
+ * Use this instead of console.log for any output that should be captured
+ */
+function rlog(message: string): void {
+  console.log(message);
+  if (isLoggingEnabled) {
+    currentRequestLog.push(message);
+  }
+}
+
+/**
+ * Resets the request log for a new generation
+ */
+function resetRequestLog(): void {
+  currentRequestLog = [];
+  isLoggingEnabled = true;
+}
+
+/**
+ * Gets the current request log and disables logging
+ */
+function getRequestLog(): string[] {
+  isLoggingEnabled = false;
+  return [...currentRequestLog];
+}
+
 // Get API keys from environment variables
 const openaiKey = process.env.OPENAI_API_KEY?.trim();
 const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+const perplexityKey = process.env.PERPLEXITY_API_KEY?.trim();
 
 // Log environment variable status (without exposing the actual keys)
 console.log('Environment variables status:');
 console.log('OPENAI_API_KEY:', openaiKey ? 'Present' : 'Missing');
 console.log('ANTHROPIC_API_KEY:', anthropicKey ? 'Present' : 'Missing');
+console.log('PERPLEXITY_API_KEY:', perplexityKey ? 'Present' : 'Missing');
 
 // Initialize Firebase Admin if not already initialized
 initializeFirebaseAdmin();
@@ -48,6 +84,800 @@ try {
   console.log('Anthropic client initialized successfully');
 } catch (error) {
   console.error('Error initializing Anthropic client:', error);
+}
+
+// ============================================================================
+// FACT-CHECKING LAYER (Perplexity + Claude)
+// Validates generated content for accuracy and rewrites problematic sections
+// ============================================================================
+
+interface FactCheckIssue {
+  issue: string;
+  location: string;
+  originalText: string;
+}
+
+interface FactCheckResult {
+  isGoodToGo: boolean;
+  issues: FactCheckIssue[];
+  rawResponse: string;
+}
+
+// Logger type for passing to fact-check functions
+type Logger = (message: string) => void;
+
+/**
+ * Calls Perplexity API to fact-check the generated blog content
+ */
+async function factCheckWithPerplexity(content: string, log: Logger): Promise<FactCheckResult> {
+  if (!perplexityKey) {
+    log('⚠️ PERPLEXITY_API_KEY not configured, skipping fact-check');
+    return { isGoodToGo: true, issues: [], rawResponse: 'API key not configured' };
+  }
+
+  log('🔍 FACT-CHECK: Sending content to Perplexity for verification...');
+  
+  const factCheckPrompt = `Please fact-check the following content, create a list and identify any statements that may be inaccurate, unsupported, or misleading:
+
+${content}
+
+reply with the list ONLY, it should contain an issue + where in the content this information lies and if nothing looks inaccurate, unsupported, or misleading reply with good to go ONLY`;
+
+  try {
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'content-type': 'application/json',
+        'Authorization': `Bearer ${perplexityKey}`
+      },
+      body: JSON.stringify({
+        model: 'sonar',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a fact-checking assistant. Be thorough but fair. Only flag statements that are clearly inaccurate, unsupported by evidence, or potentially misleading. Do not flag opinions, subjective statements, or generally accepted knowledge.'
+          },
+          {
+            role: 'user',
+            content: factCheckPrompt
+          }
+        ],
+        max_tokens: 2000
+      })
+    });
+
+    if (!response.ok) {
+      log(`❌ FACT-CHECK: Perplexity API error: ${response.status}`);
+      return { isGoodToGo: true, issues: [], rawResponse: `API error: ${response.status}` };
+    }
+
+    const data = await response.json();
+    const factCheckResponse = data.choices?.[0]?.message?.content || '';
+    
+    // Log a truncated version of the response
+    const truncatedResponse = factCheckResponse.length > 200 
+      ? factCheckResponse.substring(0, 200) + '...' 
+      : factCheckResponse;
+    log(`📋 FACT-CHECK Response: ${truncatedResponse}`);
+    console.log('📋 FACT-CHECK Full Response:', factCheckResponse);
+
+    // Check if the response indicates no issues
+    const normalizedResponse = factCheckResponse.toLowerCase().trim();
+    if (normalizedResponse === 'good to go' || 
+        normalizedResponse.includes('good to go') && normalizedResponse.length < 50) {
+      log('✅ FACT-CHECK: Content verified - Good to go!');
+      return { isGoodToGo: true, issues: [], rawResponse: factCheckResponse };
+    }
+
+    // Parse issues from the response
+    const issues = parseFactCheckIssues(factCheckResponse, content);
+    
+    if (issues.length === 0) {
+      log('✅ FACT-CHECK: No parseable issues found');
+      return { isGoodToGo: true, issues: [], rawResponse: factCheckResponse };
+    }
+
+    log(`⚠️ FACT-CHECK: Found ${issues.length} issue(s) to address`);
+    issues.forEach((issue, index) => {
+      log(`  ${index + 1}. ${issue.issue.substring(0, 80)}...`);
+    });
+
+    return { isGoodToGo: false, issues, rawResponse: factCheckResponse };
+
+  } catch (error) {
+    log(`❌ FACT-CHECK: Error calling Perplexity: ${error}`);
+    return { isGoodToGo: true, issues: [], rawResponse: `Error: ${error}` };
+  }
+}
+
+/**
+ * Parses the fact-check response to extract individual issues
+ */
+function parseFactCheckIssues(response: string, originalContent: string): FactCheckIssue[] {
+  const issues: FactCheckIssue[] = [];
+  
+  // Split by common list patterns (numbered, bulleted, or line breaks)
+  const lines = response.split(/\n/).filter(line => line.trim().length > 0);
+  
+  for (const line of lines) {
+    // Skip if it's just "good to go" or similar
+    if (line.toLowerCase().includes('good to go')) continue;
+    
+    // Try to extract issue and location
+    // Common patterns: "1. Issue - Location" or "• Issue (in section X)" or "Issue: location"
+    const cleanLine = line.replace(/^[\d\.\-\•\*\s]+/, '').trim();
+    
+    if (cleanLine.length < 10) continue; // Skip very short lines
+    
+    // Try to find the problematic text in the original content
+    const locationMatch = cleanLine.match(/(?:in|at|found in|located in|section|paragraph|under|within)\s*[:\-]?\s*["']?([^"'\n]+)["']?/i);
+    const location = locationMatch ? locationMatch[1].trim() : 'Content section';
+    
+    // Extract the issue description
+    let issueDescription = cleanLine;
+    if (locationMatch) {
+      issueDescription = cleanLine.replace(locationMatch[0], '').trim();
+    }
+    
+    // Try to find the original text that needs to be fixed
+    // Look for quoted text in the response
+    const quotedMatch = cleanLine.match(/["']([^"']{10,})["']/);
+    let originalText = quotedMatch ? quotedMatch[1] : '';
+    
+    // If no quoted text, try to find a matching section in the content
+    if (!originalText && location !== 'Content section') {
+      // Search for the location text in the original content
+      const searchText = location.substring(0, Math.min(50, location.length));
+      const contentLower = originalContent.toLowerCase();
+      const searchLower = searchText.toLowerCase();
+      const index = contentLower.indexOf(searchLower);
+      
+      if (index !== -1) {
+        // Extract surrounding context (up to 500 characters)
+        const start = Math.max(0, index - 100);
+        const end = Math.min(originalContent.length, index + 400);
+        originalText = originalContent.substring(start, end);
+      }
+    }
+    
+    if (issueDescription.length > 10) {
+      issues.push({
+        issue: issueDescription,
+        location: location,
+        originalText: originalText
+      });
+    }
+  }
+  
+  return issues;
+}
+
+interface RewriteResult {
+  rewrittenContent: string;
+  originalSection: string;
+  foundSection: boolean;
+}
+
+/**
+ * Expands a text selection to include the complete containing HTML element
+ * This ensures we never cut mid-sentence or mid-tag
+ */
+function expandToCompleteElement(content: string, partialText: string): string {
+  const index = content.indexOf(partialText);
+  if (index === -1) return partialText;
+  
+  // Find the opening tag before this text
+  let startIndex = index;
+  let depth = 0;
+  let foundStart = false;
+  
+  // Walk backwards to find the containing <p>, <li>, <td>, or <div>
+  for (let i = index; i >= 0; i--) {
+    if (content[i] === '>' && i < index) {
+      // Check if this is a closing tag
+      const tagStart = content.lastIndexOf('<', i);
+      const tagContent = content.substring(tagStart, i + 1);
+      
+      if (tagContent.match(/^<\/(p|li|td|div|h[1-6])>/i)) {
+        // This is a closing tag - we've gone too far back
+        break;
+      }
+      
+      if (tagContent.match(/^<(p|li|td|div|h[1-6])\b/i)) {
+        // Found an opening block-level tag
+        startIndex = tagStart;
+        foundStart = true;
+        break;
+      }
+    }
+  }
+  
+  if (!foundStart) {
+    startIndex = Math.max(0, content.lastIndexOf('<p', index));
+    if (startIndex === -1) startIndex = index;
+  }
+  
+  // Find the matching closing tag
+  const openTagMatch = content.substring(startIndex).match(/^<(p|li|td|div|h[1-6])\b[^>]*>/i);
+  if (!openTagMatch) return partialText;
+  
+  const tagName = openTagMatch[1].toLowerCase();
+  const closeTag = `</${tagName}>`;
+  
+  // Find the closing tag after the partial text ends
+  let endIndex = content.indexOf(closeTag, index + partialText.length);
+  if (endIndex === -1) {
+    endIndex = content.indexOf(closeTag, startIndex);
+  }
+  
+  if (endIndex === -1) return partialText;
+  
+  return content.substring(startIndex, endIndex + closeTag.length);
+}
+
+/**
+ * Extracts key search terms from a fact-check issue description, filtering out common words
+ */
+function extractFactCheckKeyTerms(issueText: string): string[] {
+  const stopWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'has', 'her', 'was', 'one', 'our', 'out', 'may', 'that', 'this', 'with', 'have', 'from', 'been', 'were', 'they', 'will', 'would', 'could', 'should', 'about', 'which', 'their', 'there', 'these', 'those', 'being', 'other', 'into', 'some', 'such', 'than', 'then', 'them', 'when', 'what', 'more', 'make', 'just', 'only', 'come', 'made', 'find', 'here', 'many', 'most', 'know', 'take', 'very', 'after', 'before', 'being', 'where', 'while', 'content', 'section', 'statement', 'claim', 'article', 'specific', 'figures', 'information', 'inaccurate', 'unsupported', 'misleading', 'percent', 'percentage', 'number', 'statistic', 'data', 'source', 'cited', 'according']);
+  
+  return issueText
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 3 && !stopWords.has(word))
+    .slice(0, 10);
+}
+
+/**
+ * Uses Claude to rewrite problematic content sections based on fact-check feedback
+ * Returns both the rewritten content AND the original section that was found
+ * IMPROVED: Always captures complete HTML elements to prevent mid-sentence cuts
+ */
+async function rewriteContentWithFeedback(
+  originalContent: string, 
+  issue: FactCheckIssue, 
+  anthropicClient: Anthropic,
+  log: Logger
+): Promise<RewriteResult> {
+  log(`📝 REWRITE: Fixing issue - "${issue.issue.substring(0, 50)}..."`);
+  
+  // Find the section to rewrite - ALWAYS expand to complete elements
+  let sectionToRewrite = '';
+  let foundSection = false;
+  
+  // Strategy 1: Use the originalText from the issue, but expand to full element
+  if (issue.originalText && issue.originalText.length >= 20) {
+    if (originalContent.includes(issue.originalText)) {
+      // Expand to complete containing element
+      sectionToRewrite = expandToCompleteElement(originalContent, issue.originalText);
+      foundSection = true;
+      log(`  📍 Found section from originalText (${sectionToRewrite.length} chars)`);
+    }
+  }
+  
+  // Strategy 2: Find the best matching paragraph using key terms
+  if (!foundSection) {
+    const keyTerms = extractFactCheckKeyTerms(issue.issue);
+    console.log(`  🔍 Searching with key terms: ${keyTerms.join(', ')}`);
+    
+    // Match complete block-level elements only
+    const blockElements = originalContent.match(/<(p|li|td|div|h[1-6])[^>]*>[\s\S]*?<\/\1>/gi) || [];
+    
+    let bestMatch = { element: '', score: 0, index: -1 };
+    
+    for (const element of blockElements) {
+      const elementLower = element.toLowerCase();
+      // Strip HTML for text matching
+      const textContent = element.replace(/<[^>]+>/g, ' ').toLowerCase();
+      
+      let score = 0;
+      for (const term of keyTerms) {
+        if (textContent.includes(term)) {
+          score += 2; // Higher weight for text content match
+        } else if (elementLower.includes(term)) {
+          score += 1;
+        }
+      }
+      
+      if (score > bestMatch.score) {
+        bestMatch = { element, score, index: originalContent.indexOf(element) };
+      }
+    }
+    
+    if (bestMatch.score >= 2 && bestMatch.element) {
+      sectionToRewrite = bestMatch.element;
+      foundSection = true;
+      log(`  📍 Found via keyword matching (score: ${bestMatch.score}, ${sectionToRewrite.length} chars)`);
+    }
+  }
+  
+  // Strategy 3: Look for quoted text and expand to containing element
+  if (!foundSection) {
+    const quotedMatches = issue.issue.match(/["']([^"']{15,})["']/g) || [];
+    for (const quoted of quotedMatches) {
+      const cleanQuote = quoted.replace(/["']/g, '').trim();
+      const quoteLower = cleanQuote.toLowerCase();
+      const contentLower = originalContent.toLowerCase();
+      
+      if (contentLower.includes(quoteLower)) {
+        const index = contentLower.indexOf(quoteLower);
+        // Get the actual text (preserving case)
+        const actualQuote = originalContent.substring(index, index + cleanQuote.length);
+        sectionToRewrite = expandToCompleteElement(originalContent, actualQuote);
+        foundSection = true;
+        log(`  📍 Found via quoted text (${sectionToRewrite.length} chars)`);
+        break;
+      }
+    }
+  }
+  
+  // Strategy 4: Use AI-assisted identification as fallback
+  if (!foundSection) {
+    log(`  ⚠️ Could not locate section - using AI-assisted identification`);
+    return await rewriteWithAIIdentification(originalContent, issue, anthropicClient, log);
+  }
+  
+  // Detect the HTML structure being used
+  const openTagMatch = sectionToRewrite.match(/^<([a-z][a-z0-9]*)\b[^>]*>/i);
+  const primaryTag = openTagMatch ? openTagMatch[1] : 'p';
+  
+  // Build the rewrite prompt - emphasizing COMPLETE element replacement
+  const rewritePrompt = `You need to rewrite the following HTML element to fix a fact-checking issue. The rewritten version must seamlessly replace the original in a blog article.
+
+ORIGINAL HTML ELEMENT TO REPLACE:
+${sectionToRewrite}
+
+FACT-CHECK ISSUE TO FIX:
+${issue.issue}
+
+CRITICAL REQUIREMENTS:
+1. Return a COMPLETE, SELF-CONTAINED ${primaryTag.toUpperCase()} element
+2. Start with <${primaryTag}> and end with </${primaryTag}> - the EXACT same structure
+3. Write COMPLETE SENTENCES that flow naturally and don't reference other paragraphs
+4. Remove or reword the inaccurate/unsupported claims while keeping the overall message
+5. Maintain the same approximate length and tone
+6. Use the same HTML formatting (strong, em, a tags) where appropriate
+7. Do NOT use Markdown syntax - only HTML
+8. Do NOT include any explanation - return ONLY the replacement HTML element
+
+The replacement must read as a polished, standalone paragraph that could appear in a professional blog.`;
+
+  try {
+    const message = await anthropicClient.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [
+        {
+          role: "user",
+          content: rewritePrompt
+        }
+      ]
+    });
+
+    let rewrittenContent = message.content[0].type === 'text' ? message.content[0].text : '';
+    
+    // Clean up the response
+    rewrittenContent = rewrittenContent.trim();
+    
+    // Remove any code block wrappers
+    rewrittenContent = rewrittenContent.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
+    
+    // Ensure it has the proper tag structure
+    rewrittenContent = ensureCompleteElement(rewrittenContent, primaryTag);
+    
+    // Convert any stray Markdown
+    rewrittenContent = ensureHTMLFormat(rewrittenContent, sectionToRewrite);
+    
+    log(`✅ REWRITE: Element rewritten (${sectionToRewrite.length} → ${rewrittenContent.length} chars)`);
+    
+    return {
+      rewrittenContent: rewrittenContent,
+      originalSection: sectionToRewrite,
+      foundSection: true
+    };
+  } catch (error) {
+    console.error('❌ REWRITE: Error rewriting content:', error);
+    return {
+      rewrittenContent: sectionToRewrite,
+      originalSection: sectionToRewrite,
+      foundSection: false
+    };
+  }
+}
+
+/**
+ * Ensures the content is wrapped in a complete HTML element
+ */
+function ensureCompleteElement(content: string, expectedTag: string): string {
+  const trimmed = content.trim();
+  const openTag = `<${expectedTag}`;
+  const closeTag = `</${expectedTag}>`;
+  
+  // Check if it already has the correct structure
+  if (trimmed.toLowerCase().startsWith(openTag.toLowerCase()) && 
+      trimmed.toLowerCase().endsWith(closeTag.toLowerCase())) {
+    return trimmed;
+  }
+  
+  // If it starts with a different tag, leave it alone (AI made a choice)
+  if (trimmed.startsWith('<') && trimmed.match(/^<[a-z]/i)) {
+    return trimmed;
+  }
+  
+  // Wrap in the expected tag
+  return `<${expectedTag}>${trimmed}</${expectedTag}>`;
+}
+
+/**
+ * Fallback: Ask Claude to identify the problematic section AND rewrite it
+ * Returns both the original text to find and the replacement
+ * IMPROVED: Requires complete HTML elements to prevent mid-sentence cuts
+ */
+async function rewriteWithAIIdentification(
+  originalContent: string,
+  issue: FactCheckIssue,
+  anthropicClient: Anthropic,
+  log: Logger
+): Promise<RewriteResult> {
+  log(`  🤖 Using AI to identify and fix the problematic section...`);
+  
+  const identifyAndFixPrompt = `I need to fix a fact-checking issue in the following HTML blog article.
+
+ISSUE TO FIX: ${issue.issue}
+LOCATION HINT: ${issue.location}
+
+FULL ARTICLE CONTENT:
+${originalContent}
+
+Your task:
+1. Find the COMPLETE HTML element (full <p>...</p>, <li>...</li>, <td>...</td>, etc.) containing the problematic claim
+2. Rewrite that ENTIRE element with the issue fixed
+
+RESPOND IN THIS EXACT FORMAT:
+<original>
+[The COMPLETE HTML element - must start with an opening tag like <p> and end with matching closing tag like </p>]
+[Must be an EXACT copy-paste from the article above - character for character]
+</original>
+<replacement>
+[Your corrected version - SAME tag structure, COMPLETE sentences, flows naturally]
+</replacement>
+
+CRITICAL RULES:
+- The <original> MUST be a COMPLETE HTML element (e.g., <p>full paragraph here</p>)
+- Do NOT select partial text or cut mid-sentence
+- The <original> content MUST exist EXACTLY in the article (copy-paste it precisely)
+- The <replacement> must start and end with the SAME HTML tags as <original>
+- Write complete, flowing sentences - the replacement should read naturally as a standalone paragraph
+- Do NOT include any explanation outside the tags`;
+
+  try {
+    const message = await anthropicClient.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [
+        {
+          role: "user",
+          content: identifyAndFixPrompt
+        }
+      ]
+    });
+
+    const response = message.content[0].type === 'text' ? message.content[0].text : '';
+    
+    // Parse the response
+    const originalMatch = response.match(/<original>([\s\S]*?)<\/original>/);
+    const replacementMatch = response.match(/<replacement>([\s\S]*?)<\/replacement>/);
+    
+    if (originalMatch && replacementMatch) {
+      const originalSection = originalMatch[1].trim();
+      let replacement = replacementMatch[1].trim();
+      
+      // Verify the original exists in content
+      if (originalContent.includes(originalSection)) {
+        replacement = ensureHTMLFormat(replacement, originalSection);
+        log(`  ✅ AI identified section (${originalSection.length} chars)`);
+        return {
+          rewrittenContent: replacement,
+          originalSection: originalSection,
+          foundSection: true
+        };
+      } else {
+        // Try with normalized whitespace
+        const normalizedOriginal = originalSection.replace(/\s+/g, ' ');
+        const normalizedContent = originalContent.replace(/\s+/g, ' ');
+        
+        if (normalizedContent.includes(normalizedOriginal)) {
+          // Find actual position in original content
+          const searchRegex = new RegExp(escapeRegExpForFix(normalizedOriginal).replace(/ /g, '\\s+'));
+          const match = originalContent.match(searchRegex);
+          
+          if (match) {
+            replacement = ensureHTMLFormat(replacement, match[0]);
+            log(`  ✅ AI identified section (whitespace normalized)`);
+            return {
+              rewrittenContent: replacement,
+              originalSection: match[0],
+              foundSection: true
+            };
+          }
+        }
+        
+        log(`  ⚠️ AI-identified section not found in content`);
+      }
+    }
+    
+    log(`  ⚠️ Could not parse AI response`);
+    return {
+      rewrittenContent: '',
+      originalSection: '',
+      foundSection: false
+    };
+    
+  } catch (error) {
+    log(`❌ AI identification failed: ${error}`);
+    return {
+      rewrittenContent: '',
+      originalSection: '',
+      foundSection: false
+    };
+  }
+}
+
+/**
+ * Ensures the rewritten content maintains proper HTML format
+ * Fixes common issues like Markdown syntax or missing tags
+ */
+function ensureHTMLFormat(content: string, originalContent: string): string {
+  let result = content.trim();
+  
+  // Remove code block wrappers if accidentally added
+  result = result.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
+  
+  // Convert any Markdown that slipped through to HTML
+  // Bold: **text** or __text__ -> <strong>text</strong>
+  result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  result = result.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  
+  // Italic: *text* or _text_ -> <em>text</em>
+  result = result.replace(/(?<![*_])\*([^*]+)\*(?![*_])/g, '<em>$1</em>');
+  result = result.replace(/(?<![*_])_([^_]+)_(?![*_])/g, '<em>$1</em>');
+  
+  // Headers: # Header -> <h2>Header</h2>
+  result = result.replace(/^######\s*(.+)$/gm, '<h6>$1</h6>');
+  result = result.replace(/^#####\s*(.+)$/gm, '<h5>$1</h5>');
+  result = result.replace(/^####\s*(.+)$/gm, '<h4>$1</h4>');
+  result = result.replace(/^###\s*(.+)$/gm, '<h3>$1</h3>');
+  result = result.replace(/^##\s*(.+)$/gm, '<h2>$1</h2>');
+  result = result.replace(/^#\s*(.+)$/gm, '<h1>$1</h1>');
+  
+  // Lists: - item -> <li>item</li>
+  result = result.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+  
+  // Detect what HTML structure the original had
+  const originalStartTag = originalContent.match(/^<([a-z][a-z0-9]*)\b/i)?.[1];
+  const resultStartTag = result.match(/^<([a-z][a-z0-9]*)\b/i)?.[1];
+  
+  // If original started with a tag but result doesn't, wrap it
+  if (originalStartTag && !resultStartTag) {
+    // Check if it's a simple inline replacement or full element
+    if (originalContent.includes(`</${originalStartTag}>`)) {
+      result = `<${originalStartTag}>${result}</${originalStartTag}>`;
+    }
+  }
+  
+  // Clean up any double-wrapped tags
+  result = result.replace(/<p>\s*<p>/g, '<p>');
+  result = result.replace(/<\/p>\s*<\/p>/g, '</p>');
+  
+  return result;
+}
+
+/**
+ * Applies the rewritten content back to the original article
+ */
+/**
+ * Applies the rewritten content back to the original article
+ * Now uses the originalSection from RewriteResult for accurate matching
+ */
+function applyContentFix(originalContent: string, rewriteResult: RewriteResult, log: Logger): string {
+  const { rewrittenContent, originalSection, foundSection } = rewriteResult;
+  
+  // If we didn't find a section, can't apply fix
+  if (!foundSection || !originalSection || !rewrittenContent) {
+    log(`⚠️ No valid section found to replace`);
+    return originalContent;
+  }
+  
+  // Try exact match first
+  if (originalContent.includes(originalSection)) {
+    log(`📎 Applying fix: Direct replacement (${originalSection.length} → ${rewrittenContent.length} chars)`);
+    return originalContent.replace(originalSection, rewrittenContent);
+  }
+  
+  // Try with trimmed whitespace
+  const trimmedOriginal = originalSection.trim();
+  if (originalContent.includes(trimmedOriginal)) {
+    log(`📎 Applying fix: Trimmed replacement`);
+    return originalContent.replace(trimmedOriginal, rewrittenContent);
+  }
+  
+  // Try with normalized whitespace (collapse multiple spaces/newlines)
+  const normalizedSection = originalSection.replace(/\s+/g, ' ').trim();
+  const normalizedContent = originalContent.replace(/\s+/g, ' ');
+  
+  if (normalizedContent.includes(normalizedSection)) {
+    // Find the actual text in original content using regex
+    const searchRegex = new RegExp(
+      escapeRegExpForFix(normalizedSection).replace(/ /g, '\\s+'),
+      'i'
+    );
+    const match = originalContent.match(searchRegex);
+    
+    if (match) {
+      log(`📎 Applying fix: Whitespace-normalized replacement`);
+      return originalContent.replace(match[0], rewrittenContent);
+    }
+  }
+  
+  // Try partial match - find if most of the section exists
+  const words = normalizedSection.split(' ').filter(w => w.length > 3);
+  if (words.length >= 5) {
+    // Look for first 5 substantial words in sequence
+    const partialSearch = words.slice(0, 5).join('\\s+');
+    const partialRegex = new RegExp(partialSearch, 'i');
+    const partialMatch = originalContent.match(partialRegex);
+    
+    if (partialMatch) {
+      // Find the containing paragraph/element
+      const matchIndex = originalContent.indexOf(partialMatch[0]);
+      const startTag = originalContent.lastIndexOf('<', matchIndex);
+      const tagMatch = originalContent.substring(startTag).match(/^<([a-z][a-z0-9]*)/i);
+      
+      if (tagMatch) {
+        const tagName = tagMatch[1];
+        const endTag = `</${tagName}>`;
+        const endIndex = originalContent.indexOf(endTag, matchIndex);
+        
+        if (startTag !== -1 && endIndex !== -1) {
+          const fullSection = originalContent.substring(startTag, endIndex + endTag.length);
+          log(`📎 Applying fix: Partial match replacement`);
+          return originalContent.replace(fullSection, rewrittenContent);
+        }
+      }
+    }
+  }
+  
+  log(`⚠️ Could not locate exact text to replace after all strategies`);
+  return originalContent;
+}
+
+function escapeRegExpForFix(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Main fact-checking loop - checks and rewrites until content passes
+ */
+async function factCheckAndRewriteLoop(
+  content: string, 
+  anthropicClient: Anthropic,
+  maxIterations: number = 3,
+  log: Logger = console.log
+): Promise<{ content: string; factCheckPassed: boolean; iterations: number }> {
+  log('═'.repeat(50));
+  log('🔬 FACT-CHECK LAYER: Starting verification process...');
+  log('═'.repeat(50));
+  
+  let currentContent = content;
+  let iteration = 0;
+  let contentWasModified = false;
+  
+  while (iteration < maxIterations) {
+    iteration++;
+    log(`\n📍 Fact-Check Iteration ${iteration}/${maxIterations}`);
+    log('-'.repeat(40));
+    
+    // Fact-check the current content
+    const factCheckResult = await factCheckWithPerplexity(currentContent, log);
+    
+    if (factCheckResult.isGoodToGo) {
+      // If content was modified, do a final HTML cleanup
+      if (contentWasModified) {
+        log('🔧 Running final HTML cleanup after fact-check rewrites...');
+        currentContent = cleanupHTMLAfterRewrite(currentContent);
+      }
+      log(`\n✅ FACT-CHECK COMPLETE: Content verified after ${iteration} iteration(s)`);
+      return { content: currentContent, factCheckPassed: true, iterations: iteration };
+    }
+    
+    // Process each issue
+    log(`\n🔧 Processing ${factCheckResult.issues.length} issue(s)...`);
+    
+    for (let i = 0; i < factCheckResult.issues.length; i++) {
+      const issue = factCheckResult.issues[i];
+      log(`\n  [${i + 1}/${factCheckResult.issues.length}] Processing issue...`);
+      log(`     Issue: ${issue.issue.substring(0, 80)}...`);
+      
+      // Get rewritten content for this issue (now returns RewriteResult with original section)
+      const rewriteResult = await rewriteContentWithFeedback(currentContent, issue, anthropicClient, log);
+      
+      // Apply the fix to the content using the exact original section found
+      if (rewriteResult.foundSection) {
+        const previousContent = currentContent;
+        currentContent = applyContentFix(currentContent, rewriteResult, log);
+        
+        // Track if any changes were made
+        if (currentContent !== previousContent) {
+          contentWasModified = true;
+          log(`     ✅ Content successfully updated`);
+        } else {
+          log(`     ⚠️ Fix could not be applied`);
+        }
+      } else {
+        log(`     ⚠️ Could not identify problematic section`);
+      }
+      
+      // Add small delay to avoid rate limiting
+      await sleep(500);
+    }
+    
+    log(`\n🔄 Iteration ${iteration} complete, re-checking content...`);
+    
+    // Add delay before next iteration
+    await sleep(1000);
+  }
+  
+  // Final HTML cleanup if content was modified
+  if (contentWasModified) {
+    log('🔧 Running final HTML cleanup after fact-check rewrites...');
+    currentContent = cleanupHTMLAfterRewrite(currentContent);
+  }
+  
+  log(`\n⚠️ FACT-CHECK: Max iterations (${maxIterations}) reached`);
+  log('Content may still have issues that require manual review');
+  
+  return { content: currentContent, factCheckPassed: false, iterations: maxIterations };
+}
+
+/**
+ * Cleans up HTML structure after fact-check rewrites to ensure consistency
+ * This handles edge cases where rewrites may have slightly altered HTML structure
+ */
+function cleanupHTMLAfterRewrite(content: string): string {
+  let result = content;
+  
+  // Fix any broken HTML entities
+  result = result.replace(/&amp;amp;/g, '&amp;');
+  result = result.replace(/&lt;lt;/g, '&lt;');
+  result = result.replace(/&gt;gt;/g, '&gt;');
+  
+  // Remove any accidental double tags
+  result = result.replace(/<p>\s*<p>/g, '<p>');
+  result = result.replace(/<\/p>\s*<\/p>/g, '</p>');
+  result = result.replace(/<strong>\s*<strong>/g, '<strong>');
+  result = result.replace(/<\/strong>\s*<\/strong>/g, '</strong>');
+  result = result.replace(/<em>\s*<em>/g, '<em>');
+  result = result.replace(/<\/em>\s*<\/em>/g, '</em>');
+  
+  // Fix orphaned closing tags
+  result = result.replace(/<\/p>([^<]+)(?=<p>|<h[1-6]>|<ul>|<ol>|<table>|$)/g, '</p><p>$1</p>');
+  
+  // Remove empty tags
+  result = result.replace(/<p>\s*<\/p>/g, '');
+  result = result.replace(/<strong>\s*<\/strong>/g, '');
+  result = result.replace(/<em>\s*<\/em>/g, '');
+  result = result.replace(/<li>\s*<\/li>/g, '');
+  
+  // Normalize whitespace between tags (but preserve intentional spacing)
+  result = result.replace(/>\s{3,}</g, '>\n<');
+  
+  // Ensure proper newlines for readability
+  result = result.replace(/<\/(h[1-6]|p|ul|ol|table|div)>/g, '</$1>\n');
+  
+  console.log('✅ HTML cleanup complete');
+  return result.trim();
 }
 
 // Helper function to escape special regex characters
@@ -879,7 +1709,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
 
 // Function to fetch vendor names from Shopify collections (much faster and more accurate)
 async function fetchVendorsFromCollections(shopDomain: string, token: string): Promise<string[]> {
-  console.log('🏷️ Fetching vendors from Shopify collections (collection-based vendor detection)...');
+  rlog('🏷️ Fetching vendors from Shopify...');
   const vendors: string[] = [];
   
   try {
@@ -968,7 +1798,7 @@ async function fetchVendorsFromCollections(shopDomain: string, token: string): P
       console.log(`⚠️ Reached maximum page limit (${MAX_PAGES} pages, ${vendors.length} collections). There may be more.`);
     }
     
-    console.log(`✓ Completed collection-based vendor fetch. Found ${vendors.length} collection titles to use as vendor names.`);
+    rlog(`✓ Found ${vendors.length} vendor/collection names`);
     return vendors;
   } catch (error) {
     console.error('Error fetching vendors from collections:', error);
@@ -976,7 +1806,273 @@ async function fetchVendorsFromCollections(shopDomain: string, token: string): P
   }
 }
 
+// ============================================================================
+// OPTIMIZED VENDOR DETECTION & PRODUCT FETCHING
+// Fast path: Check vendor collection → Fetch products from collection → Filter locally
+// ============================================================================
 
+/**
+ * Quick vendor detection - checks if keyword contains a known vendor/brand from collection list
+ * Returns the vendor name if found, null otherwise
+ */
+function quickVendorDetection(keyword: string, collectionTitles: string[]): string | null {
+  const keywordLower = keyword.toLowerCase();
+  const keywordWords = keywordLower.split(/[\s\-:,]+/).filter(w => w.length > 2);
+  
+  // Filter out category collections - only keep potential brand names
+  const potentialVendors = collectionTitles.filter(title => {
+    const titleLower = title.toLowerCase();
+    // Skip if it's a category word
+    return !PRODUCT_CATEGORY_WORDS.some(cat => titleLower === cat || titleLower === cat + 's');
+  });
+  
+  // Check for exact vendor name in keyword (case-insensitive)
+  for (const vendor of potentialVendors) {
+    const vendorLower = vendor.toLowerCase();
+    // Check if the vendor name appears in the keyword
+    if (keywordLower.includes(vendorLower)) {
+      rlog(`🏷️ Quick vendor match: "${vendor}"`);
+      return vendor;
+    }
+    // Check hyphenated versions (e.g., "Master-Bilt" vs "Master Bilt")
+    const vendorNormalized = vendorLower.replace(/[\s\-]/g, '');
+    const keywordNormalized = keywordLower.replace(/[\s\-]/g, '');
+    if (keywordNormalized.includes(vendorNormalized) && vendorNormalized.length >= 4) {
+      rlog(`🏷️ Quick vendor match (normalized): "${vendor}"`);
+      return vendor;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Check if a vendor collection exists and return its ID
+ */
+async function findVendorCollection(shopDomain: string, token: string, vendorName: string): Promise<{id: string; title: string; handle: string} | null> {
+  try {
+    const query = `
+      query searchVendorCollection($query: String!) {
+        collections(first: 5, query: $query) {
+          edges {
+            node {
+              id
+              title
+              handle
+            }
+          }
+        }
+      }
+    `;
+    
+    const response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        variables: { query: `title:${vendorName}` }
+      }),
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const collections = data.data?.collections?.edges || [];
+    
+    // Find exact match (case-insensitive)
+    const exactMatch = collections.find((edge: any) => 
+      edge.node.title.toLowerCase() === vendorName.toLowerCase()
+    );
+    
+    if (exactMatch) {
+      return exactMatch.node;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error finding vendor collection:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetch products directly from a collection (paginated)
+ * Much faster than searching term-by-term
+ */
+async function fetchProductsFromCollection(
+  shopDomain: string, 
+  token: string, 
+  collectionId: string,
+  maxProducts: number = 50
+): Promise<Array<{id: string; title: string; handle: string; description?: string; vendor?: string; productType?: string}>> {
+  const products: Array<{id: string; title: string; handle: string; description?: string; vendor?: string; productType?: string}> = [];
+  
+  try {
+    const query = `
+      query getCollectionProducts($id: ID!, $first: Int!, $after: String) {
+        collection(id: $id) {
+          products(first: $first, after: $after) {
+            edges {
+              node {
+                id
+                title
+                handle
+                description
+                vendor
+                productType
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      }
+    `;
+    
+    let hasNextPage = true;
+    let cursor: string | null = null;
+    const pageSize = Math.min(50, maxProducts);
+    
+    while (hasNextPage && products.length < maxProducts) {
+      const response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          variables: { id: collectionId, first: pageSize, after: cursor }
+        }),
+      });
+      
+      if (!response.ok) {
+        if (response.status === 429) {
+          await sleep(1000);
+          continue;
+        }
+        break;
+      }
+      
+      const data = await response.json();
+      const collectionData = data.data?.collection;
+      
+      if (!collectionData?.products?.edges) break;
+      
+      for (const edge of collectionData.products.edges) {
+        if (products.length >= maxProducts) break;
+        products.push(edge.node);
+      }
+      
+      hasNextPage = collectionData.products.pageInfo.hasNextPage;
+      cursor = collectionData.products.pageInfo.endCursor;
+    }
+    
+    return products;
+  } catch (error) {
+    console.error('Error fetching products from collection:', error);
+    return products;
+  }
+}
+
+/**
+ * Extract meaningful product terms from a keyword
+ * Filters out non-product words (verbs, adjectives, articles, etc.)
+ * Also filters out brand/vendor name words when vendor is provided
+ */
+function extractProductTerms(keyword: string, detectedVendor: string | null = null): string[] {
+  // Words that are NOT product names - filter these out
+  const NON_PRODUCT_WORDS = [
+    // Articles and prepositions
+    'a', 'an', 'the', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'from',
+    // Common verbs and action words
+    'signs', 'sign', 'needs', 'need', 'your', 'complete', 'guide', 'how', 'what', 'why',
+    'when', 'where', 'which', 'understanding', 'choosing', 'selecting', 'finding',
+    'getting', 'making', 'working', 'using', 'replacing', 'repairing', 'fixing',
+    'installing', 'troubleshooting', 'diagnosing', 'identifying', 'checking',
+    // Adjectives and descriptors
+    'poor', 'bad', 'good', 'best', 'top', 'common', 'typical', 'excessive', 'proper',
+    'important', 'critical', 'essential', 'basic', 'advanced', 'simple', 'easy',
+    // Other common non-product words
+    'replacement', 'failure', 'problem', 'issue', 'solution', 'tip', 'tips',
+    'warning', 'icing', 'cooling', 'heating', 'performance', 'efficiency',
+    'maintenance', 'service', 'repair', 'inspection', 'diagnosis'
+  ];
+  
+  // Extract brand name words to exclude (e.g., "Master-Bilt" → ["master", "bilt"])
+  const brandWords: string[] = [];
+  if (detectedVendor) {
+    const vendorParts = detectedVendor.toLowerCase()
+      .replace(/[\-_]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2);
+    brandWords.push(...vendorParts);
+  }
+  
+  // Split keyword into words
+  const words = keyword.toLowerCase()
+    .replace(/[:\-,]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length >= 3);
+  
+  // Filter to only meaningful product terms
+  const productTerms = words.filter(word => {
+    // Skip brand name words (already detected vendor)
+    if (brandWords.includes(word)) return false;
+    // Skip common non-product words
+    if (NON_PRODUCT_WORDS.includes(word)) return false;
+    if (COMMON_WORDS.includes(word)) return false;
+    return true;
+  });
+  
+  // Deduplicate and return
+  return [...new Set(productTerms)];
+}
+
+/**
+ * Filter products locally by matching terms in title/description
+ * Returns scored products sorted by relevance
+ */
+function filterProductsByTerms(
+  products: Array<{id: string; title: string; handle: string; description?: string; vendor?: string; productType?: string}>,
+  searchTerms: string[],
+  maxResults: number = 10
+): Array<{id: string; title: string; handle: string; description?: string; vendor?: string; productType?: string; relevanceScore: number}> {
+  const scoredProducts = products.map(product => {
+    const titleLower = product.title.toLowerCase();
+    const descLower = (product.description || '').toLowerCase();
+    let score = 0;
+    
+    for (const term of searchTerms) {
+      const termLower = term.toLowerCase();
+      // Title matches score higher
+      if (titleLower.includes(termLower)) {
+        score += 10;
+        // Exact word match in title scores even higher
+        if (new RegExp(`\\b${escapeRegExp(termLower)}\\b`).test(titleLower)) {
+          score += 5;
+        }
+      }
+      // Description matches
+      if (descLower.includes(termLower)) {
+        score += 3;
+      }
+    }
+    
+    return { ...product, relevanceScore: score };
+  });
+  
+  // Filter to products with any match and sort by score
+  return scoredProducts
+    .filter(p => p.relevanceScore > 0)
+    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .slice(0, maxResults);
+}
 
 // Add the vendor score calculation function
 function calculateVendorScore(vendor: string, words: string[]): number {
@@ -1103,7 +2199,7 @@ async function quickVendorCheck(keyword: string, availableVendors: string[]): Pr
   if (exactMatches.length > 0) {
     const matchScore = calculateVendorScore(exactMatches[0], keywordLower.split(' '));
     if (matchScore >= VENDOR_MATCH_THRESHOLD) {
-      console.log(`✓ Quick vendor check found: "${exactMatches[0]}" (score: ${matchScore})`);
+      rlog(`🏷️ Vendor detected: "${exactMatches[0]}" (score: ${matchScore})`);
       return exactMatches[0];
     }
   }
@@ -1411,7 +2507,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   relevanceScore?: number;
   [key: string]: unknown;
 }>> {
-  console.log('Searching products using GraphQL with hybrid prioritization approach...');
+  rlog(`🔍 Searching products (hybrid prioritization)...`);
   console.log(`Using matching strategy: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
   
   if (productPhrase) {
@@ -1419,7 +2515,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   }
   
   if (identifiedVendor) {
-    console.log(`🎯 VENDOR FILTERING ACTIVE: Only products from "${identifiedVendor}" will be returned`);
+    rlog(`🎯 Vendor filter active: "${identifiedVendor}"`);
   }
   
   // Step 2: Collect products with scores from all relevant terms
@@ -1561,16 +2657,16 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   
   // Step 1.5: Prioritize search terms by relevance (original logic)
   const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
-  console.log(`\nSearching ${prioritizedTerms.length} terms in priority order...`);
+  rlog(`🔍 Searching ${prioritizedTerms.length} terms for products...`);
   
   for (const term of prioritizedTerms) {
     // Skip very short or common terms
     if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
-      console.log(`Skipping GraphQL search for common/short term: "${term}"`);
+      rlog(`   ⏭️ Skipping: "${term}" (common/short)`);
       continue;
     }
     
-    console.log(`\nSearching with GraphQL for prioritized term: "${term}"`);
+    rlog(`   🔎 Searching products: "${term}"`);
     
     try {
       // Create comprehensive search queries to find exact phrases anywhere in the title
@@ -1731,7 +2827,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
                   searchTerm: term
                 });
                 
-                console.log(`✓ Added product candidate: "${product.title}" (Score: ${relevanceScore})`);
+                rlog(`   ✓ Product: "${product.title}" (Score: ${relevanceScore})`);
               } else {
                 console.log(`✗ Product "${product.title}" below quality threshold (Score: ${relevanceScore})`);
               }
@@ -1759,14 +2855,14 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
   const finalProducts = candidateProducts.slice(0, TARGET_PRODUCTS).map(cp => cp.product);
   
   console.log(`\n📊 Product Selection Summary:`);
-  console.log(`- Total candidates found: ${candidateProducts.length}`);
+  rlog(`📊 Product candidates: ${candidateProducts.length}`);
   console.log(`- Quality threshold: ${QUALITY_THRESHOLD}`);
-  console.log(`- Final selection: ${finalProducts.length} products`);
+  rlog(`📦 Final products selected: ${finalProducts.length}`);
   
   if (finalProducts.length > 0) {
-    console.log('\n🏆 Selected products (by relevance score):');
+    rlog(`🏆 Selected products:`);
     candidateProducts.slice(0, TARGET_PRODUCTS).forEach((cp, index) => {
-      console.log(`${index + 1}. "${cp.product.title}" (Score: ${cp.score}, Term: "${cp.searchTerm}")`);
+      rlog(`   ${index + 1}. "${cp.product.title}" (Score: ${cp.score})`);
     });
   }
   
@@ -1782,8 +2878,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   relevanceScore?: number;
   [key: string]: unknown;
 }>> {
-  console.log('Searching collections using GraphQL with hybrid prioritization approach...');
-  console.log(`Using matching strategy for collections: ${identifiedVendor ? `Flexible (vendor: "${identifiedVendor}")` : 'Strict (no vendor identified)'}`);
+  rlog(`🔍 Searching collections (strategy: ${identifiedVendor ? `Flexible - vendor: "${identifiedVendor}"` : 'Strict'})`);
   
   // 🎯 PRIORITY STEP: If vendor detected, immediately fetch vendor collection (guaranteed include)
   let vendorCollection: { id: string; title: string; description?: string; handle: string; [key: string]: unknown } | null = null;
@@ -1829,7 +2924,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
         
         if (exactMatch && exactMatch.node) {
           vendorCollection = exactMatch.node;
-          console.log(`✅ Found vendor collection: "${exactMatch.node.title}" - This will be prioritized and included`);
+          rlog(`✅ Vendor collection found: "${exactMatch.node.title}"`);
         } else {
           console.log(`ℹ️  No exact collection match found for vendor "${identifiedVendor}"`);
         }
@@ -1841,7 +2936,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   
   // Step 1: Prioritize search terms by relevance (reuse same logic as products)
   const prioritizedTerms = prioritizeSearchTerms(searchTerms, originalKeyword, identifiedVendor);
-  console.log(`\nSearching ${prioritizedTerms.length} terms for collections in priority order...`);
+  rlog(`🔍 Searching ${prioritizedTerms.length} terms for collections...`);
   
   // Step 2: Collect collections with basic scoring
   const candidateCollections: { collection: { id: string; title: string; description?: string; handle: string; [key: string]: unknown }, score: number, searchTerm: string, isVendorCollection?: boolean }[] = [];
@@ -1854,18 +2949,18 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
       searchTerm: identifiedVendor,
       isVendorCollection: true // Mark to skip vendor filtering
     });
-    console.log(`🎯 Vendor collection "${vendorCollection.title}" added as priority collection (Score: 100)`);
+    rlog(`🎯 Vendor collection "${vendorCollection.title}" added (Score: 100)`);
   }
   const TARGET_COLLECTIONS = 5;
   
   for (const term of prioritizedTerms) {
     // Skip very short or common terms
     if (term.length < 4 || COMMON_WORDS.includes(term.toLowerCase())) {
-      console.log(`Skipping GraphQL search for common/short term: "${term}"`);
+      rlog(`   ⏭️ Skipping: "${term}" (common/short)`);
       continue;
     }
     
-    console.log(`\nSearching collections with GraphQL for prioritized term: "${term}"`);
+    rlog(`   🔎 Searching: "${term}"`);
     
     try {
       // GraphQL query to search collections by title
@@ -1926,7 +3021,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
         
         if (data.data?.collections?.edges) {
           const collections = data.data.collections.edges;
-          console.log(`Found ${collections.length} collections with GraphQL query: "${query}"`);
+          rlog(`   📦 Found ${collections.length} collections for "${term}"`);
           
           // Process and score each collection
           collections.forEach((edge: { node: { id: string; title: string; description?: string; handle: string; [key: string]: unknown } }) => {
@@ -1995,7 +3090,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
                     (identifiedVendor && termLower === identifiedVendor.toLowerCase())) {
                   score += 15;
                   const matchType = pattern.test(collectionTitle) ? 'exact' : `stem: "${termStem}"`;
-                  console.log(`✓ [TIER 1 COLLECTION] Primary/Vendor term "${term}" (${matchType}) found in: "${collection.title}"`);
+                  rlog(`   ✓ [TIER 1] "${term}" matches: "${collection.title}"`);
                 }
                 // TIER 2: Context terms (category modifiers) - +10 points  
                 else if (contextTerms.includes(termLower)) {
@@ -2024,7 +3119,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
                 score: score,
                 searchTerm: term
               });
-              console.log(`✓ Added collection candidate: "${collection.title}" (Score: ${score})`);
+              rlog(`   ✓ Added: "${collection.title}" (Score: ${score})`);
             }
           });
         }
@@ -2048,7 +3143,7 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
   
   // 🎯 VENDOR FILTERING FOR COLLECTIONS: Filter collections by checking products within them
   if (identifiedVendor && finalCollections.length > 0) {
-    console.log(`\n🎯 VENDOR FILTERING ACTIVE FOR COLLECTIONS: Checking products within collections for vendor "${identifiedVendor}"`);
+    rlog(`🎯 Filtering collections for vendor: "${identifiedVendor}"`);
     
     const vendorFilteredCollections = [];
     
@@ -2113,17 +3208,16 @@ async function searchCollectionsWithGraphQL(shopDomain: string, token: string, s
     }
     
     finalCollections = vendorFilteredCollections;
-    console.log(`📊 After vendor filtering: ${finalCollections.length}/${topCandidates.length} collections contain ${identifiedVendor} products`);
+    rlog(`📊 After vendor filter: ${finalCollections.length}/${topCandidates.length} collections have ${identifiedVendor} products`);
   }
   
-  console.log(`\n📊 Collection Selection Summary:`);
-  console.log(`- Total candidates found: ${candidateCollections.length}`);
-  console.log(`- Final selection: ${finalCollections.length} collections`);
+  rlog(`📊 Collection candidates: ${candidateCollections.length}`);
+  rlog(`📁 Final collections selected: ${finalCollections.length}`);
   
   if (finalCollections.length > 0) {
-    console.log('\n🏆 Selected collections (by relevance score):');
+    rlog(`🏆 Selected collections:`);
     finalCollections.forEach((collection, index) => {
-      console.log(`${index + 1}. "${collection.title}"`);
+      rlog(`   ${index + 1}. "${collection.title}"`);
     });
   }
   
@@ -2135,28 +3229,66 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // 🎯 If vendor was pre-detected, use it and skip re-detection
+  // ============================================================================
+  // 🚀 OPTIMIZED FLOW: If vendor detected, try fetching directly from collection
+  // This is MUCH faster than searching 30+ terms
+  // ============================================================================
   if (preDetectedVendor) {
-    console.log(`\n🎯 USING PRE-DETECTED VENDOR: "${preDetectedVendor}" - Skipping internal vendor detection`);
+    rlog(`🎯 Using vendor: "${preDetectedVendor}"`);
     
-    // Still extract terms but use pre-detected vendor
+    // Step 1: Check if vendor collection exists
+    const vendorCollection = await findVendorCollection(shopDomain, token, preDetectedVendor);
+    
+    if (vendorCollection) {
+      rlog(`✅ Vendor collection found: "${vendorCollection.title}"`);
+      
+      // Step 2: Extract meaningful product terms (fast, local operation)
+      const productTerms = extractProductTerms(originalKeyword, preDetectedVendor);
+      rlog(`🔎 Product terms: ${productTerms.slice(0, 5).join(', ')}${productTerms.length > 5 ? '...' : ''}`);
+      
+      // Step 3: Fetch products directly from vendor collection (1 API call)
+      rlog(`📦 Fetching products from "${vendorCollection.title}" collection...`);
+      const collectionProducts = await fetchProductsFromCollection(shopDomain, token, vendorCollection.id, 100);
+      
+      if (collectionProducts.length > 0) {
+        rlog(`   Found ${collectionProducts.length} products in collection`);
+        
+        // Step 4: Filter locally using product terms (no API calls)
+        const filteredProducts = filterProductsByTerms(collectionProducts, productTerms, 10);
+        
+        if (filteredProducts.length > 0) {
+          rlog(`✅ Found ${filteredProducts.length} relevant products (local filter)`);
+          filteredProducts.forEach((p, i) => rlog(`   ${i + 1}. "${p.title}" (Score: ${p.relevanceScore})`));
+          return filteredProducts;
+        } else {
+          // No matches with filter - return top products from collection
+          rlog(`ℹ️ No term matches - returning top ${Math.min(8, collectionProducts.length)} products from collection`);
+          const topProducts = collectionProducts.slice(0, 8).map(p => ({ ...p, relevanceScore: 50 }));
+          topProducts.forEach((p, i) => rlog(`   ${i + 1}. "${p.title}"`));
+          return topProducts;
+        }
+      } else {
+        rlog(`⚠️ Vendor collection empty, falling back to search...`);
+      }
+    } else {
+      rlog(`ℹ️ No vendor collection found, using search...`);
+    }
+    
+    // Fallback: Use existing search method if collection approach fails
     const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
     const aiExtractedTerms = aiAnalysisResult.searchTerms;
-    const productPhrase = aiAnalysisResult.productPhrase; // 🆕 Get product phrase
+    const productPhrase = aiAnalysisResult.productPhrase;
     
-    console.log(`AI extracted ${aiExtractedTerms.length} terms:`, aiExtractedTerms.join(', '));
-    console.log(`Product phrase for search: "${productPhrase || 'None'}"`);
+    console.log(`Fallback: AI extracted ${aiExtractedTerms.length} terms`);
     
-    // Skip to GraphQL search with pre-detected vendor
     try {
-      // 🆕 Pass productPhrase for compound search
       const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, aiExtractedTerms, preDetectedVendor, originalKeyword, productPhrase);
       
       if (graphqlResults.length > 0) {
-        console.log(`✅ GraphQL found ${graphqlResults.length} products for vendor "${preDetectedVendor}"`);
+        rlog(`✅ Found ${graphqlResults.length} products via search`);
         return graphqlResults;
       } else {
-        console.log(`❌ No products found for vendor "${preDetectedVendor}"`);
+        rlog(`❌ No products found for vendor "${preDetectedVendor}"`);
         return [];
       }
     } catch (error) {
@@ -2230,10 +3362,10 @@ async function searchShopifyProducts(shopDomain: string, token: string, searchTe
     const graphqlResults = await searchProductsWithGraphQL(shopDomain, token, enhancedTerms, finalVendor, originalKeyword, productPhrase);
     
     if (graphqlResults.length > 0) {
-      console.log(`✅ GraphQL found ${graphqlResults.length} products`);
+      rlog(`✅ Found ${graphqlResults.length} products via search`);
       return graphqlResults;
     } else {
-      console.log('❌ GraphQL search completed but no products matched any search terms.');
+      rlog('❌ No products matched search terms');
       console.log('Search terms that were tried:', enhancedTerms.join(', '));
       return [];
     }
@@ -2247,40 +3379,87 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
   // Extract the original keyword from search terms
   const originalKeyword = searchTerms[0];
   
-  // 🎯 If vendor was pre-detected, use it and skip re-detection
+  // ============================================================================
+  // 🚀 OPTIMIZED FLOW: If vendor detected, get vendor collection + category collections
+  // ============================================================================
   if (preDetectedVendor) {
-    console.log(`\n🎯 USING PRE-DETECTED VENDOR FOR COLLECTIONS: "${preDetectedVendor}" - Skipping internal vendor detection`);
+    rlog(`🔍 Finding collections for vendor: "${preDetectedVendor}"`);
     
-    // Still extract terms but use pre-detected vendor
-    const aiAnalysisResult = await extractKeyTerms('', originalKeyword, availableVendors, businessType);
-    const aiExtractedTerms = aiAnalysisResult.searchTerms;
+    const collections: Array<{ id: string; title: string; description?: string; handle: string; [key: string]: unknown }> = [];
     
-    console.log(`AI extracted ${aiExtractedTerms.length} terms for collections:`, aiExtractedTerms.join(', '));
-    
-    // Filter terms for collections (be more selective)
-    const validSearchTerms = aiExtractedTerms.filter((term: string) => {
-      if (term.length < 4) return false;
-      if (['how', 'the', 'and', 'for', 'with'].includes(term.toLowerCase())) return false;
-      return true;
-    });
-    
-    console.log(`Using ${validSearchTerms.length} filtered terms for collection search`);
-    
-    // Skip to GraphQL search with pre-detected vendor
-    try {
-      const graphqlResults = await searchCollectionsWithGraphQL(shopDomain, token, validSearchTerms, preDetectedVendor, originalKeyword);
-      
-      if (graphqlResults.length > 0) {
-        console.log(`✅ GraphQL found ${graphqlResults.length} collections for vendor "${preDetectedVendor}"`);
-        return graphqlResults;
-      } else {
-        console.log(`❌ No collections found for vendor "${preDetectedVendor}"`);
-        return [];
-      }
-    } catch (error) {
-      console.error('❌ GraphQL collections search failed:', error);
-      return [];
+    // Step 1: Get the vendor collection (guaranteed)
+    const vendorCollection = await findVendorCollection(shopDomain, token, preDetectedVendor);
+    if (vendorCollection) {
+      collections.push(vendorCollection);
+      rlog(`✅ Vendor collection: "${vendorCollection.title}"`);
     }
+    
+    // Step 2: Extract product terms and find matching category collections
+    const productTerms = extractProductTerms(originalKeyword, preDetectedVendor);
+    const categoryTerms = productTerms.filter(term => 
+      // Only search for terms that might be category names
+      PRODUCT_CATEGORY_WORDS.some(cat => cat.includes(term) || term.includes(cat.replace(/s$/, '')))
+    ).slice(0, 3); // Max 3 category searches
+    
+    if (categoryTerms.length > 0) {
+      rlog(`🔎 Searching ${categoryTerms.length} category terms: ${categoryTerms.join(', ')}`);
+      
+      for (const term of categoryTerms) {
+        try {
+          const query = `
+            query searchCollections($query: String!) {
+              collections(first: 3, query: $query) {
+                edges {
+                  node {
+                    id
+                    title
+                    handle
+                    description
+                  }
+                }
+              }
+            }
+          `;
+          
+          const response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+            method: 'POST',
+            headers: {
+              'X-Shopify-Access-Token': token,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query,
+              variables: { query: `title:*${term}*` }
+            }),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const found = data.data?.collections?.edges || [];
+            
+            for (const edge of found) {
+              // Avoid duplicates
+              if (!collections.some(c => c.id === edge.node.id)) {
+                collections.push(edge.node);
+                rlog(`   ✓ Added: "${edge.node.title}"`);
+              }
+            }
+          }
+          
+          await sleep(200); // Rate limiting
+        } catch (error) {
+          console.error(`Error searching collection term "${term}":`, error);
+        }
+      }
+    }
+    
+    rlog(`📁 Total collections: ${collections.length}`);
+    if (collections.length > 0) {
+      return collections;
+    }
+    
+    // Fallback to full search if optimized approach found nothing
+    rlog('ℹ️ No collections from optimized search, using full search...');
   }
   
   // Step 1: Extract comprehensive terms using AI analysis (only if vendor not pre-detected)
@@ -2390,7 +3569,7 @@ async function searchShopifyCollections(shopDomain: string, token: string, searc
       console.log(`✅ GraphQL found ${graphqlResults.length} collections`);
       return graphqlResults;
     } else {
-      console.log('❌ GraphQL search completed but no collections matched any search terms.');
+      rlog('❌ No collections matched search terms');
       console.log('Collection search terms that were tried:', validSearchTerms.join(', '));
       return [];
     }
@@ -2972,10 +4151,13 @@ function prioritizeSearchTerms(searchTerms: string[], originalKeyword: string, i
   prioritized.sort((a, b) => b.priority - a.priority);
   
   const orderedTerms = prioritized.map(item => item.term);
-  console.log('Prioritized search terms:');
-  prioritized.forEach(item => {
-    console.log(`  ${item.priority}: "${item.term}"`);
+  rlog('📋 Prioritized terms:');
+  prioritized.slice(0, 10).forEach(item => {
+    rlog(`   ${item.priority}: "${item.term}"`);
   });
+  if (prioritized.length > 10) {
+    rlog(`   ... and ${prioritized.length - 10} more`);
+  }
   
   return orderedTerms;
 }
@@ -3665,8 +4847,14 @@ ${cleaned}`;
 
 
 export async function POST(request: Request) {
+  // Reset the request log for this generation
+  resetRequestLog();
+  
+  // Create a logger that uses the request-scoped logging system
+  const log = rlog;
+  
   try {
-    console.log('Received article generation request');
+    log('📥 Received article generation request');
     
     // Check for required API keys
     if (!openaiKey) {
@@ -3756,6 +4944,11 @@ export async function POST(request: Request) {
       shopifyAccessToken,
       brandColor,
     } = body;
+    
+    // Log key generation parameters
+    log(`🎯 Keyword: "${keyword}"`);
+    log(`🏢 Brand: ${brandName} (${businessType})`);
+    log(`📝 Content Type: ${contentType}`);
 
     // Validate required fields
     if (!blogId || !keyword || !brandName || !businessType || !contentType) {
@@ -3766,7 +4959,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('Starting topic breakdown generation with Claude');
+    log('🔬 Starting topic breakdown generation with Claude...');
     // 1. Generate topic breakdown with Claude
     const topicBreakdownPrompt = `Research the topic: "${keyword}" using the latest available web information.\nWrite a clear, well-organized, and factual 500-word breakdown that covers:\n- The core concept and definition of the topic\n- Key facts, statistics, or recent developments\n- Major subtopics or components\n- Common misconceptions or challenges\n- Why this topic matters in its field or industry\nProvide only the breakdown without any conversational or meta language.`;
 
@@ -3782,6 +4975,7 @@ export async function POST(request: Request) {
       });
       const contentBlock = claudeRes.content[0];
       topicBreakdown = (contentBlock.type === 'text' ? contentBlock.text : '') || '';
+      log('✅ Topic breakdown generated');
       console.log('Successfully generated topic breakdown');
     } catch (err) {
       console.error('Error generating topic breakdown:', err);
@@ -3805,6 +4999,7 @@ export async function POST(request: Request) {
       // Import integration detection utilities
       const { detectIntegrationType } = await import('@/lib/firebase/firestore');
       const integrationType = detectIntegrationType(brandProfileData as any);
+      log(`🔍 Integration type: ${integrationType}`);
       console.log(`🔍 Detected integration type: ${integrationType}`);
       
       // Check if any content is selected based on integration type
@@ -3819,7 +5014,7 @@ export async function POST(request: Request) {
       
       // Handle Shopify integration
       if ((integrationType === 'shopify' || integrationType === 'both') && hasShopifyContent && shopifyStoreUrl && shopifyAccessToken) {
-        console.log(`🛍️ Starting Shopify integration for ${contentSelection.mode} mode`);
+        rlog(`🛍️ Starting Shopify ${contentSelection.mode} mode...`);
         
         try {
           const shopDomain = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -3846,10 +5041,12 @@ export async function POST(request: Request) {
               await handleManualShopifyContent(contentSelection, shopifyStoreUrl);
             }
             integrationStatus = 'shopify_success';
+            log('✅ Shopify content fetched successfully');
           }
         } catch (error) {
           console.error('Error in Shopify integration:', error);
           integrationStatus = 'shopify_error';
+          log('❌ Shopify integration error');
         }
       }
       
@@ -3866,13 +5063,16 @@ export async function POST(request: Request) {
           
           if (integrationStatus === 'none') {
             integrationStatus = 'website_success';
+            log('✅ Website content fetched successfully');
           } else if (integrationStatus === 'shopify_success') {
             integrationStatus = 'hybrid_success';
+            log('✅ Hybrid content (Shopify + Website) fetched');
           }
         } catch (error) {
           console.error('Error in Website integration:', error);
           if (integrationStatus === 'none') {
             integrationStatus = 'website_error';
+            log('❌ Website integration error');
           }
         }
       }
@@ -3885,20 +5085,28 @@ export async function POST(request: Request) {
     async function handleAutomaticShopifyContent(contentSelection: any, shopDomain: string, accessToken: string, currentSearchTerms: string[], currentAvailableVendors: string[], storeUrl: string) {
       const searchQueries = currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
       
-      // 🎯 VENDOR DETECTION: Extract vendor from keyword before any searches (using collections)
-      console.log('\n🔍 PRE-SEARCH VENDOR DETECTION (Collection-Based)');
+      // ============================================================================
+      // 🚀 OPTIMIZED VENDOR DETECTION: Quick check first, AI fallback if needed
+      // ============================================================================
+      rlog('🔍 Detecting vendor from keyword...');
       
       // Fetch vendors from collections if not already provided
       const vendorsFromCollections = currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchVendorsFromCollections(shopDomain, accessToken);
       
-      // Extract vendor using the collection list
-      const aiAnalysisResult = await extractKeyTerms('', keyword, vendorsFromCollections, businessType);
-      detectedVendor = aiAnalysisResult.primaryVendor;
+      // Step 1: Quick vendor detection (no AI call, just string matching)
+      detectedVendor = quickVendorDetection(keyword, vendorsFromCollections);
+      
+      // Step 2: If no quick match, try AI extraction as fallback
+      if (!detectedVendor) {
+        rlog('ℹ️ No quick vendor match, trying AI analysis...');
+        const aiAnalysisResult = await extractKeyTerms('', keyword, vendorsFromCollections, businessType);
+        detectedVendor = aiAnalysisResult.primaryVendor;
+      }
       
       if (detectedVendor) {
-        console.log(`🎯 VENDOR DETECTED: "${detectedVendor}" - All content will be filtered to this vendor`);
+        rlog(`🎯 Vendor confirmed: "${detectedVendor}"`);
       } else {
-        console.log(`ℹ️  No specific vendor detected - Using all available content`);
+        rlog(`ℹ️ No vendor detected - searching all products`);
       }
       
       // Search products if enabled
@@ -3907,7 +5115,9 @@ export async function POST(request: Request) {
         const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (products.length > 0) {
           relatedProductsList = products.map(p => `• ${p.title} - ${storeUrl}/products/${p.handle}`).join('\n');
-          console.log(`✅ Found ${products.length} relevant products`);
+          log(`🛒 Products found: ${products.length}`);
+          products.forEach((p, i) => log(`   ${i + 1}. ${p.title}`));
+          rlog(`✅ Found ${products.length} relevant products`);
         }
       }
       
@@ -3917,6 +5127,8 @@ export async function POST(request: Request) {
         const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (collections.length > 0) {
           relatedCollectionsList = collections.map(c => `• ${c.title} - ${storeUrl}/collections/${c.handle}`).join('\n');
+          log(`📂 Collections found: ${collections.length}`);
+          collections.forEach((c, i) => log(`   ${i + 1}. ${c.title}`));
           console.log(`✅ Found ${collections.length} relevant collections`);
         }
       }
@@ -3927,7 +5139,7 @@ export async function POST(request: Request) {
         const pages = await searchPagesWithGraphQL(shopDomain, accessToken, searchQueries, keyword);
         if (pages.length > 0) {
           relatedPagesList = pages.map(p => `• ${p.title} - ${storeUrl}/pages/${p.handle}`).join('\n');
-          console.log(`✅ Found ${pages.length} relevant pages`);
+          rlog(`✅ Found ${pages.length} relevant pages`);
         }
       }
     }
@@ -3955,12 +5167,12 @@ export async function POST(request: Request) {
     
     async function handleAutomaticWebsiteContent(contentSelection: any, websiteUrl: string, currentSearchTerms: string[]) {
       // 🔥 USE SHOPIFY-STYLE AI ENHANCEMENT
-      console.log('🧠 Using Shopify-style AI term extraction for website content...');
+      rlog('🧠 Extracting AI search terms...');
       const aiAnalysisResult = await extractKeyTerms('', keyword, [], businessType);
       const aiExtractedTerms = aiAnalysisResult.searchTerms;
       const identifiedVendor = aiAnalysisResult.primaryVendor;
       
-      console.log(`🎯 AI extracted ${aiExtractedTerms.length} enhanced terms: ${aiExtractedTerms.join(', ')}`);
+      rlog(`🎯 AI extracted ${aiExtractedTerms.length} terms: ${aiExtractedTerms.slice(0, 5).join(', ')}${aiExtractedTerms.length > 5 ? '...' : ''}`);
       if (identifiedVendor) {
         console.log(`🏷️ AI identified vendor: "${identifiedVendor}"`);
       }
@@ -4020,7 +5232,7 @@ export async function POST(request: Request) {
         
         relatedWebsiteContentList = contentList;
         
-        console.log(`✅ Found ${uniquePages.length} relevant website pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
+        rlog(`✅ Found ${uniquePages.length} pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
         
         // Log top results with scores and page types
         uniquePages.slice(0, 5).forEach((page, index) => {
@@ -4074,7 +5286,7 @@ export async function POST(request: Request) {
         
         relatedWebsiteContentList = contentList;
         
-        console.log(`📋 Using ${selectedPages.length} manually selected website pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
+        rlog(`📋 Using ${selectedPages.length} manually selected pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
       }
     }
     
@@ -4265,6 +5477,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
 
     // Generate content using Claude
     try {
+      log('✍️ Generating article with Claude...');
       console.log('Calling Claude API for article generation');
     const message = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
@@ -4279,12 +5492,38 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
 
       // Get the generated content from the response
       let generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
+      log(`✅ Article generated (${generatedContent.length} chars)`);
       console.log('Successfully generated article content');
 
       // Validate and clean HTML structure
       console.log('🔍 Validating and cleaning HTML structure...');
       generatedContent = await validateAndCleanHTML(generatedContent, anthropic);
       console.log('✅ HTML validation complete');
+
+      // ============================================
+      // FACT-CHECKING LAYER
+      // Verify content accuracy using Perplexity API
+      // and rewrite problematic sections with Claude
+      // ============================================
+      log('🔬 Starting fact-check verification with Perplexity...');
+      const factCheckResult = await factCheckAndRewriteLoop(generatedContent, anthropic, 3, log);
+      generatedContent = factCheckResult.content;
+      
+      // Add fact-check details to the log
+      if (factCheckResult.factCheckPassed) {
+        log(`✅ Fact-check PASSED after ${factCheckResult.iterations} iteration(s)`);
+        console.log(`✅ Fact-check passed after ${factCheckResult.iterations} iteration(s)`);
+      } else {
+        log(`⚠️ Fact-check incomplete after ${factCheckResult.iterations} iterations - manual review recommended`);
+        console.log(`⚠️ Fact-check incomplete after ${factCheckResult.iterations} iterations - manual review recommended`);
+      }
+
+      // Re-validate HTML after fact-check rewrites to ensure consistency
+      if (factCheckResult.iterations > 1 || !factCheckResult.factCheckPassed) {
+        console.log('🔍 Re-validating HTML structure after fact-check rewrites...');
+        generatedContent = await validateAndCleanHTML(generatedContent, anthropic);
+        console.log('✅ Post-fact-check HTML validation complete');
+      }
 
       // Check for generation issues
       const hasGenerationIssues = detectGenerationIssues(generatedContent);
@@ -4314,14 +5553,23 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       console.log('Article generation completed successfully');
       
       // Return the response including Shopify integration status and generation issues flag
+    // Add final summary to log
+    log(`✅ Article generation complete: "${title.substring(0, 50)}..."`);
+    log(`📊 Final stats: ${generatedContent.length} chars, fact-check: ${factCheckResult.iterations} iterations`);
+    
     return NextResponse.json({
       title,
       content: generatedContent,
       hasGenerationIssues,
+      factCheck: {
+        passed: factCheckResult.factCheckPassed,
+        iterations: factCheckResult.iterations
+      },
       shopifyIntegration: {
         status: integrationStatus,
         message: getShopifyStatusMessage(integrationStatus)
-      }
+      },
+      generationLog: getRequestLog()
     });
     } catch (error) {
       console.error('Error generating article with Claude:', error);

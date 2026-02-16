@@ -18,6 +18,7 @@ interface BlogPost {
   content: string;
   createdAt: Date;
   status: 'draft' | 'published';
+  generationLog?: string[];
 }
 
 interface BulkGenerationStatus {
@@ -665,13 +666,14 @@ export default function ArticlesPage() {
               title: generatedContent.title || blogData.title,
             });
 
-            // Add to generated articles
+            // Add to generated articles (include generation log for admin debugging)
             const newArticle: BlogPost = {
               id: blog,
               title: generatedContent.title || blogData.title,
               content: generatedContent.content || '',
               createdAt: new Date(),
-              status: 'draft'
+              status: 'draft',
+              generationLog: generatedContent.generationLog || undefined
             };
 
             setGeneratedArticles(prev => [...prev, newArticle]);
@@ -2029,22 +2031,39 @@ export default function ArticlesPage() {
                         </div>
                       ) : (
                         /* Compact Article Card */
-                        <div>
-                          <h4 className="font-semibold text-gray-900 mb-2 line-clamp-2">
+                        <div className="flex flex-col h-[120px]">
+                          <h4 className="font-semibold text-gray-900 mb-1 line-clamp-2 text-sm">
                             {article.title}
                           </h4>
-                          <p className="text-sm text-gray-600 mb-3">
+                          <p className="text-xs text-gray-500 mb-2">
                             Created {article.createdAt instanceof Date 
                               ? article.createdAt.toLocaleDateString() 
                               : (article.createdAt as any)?.toDate?.()?.toLocaleDateString() || 'Unknown'}
                           </p>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                          <div className="mt-auto flex items-center justify-between">
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
                               ✓ Generated
                             </span>
-                            <span className="text-xs text-blue-600 font-medium">
-                              Click to expand
-                            </span>
+                            <div className="flex items-center space-x-2">
+                              {/* Admin-only Copy Log button */}
+                              {subscription_status === 'admin' && article.generationLog && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const logText = article.generationLog?.join('\n') || 'No log available';
+                                    navigator.clipboard.writeText(logText);
+                                    toast.success('Generation log copied to clipboard!');
+                                  }}
+                                  className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full hover:bg-purple-200 transition-colors"
+                                  title="Copy generation log"
+                                >
+                                  📋 Copy Log
+                                </button>
+                              )}
+                              <span className="text-xs text-blue-600 font-medium">
+                                Click to expand
+                              </span>
+                            </div>
                           </div>
                         </div>
                       )}
