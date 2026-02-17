@@ -6,6 +6,8 @@ import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import OpenAI from 'openai';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 // Log the environment variable at module load time
 console.log('--- generate-article route loaded by Next.js server ---');
@@ -48,6 +50,10 @@ function getRequestLog(): string[] {
 const openaiKey = process.env.OPENAI_API_KEY?.trim();
 const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
 const perplexityKey = process.env.PERPLEXITY_API_KEY?.trim();
+
+// Puppeteer configuration for headless browser crawling
+const isPuppeteerEnabled = process.env.ENABLE_PUPPETEER !== 'false'; // Enabled by default
+console.log('Puppeteer headless crawling:', isPuppeteerEnabled ? 'enabled' : 'disabled');
 
 // Log environment variable status (without exposing the actual keys)
 console.log('Environment variables status:');
@@ -725,7 +731,7 @@ function applyContentFix(originalContent: string, rewriteResult: RewriteResult, 
   const words = normalizedSection.split(' ').filter(w => w.length > 3);
   if (words.length >= 5) {
     // Look for first 5 substantial words in sequence
-    const partialSearch = words.slice(0, 5).join('\\s+');
+    const partialSearch = words.slice(0, 5).map(w => escapeRegExp(w)).join('\\s+');
     const partialRegex = new RegExp(partialSearch, 'i');
     const partialMatch = originalContent.match(partialRegex);
     
@@ -2072,6 +2078,196 @@ function filterProductsByTerms(
     .filter(p => p.relevanceScore > 0)
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, maxResults);
+}
+
+// ============================================================================
+// PUPPETEER WEBSITE CRAWLING
+// Uses Puppeteer for intelligent website crawling and product discovery
+// No external server required - runs headless browser directly
+// ============================================================================
+
+interface CrawledPage {
+  url: string;
+  title: string;
+  pageType: 'product' | 'category' | 'blog' | 'other';
+  relevanceScore: number;
+}
+
+/**
+ * Get Puppeteer browser instance
+ * Uses @sparticuz/chromium for serverless compatibility
+ */
+async function getBrowser() {
+  const executablePath = await chromium.executablePath();
+  
+  return puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: { width: 1920, height: 1080 },
+    executablePath,
+    headless: true,
+  });
+}
+
+/**
+ * Crawl a website using Puppeteer to discover product pages
+ * Falls back to sitemap-based crawling if Puppeteer fails
+ */
+async function crawlWebsiteWithPuppeteer(
+  websiteUrl: string,
+  searchTerms: string[],
+  maxPages: number = 20
+): Promise<CrawledPage[]> {
+  if (!isPuppeteerEnabled) {
+    rlog('⚠️ Puppeteer disabled, using fallback...');
+    return [];
+  }
+
+  const baseUrl = websiteUrl.replace(/\/$/, '');
+  const pages: CrawledPage[] = [];
+  let browser = null;
+
+  try {
+    rlog(`🕷️ Crawling website with Puppeteer: ${baseUrl}`);
+
+    browser = await getBrowser();
+    const page = await browser.newPage();
+    
+    // Set a reasonable timeout
+    page.setDefaultTimeout(30000);
+    
+    // Set user agent to avoid bot detection
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+    // Step 1: Navigate to homepage
+    await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    
+    const pageTitle = await page.title();
+    rlog(`✅ Homepage loaded: "${pageTitle}"`);
+
+    // Step 2: Extract all internal links from the page
+    const links = await page.evaluate((base) => {
+      const anchors = document.querySelectorAll('a[href]');
+      const internalLinks: string[] = [];
+      const baseHost = new URL(base).host;
+      
+      anchors.forEach(anchor => {
+        try {
+          const href = anchor.getAttribute('href');
+          if (!href) return;
+          
+          // Convert relative URLs to absolute
+          const absoluteUrl = new URL(href, base).href;
+          const linkHost = new URL(absoluteUrl).host;
+          
+          // Only include internal links
+          if (linkHost === baseHost && !internalLinks.includes(absoluteUrl)) {
+            internalLinks.push(absoluteUrl);
+          }
+        } catch {
+          // Skip invalid URLs
+        }
+      });
+      
+      return internalLinks;
+    }, baseUrl);
+
+    rlog(`📎 Found ${links.length} internal links`);
+
+    // Step 3: Filter links to likely product/category pages
+    const productPatterns = ['/product', '/shop', '/item', '/p/', '/buy', '/store', '/goods'];
+    const categoryPatterns = ['/collection', '/category', '/cat/', '/c/', '/browse'];
+    const excludePatterns = ['/cart', '/checkout', '/account', '/login', '/contact', '/about', '/faq', '/privacy', '/terms', '/blog', '/news', '/policy', '/shipping', '/return', '/help', 'mailto:', 'tel:', '#', 'javascript:'];
+
+    const relevantLinks = links.filter(link => {
+      const linkLower = link.toLowerCase();
+      // Exclude non-product pages
+      if (excludePatterns.some(p => linkLower.includes(p))) return false;
+      // Prioritize product/category pages
+      if (productPatterns.some(p => linkLower.includes(p))) return true;
+      if (categoryPatterns.some(p => linkLower.includes(p))) return true;
+      // Include links that contain search terms
+      if (searchTerms.some(term => linkLower.includes(term.toLowerCase()))) return true;
+      return false;
+    }).slice(0, maxPages);
+
+    rlog(`🎯 Filtered to ${relevantLinks.length} relevant product/category links`);
+
+    // Step 4: Visit each relevant page to get titles
+    for (const link of relevantLinks) {
+      try {
+        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        const title = await page.title();
+        const urlLower = link.toLowerCase();
+        const titleLower = title.toLowerCase();
+        
+        // Determine page type
+        let pageType: 'product' | 'category' | 'blog' | 'other' = 'other';
+        if (productPatterns.some(p => urlLower.includes(p))) {
+          pageType = 'product';
+        } else if (categoryPatterns.some(p => urlLower.includes(p))) {
+          pageType = 'category';
+        }
+
+        // Calculate relevance score
+        let relevanceScore = 0;
+        for (const term of searchTerms) {
+          const termLower = term.toLowerCase();
+          if (titleLower.includes(termLower)) relevanceScore += 10;
+          if (urlLower.includes(termLower)) relevanceScore += 5;
+        }
+        if (pageType === 'product') relevanceScore += 20;
+        if (pageType === 'category') relevanceScore += 10;
+
+        pages.push({
+          url: link,
+          title,
+          pageType,
+          relevanceScore
+        });
+
+        // Small delay to avoid overwhelming the server
+        await sleep(200);
+      } catch (error) {
+        console.error(`Failed to crawl ${link}:`, error);
+      }
+    }
+
+    // Sort by relevance
+    pages.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    rlog(`✅ Puppeteer discovered ${pages.length} relevant pages`);
+    if (pages.length > 0) {
+      pages.slice(0, 5).forEach((p, i) => {
+        rlog(`   ${i + 1}. [${p.pageType}] "${p.title}" (Score: ${p.relevanceScore})`);
+      });
+    }
+
+    return pages;
+
+  } catch (error) {
+    console.error('Puppeteer error:', error);
+    rlog(`❌ Puppeteer error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return [];
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+/**
+ * Check if Puppeteer is available
+ */
+async function isPuppeteerAvailable(): Promise<boolean> {
+  if (!isPuppeteerEnabled) return false;
+  
+  try {
+    const browser = await getBrowser();
+    await browser.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Add the vendor score calculation function
@@ -5174,7 +5370,7 @@ export async function POST(request: Request) {
       
       rlog(`🎯 AI extracted ${aiExtractedTerms.length} terms: ${aiExtractedTerms.slice(0, 5).join(', ')}${aiExtractedTerms.length > 5 ? '...' : ''}`);
       if (identifiedVendor) {
-        console.log(`🏷️ AI identified vendor: "${identifiedVendor}"`);
+        rlog(`🏷️ AI identified vendor: "${identifiedVendor}"`);
       }
       
       const searchQueries = aiExtractedTerms.length > 0 ? aiExtractedTerms : currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
@@ -5182,8 +5378,37 @@ export async function POST(request: Request) {
       
       // Search based on unified website content structure
       if (contentSelection.automaticOptions.includeWebsiteContent) {
-        console.log('🌐 Searching all website content types (unified approach)...');
-        websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor);
+        // ============================================================================
+        // 🚀 TRY PUPPETEER FIRST - Better product discovery with headless browser
+        // ============================================================================
+        const puppeteerAvailable = await isPuppeteerAvailable();
+        
+        if (puppeteerAvailable) {
+          rlog('🕷️ Using Puppeteer headless browser for website crawling...');
+          const crawledPages = await crawlWebsiteWithPuppeteer(websiteUrl, searchQueries, 20);
+          
+          if (crawledPages.length > 0) {
+            // Convert Puppeteer results to expected format
+            websitePages = crawledPages.map(page => ({
+              url: page.url,
+              title: page.title,
+              pageType: page.pageType,
+              relevanceScore: page.relevanceScore,
+              description: ''
+            }));
+            rlog(`✅ Puppeteer found ${websitePages.length} product/category pages`);
+          } else {
+            rlog('⚠️ Puppeteer found no pages, falling back to sitemap...');
+          }
+        } else {
+          rlog('⚠️ Puppeteer not available, using sitemap method...');
+        }
+        
+        // Fallback to sitemap-based crawling if Puppeteer didn't work
+        if (websitePages.length === 0) {
+          rlog('🌐 Using sitemap-based website crawling...');
+          websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor);
+        }
       }
       
       if (websitePages.length > 0) {
@@ -6374,7 +6599,7 @@ function calculateAdvancedRelevance(
     if (descriptionLower.includes(termLower)) score += 20;
     
     // Content matches (with frequency bonus)
-    const contentMatches = (contentLower.match(new RegExp(termLower, 'g')) || []).length;
+    const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
     score += Math.min(contentMatches * 5, 25); // Max 25 points from content frequency
   }
   
@@ -6800,7 +7025,7 @@ function calculateShopifyStyleRelevance(
     if (descriptionLower.includes(termLower)) score += 10;
     
     // Content frequency bonus (like Shopify product descriptions)
-    const contentMatches = (contentLower.match(new RegExp(termLower, 'g')) || []).length;
+    const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
     score += Math.min(contentMatches * 3, 15); // Max 15 points from content frequency
   }
   

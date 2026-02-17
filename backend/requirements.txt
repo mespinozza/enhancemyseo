@@ -7,4 +7,6 @@ flask-sqlalchemy
 flask-migrate
 flask-jwt-extended
 bcrypt
-anthropic 
+anthropic
+crawl4ai
+playwright 
