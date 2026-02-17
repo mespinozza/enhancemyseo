@@ -908,6 +908,93 @@ function normalizeHyphens(text: string): string {
     .replace(/\u00AD/g, '');           // Remove SOFT HYPHEN (invisible)
 }
 
+// ============================================================================
+// COMPOUND PRODUCT PHRASES
+// Dictionary of common multi-word product names that should never be split
+// These are preserved as complete phrases during keyword extraction
+// ============================================================================
+
+const COMPOUND_PRODUCTS = [
+  // HVAC & Climate Control
+  'hot tub', 'swim spa', 'sauna heater', 'heat pump', 'air conditioner',
+  'ac unit', 'hvac system', 'furnace filter', 'air handler', 'heat exchanger',
+  
+  // Appliances
+  'water heater', 'ice maker', 'ice machine', 'dishwasher', 'washing machine',
+  'dryer', 'range hood', 'garbage disposal', 'trash compactor', 'wine cooler',
+  'beer kegerator', 'kegerator', 'beverage cooler', 'mini fridge',
+  
+  // Kitchen Equipment
+  'coffee maker', 'espresso machine', 'stand mixer', 'food processor',
+  'blender', 'toaster oven', 'microwave oven', 'pressure cooker', 'slow cooker',
+  'rice cooker', 'air fryer', 'deep fryer', 'pizza oven',
+  
+  // Pool & Spa
+  'pool pump', 'pool filter', 'pool heater', 'pool cleaner', 'hot tub cover',
+  'spa cover', 'pool cover', 'chlorinator', 'salt system', 'ozone generator',
+  
+  // Restaurant Equipment
+  'commercial oven', 'commercial fryer', 'commercial grill', 'commercial refrigerator',
+  'walk-in cooler', 'reach-in freezer', 'prep table', 'work table', 'steam table',
+  'food warmer', 'holding cabinet', 'proofing cabinet',
+  
+  // Refrigeration
+  'evaporator coil', 'condenser coil', 'expansion valve', 'compressor',
+  'condenser fan', 'evaporator fan', 'refrigerant line', 'suction line',
+  
+  // Water & Plumbing
+  'sump pump', 'well pump', 'water pump', 'sewage pump', 'booster pump',
+  'backflow preventer', 'water softener', 'water filter', 'reverse osmosis',
+  
+  // Common two-word combos
+  'control board', 'circuit board', 'fan motor', 'fan blade', 'heating element',
+  'thermostat control', 'door seal', 'door gasket', 'door hinge', 'door latch',
+  'power cord', 'drain pump', 'drain hose', 'supply line', 'burner assembly'
+];
+
+/**
+ * Extracts compound product phrases from a keyword before tokenization
+ * This ensures multi-word product names stay together (e.g., "hot tub" not "hot" + "tub")
+ */
+interface ExtractedCompounds {
+  primaryProduct: string | null;       // Main product (longest compound found)
+  allCompounds: string[];              // All compound phrases found
+  remainingKeyword: string;            // Original keyword
+}
+
+function extractCompoundProducts(keyword: string): ExtractedCompounds {
+  const keywordLower = keyword.toLowerCase();
+  
+  // Find all matching compound phrases (case-insensitive)
+  const foundCompounds: Array<{ phrase: string; index: number; length: number }> = [];
+  
+  for (const compound of COMPOUND_PRODUCTS) {
+    const index = keywordLower.indexOf(compound);
+    if (index !== -1) {
+      foundCompounds.push({
+        phrase: compound,
+        index: index,
+        length: compound.length
+      });
+    }
+  }
+  
+  // Sort by length (longest first) to get most specific match
+  foundCompounds.sort((a, b) => b.length - a.length);
+  
+  // Primary product is the longest compound found
+  const primaryProduct = foundCompounds.length > 0 ? foundCompounds[0].phrase : null;
+  
+  // Get all unique compounds
+  const allCompounds = Array.from(new Set(foundCompounds.map(f => f.phrase)));
+  
+  return {
+    primaryProduct,
+    allCompounds,
+    remainingKeyword: keyword
+  };
+}
+
 // Add sleep function for rate limiting
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -1352,7 +1439,18 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
   try {
     console.log('Extracting key terms from topic breakdown');
     
-    // 🆕 STEP 0: Parse keyword using connector-based segmentation
+    // 🆕 STEP 0A: Extract compound product phrases FIRST (before tokenization)
+    const compoundExtraction = extractCompoundProducts(keyword);
+    const { primaryProduct, allCompounds } = compoundExtraction;
+    
+    if (primaryProduct) {
+      console.log(`\n🎯 COMPOUND PRODUCT DETECTED: "${primaryProduct}"`);
+      if (allCompounds.length > 1) {
+        console.log(`   Additional compounds: ${allCompounds.slice(1).join(', ')}`);
+      }
+    }
+    
+    // 🆕 STEP 0B: Parse keyword using connector-based segmentation
     const parsedKeyword = parseKeywordByConnectors(keyword);
     const { productPhrase, contextPhrases } = parsedKeyword;
     
@@ -1525,37 +1623,69 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // 🆕 UPDATED: Final terms in priority order with PRODUCT PHRASE prioritization:
-    // 1. Product phrase (if detected) - HIGHEST PRIORITY
-    // 2. Full keyword
-    // 3. Brand/vendor name (if found)
-    // 4. Brand + component combinations
-    // 5. Component terms by themselves
-    // 6. Other meaningful combinations from PRODUCT PHRASE (not full keyword)
-    // 7. Individual words from product phrase (not context words)
+    // 🆕 UPDATED: Final terms in priority order with COMPOUND PRODUCT prioritization:
+    // TIER 1: Primary compound product (e.g., "hot tub") - REQUIRED MATCH
+    // TIER 2: All compound phrases found
+    // TIER 3: Product phrase (from connector parsing)
+    // TIER 4: Full keyword
+    // TIER 5: Brand/vendor name (if found)
+    // TIER 6: Brand + component combinations
+    // TIER 7: Component terms by themselves
+    // TIER 8: Other meaningful combinations
+    // TIER 9: Individual words (filtered)
     
     const finalTerms: string[] = [];
     
-    // 🆕 Add product phrase FIRST if available (highest priority for compound search)
+    // 🆕 TIER 1: Add PRIMARY COMPOUND PRODUCT first (absolute highest priority)
+    if (primaryProduct) {
+      finalTerms.push(primaryProduct);
+      console.log(`🎯 TIER 1 - Primary compound product: "${primaryProduct}"`);
+      
+      // Add compound + component combinations (e.g., "hot tub heater", "hot tub pump")
+      componentTerms.forEach((component: string) => {
+        finalTerms.push(`${primaryProduct} ${component}`);
+      });
+    }
+    
+    // 🆕 TIER 2: Add all compound phrases found
+    allCompounds.forEach(compound => {
+      if (compound !== primaryProduct) {
+        finalTerms.push(compound);
+        console.log(`🎯 TIER 2 - Additional compound: "${compound}"`);
+      }
+    });
+    
+    // 🆕 TIER 3: Add product phrase NEXT if available (high priority for search)
     if (productPhrase) {
       finalTerms.push(productPhrase);
-      console.log(`🎯 Prioritizing product phrase: "${productPhrase}"`);
+      console.log(`🎯 TIER 3 - Product phrase: "${productPhrase}"`);
       
       // Add product phrase terms (individual words from product phrase only)
       const productPhraseWords = productPhrase.split(' ').filter(w => 
         w.length > 3 && 
-        !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(w.toLowerCase())
+        !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(w.toLowerCase()) &&
+        !allCompounds.some(compound => compound.includes(w.toLowerCase())) // Don't split compound words
       );
       
-      // Create pairs from product phrase words
+      // Create pairs from product phrase words (avoiding splitting compounds)
       for (let i = 0; i < productPhraseWords.length - 1; i++) {
-        finalTerms.push(`${productPhraseWords[i]} ${productPhraseWords[i + 1]}`);
+        const pair = `${productPhraseWords[i]} ${productPhraseWords[i + 1]}`;
+        // Only add if not already covered by a compound
+        if (!allCompounds.some(compound => compound === pair.toLowerCase())) {
+          finalTerms.push(pair);
+        }
       }
       
-      // Add individual product phrase words
+      // Add individual product phrase words (avoiding compound components)
       productPhraseWords.forEach(word => {
         if (!primaryVendor || word.toLowerCase() !== primaryVendor.toLowerCase()) {
-          finalTerms.push(word);
+          // Check if this word is part of a compound product
+          const isPartOfCompound = allCompounds.some(compound => 
+            compound.split(' ').includes(word.toLowerCase())
+          );
+          if (!isPartOfCompound) {
+            finalTerms.push(word);
+          }
         }
       });
     }
@@ -1594,7 +1724,15 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     
     console.log('Extracted search terms:', uniqueTerms);
     console.log(`Product phrase for scoring: "${productPhrase || 'None'}"`);
-    return { searchTerms: uniqueTerms, primaryVendor, productPhrase };
+    
+    // 🆕 Store primary product in productPhrase if detected (for scoring)
+    const finalProductPhrase = primaryProduct || productPhrase;
+    console.log(`🎯 AI extracted ${uniqueTerms.length} terms: ${uniqueTerms.slice(0, 5).join(', ')}${uniqueTerms.length > 5 ? '...' : ''}`);
+    if (primaryProduct) {
+      console.log(`🔒 PRIMARY PRODUCT REQUIRED: "${primaryProduct}" (must be present in results)`);
+    }
+    
+    return { searchTerms: uniqueTerms, primaryVendor, productPhrase: finalProductPhrase };
   } catch (error) {
     console.error('Error extracting key terms:', error);
     // Multi-tier fallback approach
@@ -4366,7 +4504,8 @@ function prioritizeSearchTerms(searchTerms: string[], originalKeyword: string, i
 async function discoverWebsitePages(
   websiteUrl: string, 
   searchTerms: string[] = [],
-  timeLimit: number = 30000 // 30 seconds default for automatic mode
+  timeLimit: number = 30000, // 30 seconds default for automatic mode
+  primaryProduct: string | null = null  // 🆕 Primary compound product for tiered scoring
 ): Promise<Array<{
   url: string;
   title: string;
@@ -4396,7 +4535,7 @@ async function discoverWebsitePages(
         url: page.url,
         description: page.description,
         pageType: page.pageType
-      }, searchTerms);
+      }, searchTerms, primaryProduct);  // 🆕 Pass primaryProduct
       return score > 10;
     });
     
@@ -4419,7 +4558,7 @@ async function discoverWebsitePages(
           url: page.url,
           description: page.description,
           pageType: page.pageType
-        }, searchTerms) : 50
+        }, searchTerms, primaryProduct) : 50  // 🆕 Pass primaryProduct
       }));
     }
     
@@ -4456,7 +4595,7 @@ async function discoverWebsitePages(
         url: page.url,
         description: page.description,
         pageType: page.pageType
-      }, searchTerms) > 15 : true
+      }, searchTerms, primaryProduct) > 15 : true  // 🆕 Pass primaryProduct
     ).length;
     
     if (Date.now() - startTime < timeLimit && relevantCount < 5) {
@@ -4480,7 +4619,7 @@ async function discoverWebsitePages(
         url: page.url,
         description: page.description,
         pageType: page.pageType
-      }, searchTerms) : 25)
+      }, searchTerms, primaryProduct) : 25)  // 🆕 Pass primaryProduct
     }));
     
     // Remove duplicates and sort by relevance
@@ -5367,10 +5506,14 @@ export async function POST(request: Request) {
       const aiAnalysisResult = await extractKeyTerms('', keyword, [], businessType);
       const aiExtractedTerms = aiAnalysisResult.searchTerms;
       const identifiedVendor = aiAnalysisResult.primaryVendor;
+      const primaryProduct = aiAnalysisResult.productPhrase;  // 🆕 Extract primary product
       
       rlog(`🎯 AI extracted ${aiExtractedTerms.length} terms: ${aiExtractedTerms.slice(0, 5).join(', ')}${aiExtractedTerms.length > 5 ? '...' : ''}`);
       if (identifiedVendor) {
         rlog(`🏷️ AI identified vendor: "${identifiedVendor}"`);
+      }
+      if (primaryProduct) {
+        rlog(`🎯 Primary product detected: "${primaryProduct}"`);
       }
       
       const searchQueries = aiExtractedTerms.length > 0 ? aiExtractedTerms : currentSearchTerms.length > 0 ? currentSearchTerms : [keyword];
@@ -5407,7 +5550,7 @@ export async function POST(request: Request) {
         // Fallback to sitemap-based crawling if Puppeteer didn't work
         if (websitePages.length === 0) {
           rlog('🌐 Using sitemap-based website crawling...');
-          websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor);
+          websitePages = await searchWebsiteContentWithShopifyLogic(websiteUrl, searchQueries, ['product', 'service', 'category', 'about', 'other'], keyword, identifiedVendor, primaryProduct);  // 🆕 Pass primaryProduct
         }
       }
       
@@ -6387,7 +6530,7 @@ async function crawlNavigationSystematically(
         // Crawl the navigation page
         const pageContent = await analyzePageContent(navLink);
         if (pageContent) {
-          const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms);
+          const relevanceScore = calculateAdvancedRelevance(pageContent, searchTerms, null); // 🆕 Pass primaryProduct (null for now)
           
           discoveredPages.push({
             ...pageContent,
@@ -6402,7 +6545,7 @@ async function crawlNavigationSystematically(
         for (const page of paginatedPages) {
           if (!processedUrls.has(page.url)) {
             processedUrls.add(page.url);
-            const relevanceScore = calculateAdvancedRelevance(page, searchTerms);
+            const relevanceScore = calculateAdvancedRelevance(page, searchTerms, null); // 🆕 Pass primaryProduct (null for now)
             
             discoveredPages.push({
               ...page,
@@ -6560,10 +6703,11 @@ async function explorePagination(baseUrl: string): Promise<Array<{
   }
 }
 
-// Advanced relevance calculation
+// Advanced relevance calculation with product-forward tiered scoring
 function calculateAdvancedRelevance(
   page: { title: string; url: string; description?: string; content?: string; pageType: string },
-  searchTerms: string[]
+  searchTerms: string[],
+  primaryProduct: string | null = null  // 🆕 Primary compound product (e.g., "hot tub")
 ): number {
   let score = 0;
   const titleLower = page.title.toLowerCase();
@@ -6571,48 +6715,103 @@ function calculateAdvancedRelevance(
   const descriptionLower = (page.description || '').toLowerCase();
   const contentLower = (page.content || '').toLowerCase();
   
-  // Industry-specific terms (commercial kitchen equipment)
+  // 🆕 TIER 1: PRIMARY PRODUCT REQUIREMENT (highest priority)
+  // If we have a primary product (compound phrase), it MUST be present
+  if (primaryProduct) {
+    const productLower = primaryProduct.toLowerCase();
+    const hasInTitle = titleLower.includes(productLower);
+    const hasInDescription = descriptionLower.includes(productLower);
+    const hasInContent = contentLower.includes(productLower);
+    const hasInUrl = urlLower.includes(productLower);
+    
+    if (!hasInTitle && !hasInDescription && !hasInContent && !hasInUrl) {
+      // Primary product NOT found anywhere = heavily penalize
+      return -1000; // Will be filtered out
+    }
+    
+    // Primary product found = big bonus
+    if (hasInTitle) score += 100;        // Title match = highest value
+    if (hasInDescription) score += 50;   // Description match
+    if (hasInUrl) score += 40;           // URL match
+    
+    // Content frequency bonus for primary product
+    const primaryMatches = (contentLower.match(new RegExp(escapeRegExp(productLower), 'g')) || []).length;
+    score += Math.min(primaryMatches * 10, 50); // Max 50 points from frequency
+  }
+  
+  // 🆕 TIER 2: COMPOUND PHRASES (e.g., "hot tub heater", "hot tub pump")
+  // Higher weight for multi-word product-specific terms
+  const compoundTerms = searchTerms.filter(term => {
+    const words = term.split(' ').filter(w => w.length > 0);
+    return words.length >= 2 && term.length > 8; // Multi-word terms
+  });
+  
+  for (const term of compoundTerms) {
+    const termLower = term.toLowerCase();
+    
+    // Skip if it's the primary product (already scored above)
+    if (primaryProduct && termLower === primaryProduct.toLowerCase()) continue;
+    
+    if (titleLower.includes(termLower)) score += 40;
+    if (descriptionLower.includes(termLower)) score += 20;
+    if (urlLower.includes(termLower)) score += 15;
+    
+    const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
+    score += Math.min(contentMatches * 8, 30);
+  }
+  
+  // 🆕 TIER 3: COMPONENT TERMS (individual words like "pump", "heater", "filter")
+  const componentTerms = searchTerms.filter(term => {
+    const words = term.split(' ');
+    return words.length === 1 && term.length >= 3;
+  });
+  
+  for (const term of componentTerms) {
+    const termLower = term.toLowerCase();
+    if (termLower.length < 3) continue;
+    
+    // Lower weight for single words (they're more generic)
+    if (titleLower.includes(termLower)) score += 15;
+    if (descriptionLower.includes(termLower)) score += 10;
+    if (urlLower.includes(termLower)) score += 8;
+    
+    const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
+    score += Math.min(contentMatches * 3, 15);
+  }
+  
+  // 🆕 TIER 4: CONTEXT TERMS (like "luxury", "backyard", "best")
+  // Lowest weight - these are qualifiers not product identifiers
+  const contextWords = ['best', 'luxury', 'backyard', 'home', 'setup', 'guide', 'top', 'premium', 'professional'];
+  for (const context of contextWords) {
+    if (searchTerms.some(term => term.toLowerCase().includes(context))) {
+      if (titleLower.includes(context)) score += 5;
+      
+      const contentMatches = (contentLower.match(new RegExp(escapeRegExp(context), 'g')) || []).length;
+      score += Math.min(contentMatches * 1, 5);
+    }
+  }
+  
+  // Industry-specific terms (commercial kitchen equipment) - keep for backward compatibility
   const industryTerms = [
     'fryer', 'oven', 'grill', 'refrigerat', 'freezer', 'dishwasher', 'mixer',
     'equipment', 'commercial', 'kitchen', 'restaurant', 'maintenance', 'repair',
     'service', 'parts', 'installation', 'cleaning', 'calibration'
   ];
   
-  // Equipment brand terms
+  for (const industryTerm of industryTerms) {
+    if (titleLower.includes(industryTerm)) score += 10;
+    if (contentLower.includes(industryTerm)) score += 3;
+  }
+  
+  // Equipment brand terms - keep for backward compatibility
   const brandTerms = [
     'rational', 'hobart', 'hoshizaki', 'true', 'beverage-air', 'turbo-air',
     'atlas', 'vulcan', 'southbend', 'garland', 'blodgett', 'cleveland'
   ];
   
-  // Calculate relevance for search terms
-  for (const term of searchTerms) {
-    const termLower = term.toLowerCase();
-    if (termLower.length < 3) continue;
-    
-    // Title matches (highest weight)
-    if (titleLower.includes(termLower)) score += 50;
-    
-    // URL matches
-    if (urlLower.includes(termLower)) score += 30;
-    
-    // Description matches
-    if (descriptionLower.includes(termLower)) score += 20;
-    
-    // Content matches (with frequency bonus)
-    const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
-    score += Math.min(contentMatches * 5, 25); // Max 25 points from content frequency
-  }
-  
-  // Industry relevance bonus
-  for (const industryTerm of industryTerms) {
-    if (titleLower.includes(industryTerm)) score += 15;
-    if (contentLower.includes(industryTerm)) score += 5;
-  }
-  
-  // Brand relevance bonus
   for (const brandTerm of brandTerms) {
-    if (titleLower.includes(brandTerm)) score += 20;
-    if (contentLower.includes(brandTerm)) score += 10;
+    if (titleLower.includes(brandTerm)) score += 15;
+    if (contentLower.includes(brandTerm)) score += 8;
   }
   
   // Page type bonuses
@@ -6897,7 +7096,8 @@ async function searchWebsiteContentWithShopifyLogic(
   aiEnhancedTerms: string[],
   pageTypes: string[],
   originalKeyword: string,
-  identifiedVendor: string | null
+  identifiedVendor: string | null,
+  primaryProduct: string | null = null  // 🆕 Primary compound product
 ): Promise<Array<{
   id: string;
   title: string;
@@ -6911,8 +7111,8 @@ async function searchWebsiteContentWithShopifyLogic(
     console.log(`🔍 Shopify-style search for page types: ${pageTypes.join(', ')}`);
     console.log(`🎯 Using AI terms: ${aiEnhancedTerms.join(', ')}`);
     
-    // Use enhanced 4-phase discovery with AI terms
-    const allPages = await discoverWebsitePages(websiteUrl, aiEnhancedTerms, 30000);
+    // Use enhanced 4-phase discovery with AI terms and primary product
+    const allPages = await discoverWebsitePages(websiteUrl, aiEnhancedTerms, 30000, primaryProduct);  // 🆕 Pass primaryProduct
     
     // 🔥 ENHANCED BLOG FILTERING (multi-layered analysis)
     console.log(`🔍 Blog detection analysis on ${allPages.length} discovered pages...`);
@@ -6953,7 +7153,8 @@ async function searchWebsiteContentWithShopifyLogic(
         page, 
         aiEnhancedTerms, 
         identifiedVendor, 
-        originalKeyword
+        originalKeyword,
+        primaryProduct  // 🆕 Pass primaryProduct
       );
       
       return {
@@ -6968,10 +7169,15 @@ async function searchWebsiteContentWithShopifyLogic(
     });
     
     // Sort by relevance (highest first) and filter out low-scoring content
+    // 🆕 NOTE: Pages without primary product get score of -1000 and are filtered here
     const qualityPages = scoredPages
       .filter(page => page.relevanceScore > 15) // Same quality threshold as Shopify
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
     
+    const filteredByProduct = scoredPages.length - scoredPages.filter(p => p.relevanceScore > 15).length;
+    if (primaryProduct && filteredByProduct > 0) {
+      console.log(`🔒 Filtered ${filteredByProduct} pages without "${primaryProduct}"`);
+    }
     console.log(`✅ Shopify-style search complete: ${qualityPages.length} high-quality pages found`);
     
     return qualityPages.slice(0, 20); // Return top 20 results
@@ -6982,12 +7188,13 @@ async function searchWebsiteContentWithShopifyLogic(
   }
 }
 
-// Shopify-style relevance calculation for website content
+// Shopify-style relevance calculation for website content with product-forward tiered scoring
 function calculateShopifyStyleRelevance(
   page: { title: string; url: string; description?: string; pageType: string; content?: string },
   aiEnhancedTerms: string[],
   identifiedVendor: string | null,
-  originalKeyword: string
+  originalKeyword: string,
+  primaryProduct: string | null = null  // 🆕 Primary compound product
 ): number {
   let score = 0;
   const titleLower = page.title.toLowerCase();
@@ -6995,18 +7202,43 @@ function calculateShopifyStyleRelevance(
   const descriptionLower = (page.description || '').toLowerCase();
   const contentLower = (page.content || '').toLowerCase();
   
-  // 🔥 SAME SCORING LOGIC AS SHOPIFY PRODUCTS
-  
-  // 1. Original keyword priority (highest weight - like Shopify products)
-  if (originalKeyword) {
-    const originalLower = originalKeyword.toLowerCase();
-    if (titleLower.includes(originalLower)) score += 100; // Same as Shopify
-    if (urlLower.includes(originalLower)) score += 50;
-    if (descriptionLower.includes(originalLower)) score += 25;
-    if (contentLower.includes(originalLower)) score += 15;
+  // 🆕 TIER 1: PRIMARY PRODUCT REQUIREMENT (absolute highest priority)
+  // If we have a primary product (compound phrase), it MUST be present
+  if (primaryProduct) {
+    const productLower = primaryProduct.toLowerCase();
+    const hasInTitle = titleLower.includes(productLower);
+    const hasInDescription = descriptionLower.includes(productLower);
+    const hasInContent = contentLower.includes(productLower);
+    const hasInUrl = urlLower.includes(productLower);
+    
+    if (!hasInTitle && !hasInDescription && !hasInContent && !hasInUrl) {
+      // Primary product NOT found anywhere = heavily penalize
+      return -1000; // Will be filtered out
+    }
+    
+    // Primary product found = massive bonus (even higher than Shopify vendor)
+    if (hasInTitle) score += 150;        // Title match = absolute highest value
+    if (hasInDescription) score += 75;   // Description match
+    if (hasInUrl) score += 60;           // URL match
+    
+    // Content frequency bonus for primary product
+    const primaryMatches = (contentLower.match(new RegExp(escapeRegExp(productLower), 'g')) || []).length;
+    score += Math.min(primaryMatches * 15, 75); // Max 75 points from frequency
   }
   
-  // 2. Vendor/brand priority (like Shopify vendor matching)
+  // 🆕 TIER 2: ORIGINAL KEYWORD with compound awareness
+  if (originalKeyword) {
+    const originalLower = originalKeyword.toLowerCase();
+    // Only score if it's not the same as primary product (avoid double scoring)
+    if (!primaryProduct || originalLower !== primaryProduct.toLowerCase()) {
+      if (titleLower.includes(originalLower)) score += 100; // Same as Shopify
+      if (urlLower.includes(originalLower)) score += 50;
+      if (descriptionLower.includes(originalLower)) score += 25;
+      if (contentLower.includes(originalLower)) score += 15;
+    }
+  }
+  
+  // TIER 3: Vendor/brand priority (like Shopify vendor matching)
   if (identifiedVendor) {
     const vendorLower = identifiedVendor.toLowerCase();
     if (titleLower.includes(vendorLower)) score += 75; // Same vendor boost as Shopify
@@ -7015,18 +7247,42 @@ function calculateShopifyStyleRelevance(
     if (descriptionLower.includes(vendorLower)) score += 20;
   }
   
-  // 3. AI-enhanced search terms (comprehensive matching)
-  for (const term of aiEnhancedTerms) {
+  // 🆕 TIER 4: COMPOUND TERMS (multi-word product-specific phrases)
+  const compoundTerms = aiEnhancedTerms.filter(term => {
+    const words = term.split(' ').filter(w => w.length > 0);
+    return words.length >= 2 && term.length > 8;
+  });
+  
+  for (const term of compoundTerms) {
     const termLower = term.toLowerCase();
-    if (termLower.length < 3) continue; // Skip very short terms
     
-    if (titleLower.includes(termLower)) score += 25; // Same as Shopify
-    if (urlLower.includes(termLower)) score += 15;
-    if (descriptionLower.includes(termLower)) score += 10;
+    // Skip if it's the primary product (already scored above)
+    if (primaryProduct && termLower === primaryProduct.toLowerCase()) continue;
     
-    // Content frequency bonus (like Shopify product descriptions)
+    if (titleLower.includes(termLower)) score += 50;
+    if (descriptionLower.includes(termLower)) score += 25;
+    if (urlLower.includes(termLower)) score += 20;
+    
     const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
-    score += Math.min(contentMatches * 3, 15); // Max 15 points from content frequency
+    score += Math.min(contentMatches * 10, 40);
+  }
+  
+  // 🆕 TIER 5: COMPONENT TERMS (individual words)
+  const componentTerms = aiEnhancedTerms.filter(term => {
+    const words = term.split(' ');
+    return words.length === 1 && term.length >= 3;
+  });
+  
+  for (const term of componentTerms) {
+    const termLower = term.toLowerCase();
+    if (termLower.length < 3) continue;
+    
+    if (titleLower.includes(termLower)) score += 20;
+    if (urlLower.includes(termLower)) score += 12;
+    if (descriptionLower.includes(termLower)) score += 8;
+    
+    const contentMatches = (contentLower.match(new RegExp(escapeRegExp(termLower), 'g')) || []).length;
+    score += Math.min(contentMatches * 3, 15);
   }
   
   // 4. Industry-specific terms (commercial kitchen equipment - like Shopify product types)
