@@ -909,12 +909,14 @@ function normalizeHyphens(text: string): string {
 }
 
 // ============================================================================
-// COMPOUND PRODUCT PHRASES
-// Dictionary of common multi-word product names that should never be split
-// These are preserved as complete phrases during keyword extraction
+// COMPOUND PRODUCT PHRASES - DEPRECATED
+// ⚠️ DEPRECATED: This static list is no longer used.
+// We now use AI-powered compound detection in extractKeyTerms() which dynamically
+// identifies primary products from any keyword without maintaining a static list.
+// Keeping this for reference only - can be removed in future cleanup.
 // ============================================================================
 
-const COMPOUND_PRODUCTS = [
+const COMPOUND_PRODUCTS_DEPRECATED = [
   // HVAC & Climate Control
   'hot tub', 'swim spa', 'sauna heater', 'heat pump', 'air conditioner',
   'ac unit', 'hvac system', 'furnace filter', 'air handler', 'heat exchanger',
@@ -953,8 +955,10 @@ const COMPOUND_PRODUCTS = [
 ];
 
 /**
- * Extracts compound product phrases from a keyword before tokenization
- * This ensures multi-word product names stay together (e.g., "hot tub" not "hot" + "tub")
+ * ⚠️ DEPRECATED: Extracts compound product phrases from a keyword before tokenization
+ * This function is no longer used. We now use AI-powered detection in extractKeyTerms()
+ * which dynamically identifies primary products without a static dictionary.
+ * Keeping for reference only - can be removed in future cleanup.
  */
 interface ExtractedCompounds {
   primaryProduct: string | null;       // Main product (longest compound found)
@@ -962,13 +966,13 @@ interface ExtractedCompounds {
   remainingKeyword: string;            // Original keyword
 }
 
-function extractCompoundProducts(keyword: string): ExtractedCompounds {
+function extractCompoundProducts_DEPRECATED(keyword: string): ExtractedCompounds {
   const keywordLower = keyword.toLowerCase();
   
   // Find all matching compound phrases (case-insensitive)
   const foundCompounds: Array<{ phrase: string; index: number; length: number }> = [];
   
-  for (const compound of COMPOUND_PRODUCTS) {
+  for (const compound of COMPOUND_PRODUCTS_DEPRECATED) {
     const index = keywordLower.indexOf(compound);
     if (index !== -1) {
       foundCompounds.push({
@@ -1439,18 +1443,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
   try {
     console.log('Extracting key terms from topic breakdown');
     
-    // 🆕 STEP 0A: Extract compound product phrases FIRST (before tokenization)
-    const compoundExtraction = extractCompoundProducts(keyword);
-    const { primaryProduct, allCompounds } = compoundExtraction;
-    
-    if (primaryProduct) {
-      console.log(`\n🎯 COMPOUND PRODUCT DETECTED: "${primaryProduct}"`);
-      if (allCompounds.length > 1) {
-        console.log(`   Additional compounds: ${allCompounds.slice(1).join(', ')}`);
-      }
-    }
-    
-    // 🆕 STEP 0B: Parse keyword using connector-based segmentation
+    // 🆕 STEP 0: Parse keyword using connector-based segmentation (legacy fallback)
     const parsedKeyword = parseKeywordByConnectors(keyword);
     const { productPhrase, contextPhrases } = parsedKeyword;
     
@@ -1553,39 +1546,73 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // Now extract component terms using the identified brand/vendor
+    // 🆕 AI-POWERED: Extract PRIMARY PRODUCT and component terms using Claude
     const extractionPrompt = `
-      For the topic "${keyword}", extract:
-      1. The brand name: ${primaryVendor || 'Unknown'}
-      2. 5-8 basic component/part terms that would typically be found in product names for ${primaryVendor || ''} ${keyword.split(' ').filter(w => w.toLowerCase() !== primaryVendor?.toLowerCase()).join(' ')}
+      For the topic "${keyword}", extract the following information:
       
-      Focus on:
-      - Simple, single-word component terms (e.g., "hose", "gasket", "valve", "switch", "pump") 
-      - Common part categories specific to this product type
-      - Terms likely to appear in part catalogs or product listings
-      - Do NOT include the brand name as a separate term
+      1. PRIMARY PRODUCT (the main item/product being discussed):
+         - This is the core product noun phrase
+         - IGNORE action words: buying, choosing, installing, how to, guide to, tips for
+         - IGNORE qualifiers: best, top, luxury, commercial, residential, professional
+         - IGNORE context phrases: for entertaining, in winter, during summer, at home
+         - Extract only the essential product identifier
+         
+         Examples:
+         • "Buying a Patio Heater for Entertaining" → "patio heater"
+         • "Best Luxury Backyard Hot Tub Setup" → "hot tub"
+         • "How to Install Commercial Ice Maker Parts" → "ice maker"
+         • "Choosing the Right Pool Pump for Your Home" → "pool pump"
+         • "Electric vs Propane Outdoor Heater Comparison" → "outdoor heater"
+         • "Infrared Sauna Heater Installation Guide" → "sauna heater"
       
-      For example, if the topic is "unic espresso machine parts", good component terms would be:
-      portafilter, boiler, valve, hose, gasket, group, pump, seal
+      2. COMPONENT TERMS (5-8 basic components/parts for this product type):
+         - Simple, single-word terms (e.g., "hose", "gasket", "valve", "switch", "pump")
+         - Common part categories specific to this product
+         - Terms likely to appear in product listings
+         - Do NOT include the brand name: ${primaryVendor || 'N/A'}
+         
+         Example for "espresso machine": portafilter, boiler, valve, hose, gasket, group, pump, seal
       
-      Return only a comma-separated list of these component terms (do NOT include the brand name in this list).
+      Return as JSON only (no other text):
+      {
+        "primaryProduct": "the product phrase here",
+        "componentTerms": ["term1", "term2", "term3", ...]
+      }
       
-      Text: ${text}
+      Topic: ${keyword}
+      Context: ${text || 'No additional context'}
     `;
     
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 150,
+      max_tokens: 250,  // Increased for JSON response
       messages: [
         { role: 'user', content: extractionPrompt }
       ]
     });
     
     const contentBlock = response.content[0];
-    const keyTermsText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
-    // Remove any quotes that might appear in the terms
-    const cleanedTermsText = keyTermsText.replace(/["']/g, '');
-    const componentTerms = cleanedTermsText.split(',').map((term: string) => term.trim()).filter(Boolean);
+    const responseText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
+    
+    // 🆕 Parse JSON response to extract AI-detected primary product and components
+    let aiDetectedProduct: string | null = null;
+    let componentTerms: string[] = [];
+    
+    try {
+      // Try to parse as JSON first (new format)
+      const parsed = JSON.parse(responseText);
+      aiDetectedProduct = parsed.primaryProduct || null;
+      componentTerms = parsed.componentTerms || [];
+      
+      if (aiDetectedProduct) {
+        console.log(`🤖 AI-DETECTED PRIMARY PRODUCT: "${aiDetectedProduct}"`);
+      }
+    } catch (parseError) {
+      // Fallback to old comma-separated format for backwards compatibility
+      console.log('⚠️ JSON parse failed, falling back to comma-separated format');
+      const cleanedTermsText = responseText.replace(/["']/g, '');
+      componentTerms = cleanedTermsText.split(',').map((term: string) => term.trim()).filter(Boolean);
+    }
     
     // Always include the original parts of the keyword
     const keywordParts = keyword.split(' ');
@@ -1623,10 +1650,10 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       }
     }
     
-    // 🆕 UPDATED: Final terms in priority order with COMPOUND PRODUCT prioritization:
-    // TIER 1: Primary compound product (e.g., "hot tub") - REQUIRED MATCH
-    // TIER 2: All compound phrases found
-    // TIER 3: Product phrase (from connector parsing)
+    // 🆕 AI-POWERED: Final terms in priority order with AI-DETECTED PRIMARY PRODUCT:
+    // TIER 1: AI-detected primary product (e.g., "patio heater") - REQUIRED MATCH
+    // TIER 2: AI product + component combinations (e.g., "patio heater burner")
+    // TIER 3: Product phrase (from connector parsing - legacy fallback)
     // TIER 4: Full keyword
     // TIER 5: Brand/vendor name (if found)
     // TIER 6: Brand + component combinations
@@ -1636,54 +1663,43 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     
     const finalTerms: string[] = [];
     
-    // 🆕 TIER 1: Add PRIMARY COMPOUND PRODUCT first (absolute highest priority)
-    if (primaryProduct) {
-      finalTerms.push(primaryProduct);
-      console.log(`🎯 TIER 1 - Primary compound product: "${primaryProduct}"`);
+    // 🆕 TIER 1: Add AI-DETECTED PRIMARY PRODUCT first (absolute highest priority)
+    if (aiDetectedProduct) {
+      finalTerms.push(aiDetectedProduct);
+      console.log(`🎯 TIER 1 - AI-detected primary product: "${aiDetectedProduct}"`);
       
-      // Add compound + component combinations (e.g., "hot tub heater", "hot tub pump")
+      // Add AI product + component combinations (e.g., "patio heater burner", "patio heater valve")
       componentTerms.forEach((component: string) => {
-        finalTerms.push(`${primaryProduct} ${component}`);
+        finalTerms.push(`${aiDetectedProduct} ${component}`);
       });
     }
     
-    // 🆕 TIER 2: Add all compound phrases found
-    allCompounds.forEach(compound => {
-      if (compound !== primaryProduct) {
-        finalTerms.push(compound);
-        console.log(`🎯 TIER 2 - Additional compound: "${compound}"`);
-      }
-    });
-    
-    // 🆕 TIER 3: Add product phrase NEXT if available (high priority for search)
-    if (productPhrase) {
+    // 🆕 TIER 2: Add product phrase from connector parsing if different (legacy fallback)
+    if (productPhrase && productPhrase.toLowerCase() !== aiDetectedProduct?.toLowerCase()) {
       finalTerms.push(productPhrase);
-      console.log(`🎯 TIER 3 - Product phrase: "${productPhrase}"`);
+      console.log(`🎯 TIER 2 - Connector-parsed phrase: "${productPhrase}"`);
       
       // Add product phrase terms (individual words from product phrase only)
       const productPhraseWords = productPhrase.split(' ').filter(w => 
         w.length > 3 && 
-        !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(w.toLowerCase()) &&
-        !allCompounds.some(compound => compound.includes(w.toLowerCase())) // Don't split compound words
+        !["how", "to", "the", "and", "for", "with", "what", "why", "when", "where"].includes(w.toLowerCase())
       );
       
-      // Create pairs from product phrase words (avoiding splitting compounds)
+      // Create pairs from product phrase words
       for (let i = 0; i < productPhraseWords.length - 1; i++) {
         const pair = `${productPhraseWords[i]} ${productPhraseWords[i + 1]}`;
-        // Only add if not already covered by a compound
-        if (!allCompounds.some(compound => compound === pair.toLowerCase())) {
+        // Only add if not already the AI-detected product
+        if (pair.toLowerCase() !== aiDetectedProduct?.toLowerCase()) {
           finalTerms.push(pair);
         }
       }
       
-      // Add individual product phrase words (avoiding compound components)
+      // Add individual product phrase words
       productPhraseWords.forEach(word => {
         if (!primaryVendor || word.toLowerCase() !== primaryVendor.toLowerCase()) {
-          // Check if this word is part of a compound product
-          const isPartOfCompound = allCompounds.some(compound => 
-            compound.split(' ').includes(word.toLowerCase())
-          );
-          if (!isPartOfCompound) {
+          // Don't add if it's part of the AI-detected product
+          const isPartOfAIProduct = aiDetectedProduct?.split(' ').includes(word.toLowerCase());
+          if (!isPartOfAIProduct) {
             finalTerms.push(word);
           }
         }
@@ -1723,13 +1739,15 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       .map(term => term);
     
     console.log('Extracted search terms:', uniqueTerms);
-    console.log(`Product phrase for scoring: "${productPhrase || 'None'}"`);
     
-    // 🆕 Store primary product in productPhrase if detected (for scoring)
-    const finalProductPhrase = primaryProduct || productPhrase;
+    // 🆕 Use AI-detected product as final product phrase (with fallbacks)
+    const finalProductPhrase = aiDetectedProduct || productPhrase || null;
+    
     console.log(`🎯 AI extracted ${uniqueTerms.length} terms: ${uniqueTerms.slice(0, 5).join(', ')}${uniqueTerms.length > 5 ? '...' : ''}`);
-    if (primaryProduct) {
-      console.log(`🔒 PRIMARY PRODUCT REQUIRED: "${primaryProduct}" (must be present in results)`);
+    console.log(`📦 Primary product for scoring: "${finalProductPhrase || 'None'}"`);
+    
+    if (aiDetectedProduct) {
+      console.log(`🔒 PRIMARY PRODUCT REQUIRED: "${aiDetectedProduct}" (must be present in results)`);
     }
     
     return { searchTerms: uniqueTerms, primaryVendor, productPhrase: finalProductPhrase };
