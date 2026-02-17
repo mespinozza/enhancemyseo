@@ -1573,11 +1573,17 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
          
          Example for "espresso machine": portafilter, boiler, valve, hose, gasket, group, pump, seal
       
-      Return as JSON only (no other text):
-      {
-        "primaryProduct": "the product phrase here",
-        "componentTerms": ["term1", "term2", "term3", ...]
-      }
+      CRITICAL: Return ONLY valid JSON with proper syntax:
+      - Use double quotes for all keys and string values
+      - No markdown code fences (no \`\`\`json or \`\`\`)
+      - No extra text or explanations
+      - Return ONLY the JSON object itself
+      
+      Format:
+      {"primaryProduct": "product name here", "componentTerms": ["term1", "term2", "term3"]}
+      
+      Example response:
+      {"primaryProduct": "patio heater", "componentTerms": ["burner", "valve", "igniter", "base"]}
       
       Topic: ${keyword}
       Context: ${text || 'No additional context'}
@@ -1592,26 +1598,75 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     });
     
     const contentBlock = response.content[0];
-    const responseText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
+    let responseText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
     
     // 🆕 Parse JSON response to extract AI-detected primary product and components
     let aiDetectedProduct: string | null = null;
     let componentTerms: string[] = [];
     
+    // STEP 1: Strip markdown code fences if present
+    responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+    
+    // STEP 2: Try to parse as JSON
     try {
-      // Try to parse as JSON first (new format)
       const parsed = JSON.parse(responseText);
-      aiDetectedProduct = parsed.primaryProduct || null;
-      componentTerms = parsed.componentTerms || [];
+      aiDetectedProduct = parsed.primaryProduct || parsed.primaryproduct || null; // Handle case variations
+      componentTerms = parsed.componentTerms || parsed.componentterms || [];
       
       if (aiDetectedProduct) {
         console.log(`🤖 AI-DETECTED PRIMARY PRODUCT: "${aiDetectedProduct}"`);
+      } else {
+        console.log('⚠️ JSON parsed but no primaryProduct found');
       }
     } catch (parseError) {
-      // Fallback to old comma-separated format for backwards compatibility
-      console.log('⚠️ JSON parse failed, falling back to comma-separated format');
-      const cleanedTermsText = responseText.replace(/["']/g, '');
-      componentTerms = cleanedTermsText.split(',').map((term: string) => term.trim()).filter(Boolean);
+      console.log('⚠️ JSON parse failed, attempting regex extraction...');
+      
+      // STEP 3: Regex fallback - extract primaryProduct even if JSON is malformed
+      // Look for patterns like: "primaryProduct": "patio heater" or primaryproduct: patio heater
+      const productPatterns = [
+        /"primaryProduct"\s*:\s*"([^"]+)"/i,           // Standard JSON with quotes
+        /"primaryproduct"\s*:\s*"([^"]+)"/i,           // Lowercase variant
+        /primaryProduct\s*:\s*"([^"]+)"/i,             // No quotes on key
+        /primaryproduct\s*:\s*"([^"]+)"/i,             // Lowercase, no quotes on key
+        /primaryProduct\s*:\s*([a-z\s]+?)(?:,|\n|$)/i, // No quotes at all
+        /primaryproduct\s*:\s*([a-z\s]+?)(?:,|\n|$)/i  // Lowercase, no quotes at all
+      ];
+      
+      for (const pattern of productPatterns) {
+        const match = responseText.match(pattern);
+        if (match && match[1]) {
+          aiDetectedProduct = match[1].trim();
+          console.log(`🔧 Regex extracted primary product: "${aiDetectedProduct}"`);
+          break;
+        }
+      }
+      
+      // STEP 4: Extract component terms from response (even if malformed)
+      const componentPattern = /componentTerms|componentterms\s*:\s*\[([^\]]+)\]/i;
+      const componentMatch = responseText.match(componentPattern);
+      if (componentMatch && componentMatch[1]) {
+        componentTerms = componentMatch[1]
+          .split(',')
+          .map(term => term.replace(/["\s]/g, '').trim())
+          .filter(Boolean);
+        console.log(`🔧 Regex extracted ${componentTerms.length} component terms`);
+      }
+      
+      // STEP 5: If still no product detected, fall back to comma-separated format (legacy)
+      if (!aiDetectedProduct) {
+        console.log('⚠️ All extraction methods failed, using legacy comma-separated format');
+        const cleanedTermsText = responseText.replace(/["']/g, '');
+        componentTerms = cleanedTermsText.split(',').map((term: string) => term.trim()).filter(Boolean);
+      }
+    }
+    
+    // STEP 6: Final validation - if AI detection failed completely, log warning
+    if (!aiDetectedProduct) {
+      console.log('⚠️ WARNING: AI product detection failed completely');
+      console.log(`📋 Claude response was: ${responseText.substring(0, 200)}...`);
+      console.log(`🔄 Will rely on connector-based parsing as fallback`);
+    } else {
+      console.log(`✅ Primary product successfully identified: "${aiDetectedProduct}"`);
     }
     
     // Always include the original parts of the keyword
