@@ -446,7 +446,15 @@ CRITICAL REQUIREMENTS:
 5. Maintain the same approximate length and tone
 6. Use the same HTML formatting (strong, em, a tags) where appropriate
 7. Do NOT use Markdown syntax - only HTML
-8. Do NOT include any explanation - return ONLY the replacement HTML element
+8. Do NOT include any explanation, meta-commentary, or error messages
+9. If you cannot rewrite it properly, return the original element UNCHANGED
+
+⚠️ ABSOLUTE RULES:
+- NEVER start with "I cannot" or "I'm unable" or "I need more information"
+- NEVER include explanations about what you're doing
+- NEVER ask for more content or context
+- If the section is problematic, make your best reasonable fix
+- Return ONLY the replacement HTML element - no other text
 
 The replacement must read as a polished, standalone paragraph that could appear in a professional blog.`;
 
@@ -467,6 +475,45 @@ The replacement must read as a polished, standalone paragraph that could appear 
     // Clean up the response
     rewrittenContent = rewrittenContent.trim();
     
+    // 🆕 VALIDATION: Check if Claude returned an error message or explanation instead of HTML
+    const errorPatterns = [
+      /^I cannot/i,
+      /^I'm unable/i,
+      /^I don't have/i,
+      /^I need more/i,
+      /^The original HTML/i,
+      /^This (?:is|appears to be) (?:a|an) (?:error|message|explanation)/i,
+      /^(?:To|In order to) (?:help|provide|rewrite)/i,
+      /is not actually content/i,
+      /please provide/i,
+      /more information is needed/i,
+      /fact-checking task/i
+    ];
+    
+    const hasErrorMessage = errorPatterns.some(pattern => pattern.test(rewrittenContent));
+    
+    if (hasErrorMessage) {
+      log(`⚠️ REWRITE: Claude returned error message instead of HTML, keeping original`);
+      log(`📋 Response was: ${rewrittenContent.substring(0, 150)}...`);
+      return {
+        rewrittenContent: sectionToRewrite, // Keep original unchanged
+        originalSection: sectionToRewrite,
+        foundSection: false  // Mark as failed so it won't be applied
+      };
+    }
+    
+    // 🆕 VALIDATION: Ensure response contains HTML tags
+    const hasHTMLTags = /<[a-z]+[^>]*>/i.test(rewrittenContent);
+    if (!hasHTMLTags) {
+      log(`⚠️ REWRITE: Response doesn't contain HTML tags, keeping original`);
+      log(`📋 Response was: ${rewrittenContent.substring(0, 150)}...`);
+      return {
+        rewrittenContent: sectionToRewrite,
+        originalSection: sectionToRewrite,
+        foundSection: false
+      };
+    }
+    
     // Remove any code block wrappers
     rewrittenContent = rewrittenContent.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
     
@@ -475,6 +522,20 @@ The replacement must read as a polished, standalone paragraph that could appear 
     
     // Convert any stray Markdown
     rewrittenContent = ensureHTMLFormat(rewrittenContent, sectionToRewrite);
+    
+    // 🆕 FINAL VALIDATION: Double-check the rewritten content is substantially different from error messages
+    const rewrittenLower = rewrittenContent.toLowerCase();
+    if (rewrittenLower.includes('cannot provide') || 
+        rewrittenLower.includes('unable to') ||
+        rewrittenLower.includes('need more information') ||
+        rewrittenLower.includes('please provide')) {
+      log(`⚠️ REWRITE: Final check detected error message in output, keeping original`);
+      return {
+        rewrittenContent: sectionToRewrite,
+        originalSection: sectionToRewrite,
+        foundSection: false
+      };
+    }
     
     log(`✅ REWRITE: Element rewritten (${sectionToRewrite.length} → ${rewrittenContent.length} chars)`);
     
