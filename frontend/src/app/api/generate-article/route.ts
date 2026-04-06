@@ -13,6 +13,79 @@ import chromium from '@sparticuz/chromium';
 console.log('--- generate-article route loaded by Next.js server ---');
 
 // ============================================================================
+// CONCURRENT REQUEST TRACKING & RATE LIMITING
+// ============================================================================
+const activeGenerations = new Map<string, number>(); // userId -> count
+const MAX_CONCURRENT_GENERATIONS = 3; // Max simultaneous generations per user
+const API_RETRY_MAX_ATTEMPTS = 3;
+const API_RETRY_BASE_DELAY = 1000; // 1 second
+
+/**
+ * Track active generation for a user
+ */
+function trackGenerationStart(userId: string): boolean {
+  const current = activeGenerations.get(userId) || 0;
+  if (current >= MAX_CONCURRENT_GENERATIONS) {
+    return false; // Limit reached
+  }
+  activeGenerations.set(userId, current + 1);
+  return true;
+}
+
+/**
+ * Remove tracking when generation completes
+ */
+function trackGenerationEnd(userId: string): void {
+  const current = activeGenerations.get(userId) || 0;
+  if (current > 0) {
+    activeGenerations.set(userId, current - 1);
+  }
+  // Clean up if no active generations
+  if (current <= 1) {
+    activeGenerations.delete(userId);
+  }
+}
+
+/**
+ * Retry API calls with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  operationName: string,
+  maxAttempts = API_RETRY_MAX_ATTEMPTS
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a rate limit error
+      const isRateLimit = 
+        error?.status === 429 || 
+        error?.code === 'rate_limit_exceeded' ||
+        error?.message?.toLowerCase().includes('rate limit');
+      
+      // Don't retry on non-rate-limit errors after first attempt
+      if (!isRateLimit && attempt > 1) {
+        throw error;
+      }
+      
+      if (attempt < maxAttempts) {
+        const delay = API_RETRY_BASE_DELAY * Math.pow(2, attempt - 1);
+        console.log(`⏳ ${operationName} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  console.error(`❌ ${operationName} failed after ${maxAttempts} attempts`);
+  throw lastError;
+}
+
+// ============================================================================
 // REQUEST-SCOPED LOGGING SYSTEM
 // Captures all generation logs for the current request
 // ============================================================================
@@ -5322,6 +5395,9 @@ export async function POST(request: Request) {
   // Create a logger that uses the request-scoped logging system
   const log = rlog;
   
+  // Track userId for cleanup in finally block
+  let userId: string | undefined;
+  
   try {
     log('📥 Received article generation request');
     
@@ -5397,6 +5473,15 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
+    // Check concurrent generation limit
+    userId = verifiedUser.uid;
+    if (!trackGenerationStart(userId)) {
+      console.log(`⚠️ Concurrent generation limit reached for user: ${userId}`);
+      return NextResponse.json({ 
+        error: `You have reached the maximum of ${MAX_CONCURRENT_GENERATIONS} simultaneous article generations. Please wait for one to complete before starting another.`
+      }, { status: 429 });
+    }
+
     const body = await request.json();
     console.log('Request body:', { ...body, keyword: body.keyword }); // Log everything except sensitive data
 
@@ -5435,13 +5520,16 @@ export async function POST(request: Request) {
     let topicBreakdown = '';
     try {
       console.log('Calling Claude API for topic breakdown');
-      const claudeRes = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
-        messages: [
-          { role: 'user', content: topicBreakdownPrompt }
-        ]
-      });
+      const claudeRes = await retryWithBackoff(
+        () => anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          messages: [
+            { role: 'user', content: topicBreakdownPrompt }
+          ]
+        }),
+        'Topic Breakdown Generation'
+      );
       const contentBlock = claudeRes.content[0];
       topicBreakdown = (contentBlock.type === 'text' ? contentBlock.text : '') || '';
       log('✅ Topic breakdown generated');
@@ -5583,7 +5671,7 @@ export async function POST(request: Request) {
         console.log('🔍 Searching Shopify products...');
         const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (products.length > 0) {
-          relatedProductsList = products.map(p => `• ${p.title} - ${storeUrl}/products/${p.handle}`).join('\n');
+          relatedProductsList = products.map(p => `• ${p.title} - ${body.websiteUrl}/products/${p.handle}`).join('\n');
           log(`🛒 Products found: ${products.length}`);
           products.forEach((p, i) => log(`   ${i + 1}. ${p.title}`));
           rlog(`✅ Found ${products.length} relevant products`);
@@ -5595,7 +5683,7 @@ export async function POST(request: Request) {
         console.log('🔍 Searching Shopify collections...');
         const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (collections.length > 0) {
-          relatedCollectionsList = collections.map(c => `• ${c.title} - ${storeUrl}/collections/${c.handle}`).join('\n');
+          relatedCollectionsList = collections.map(c => `• ${c.title} - ${body.websiteUrl}/collections/${c.handle}`).join('\n');
           log(`📂 Collections found: ${collections.length}`);
           collections.forEach((c, i) => log(`   ${i + 1}. ${c.title}`));
           console.log(`✅ Found ${collections.length} relevant collections`);
@@ -5607,7 +5695,7 @@ export async function POST(request: Request) {
         console.log('🔍 Searching Shopify pages...');
         const pages = await searchPagesWithGraphQL(shopDomain, accessToken, searchQueries, keyword);
         if (pages.length > 0) {
-          relatedPagesList = pages.map(p => `• ${p.title} - ${storeUrl}/pages/${p.handle}`).join('\n');
+          relatedPagesList = pages.map(p => `• ${p.title} - ${body.websiteUrl}/pages/${p.handle}`).join('\n');
           rlog(`✅ Found ${pages.length} relevant pages`);
         }
       }
@@ -5617,13 +5705,13 @@ export async function POST(request: Request) {
       // Handle manually selected Shopify content
       if (contentSelection.manualSelections.products.length > 0) {
         relatedProductsList = contentSelection.manualSelections.products.map((p: any) => 
-          `• ${p.title} - ${storeUrl}/products/${p.handle}`
+          `• ${p.title} - ${body.websiteUrl}/products/${p.handle}`
         ).join('\n');
       }
       
       if (contentSelection.manualSelections.collections.length > 0) {
         relatedCollectionsList = contentSelection.manualSelections.collections.map((c: any) => 
-          `• ${c.title} - ${storeUrl}/collections/${c.handle}`
+          `• ${c.title} - ${body.websiteUrl}/collections/${c.handle}`
         ).join('\n');
       }
       
@@ -5981,7 +6069,8 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     try {
       log('✍️ Generating article with Claude...');
       console.log('Calling Claude API for article generation');
-    const message = await anthropic.messages.create({
+    const message = await retryWithBackoff(
+      () => anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
       messages: [
@@ -5990,7 +6079,9 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
           content: userPrompt
         }
       ]
-    });
+      }),
+      'Article Generation'
+    );
 
       // Get the generated content from the response
       let generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
@@ -6093,6 +6184,12 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       { error: 'Failed to generate article' },
       { status: 500 }
     );
+  } finally {
+    // Always clean up the generation tracking, even if there was an error
+    if (typeof userId !== 'undefined') {
+      trackGenerationEnd(userId);
+      console.log(`✅ Released generation slot for user: ${userId}`);
+    }
   }
 }
 
