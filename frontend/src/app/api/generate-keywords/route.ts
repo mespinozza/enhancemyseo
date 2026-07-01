@@ -124,7 +124,8 @@ export async function POST(request: Request) {
     });
 
     // Parse the response as JSON
-    const keywordsText = message.content[0].type === 'text' ? message.content[0].text : '';
+    const keywordsBlock = message.content.find((b) => b.type === 'text');
+    const keywordsText = (keywordsBlock && keywordsBlock.type === 'text' ? keywordsBlock.text : '');
     const keywordsMatch = keywordsText.match(/\[[\s\S]*\]/);
     if (!keywordsMatch) {
       throw new Error('Invalid response format from AI');

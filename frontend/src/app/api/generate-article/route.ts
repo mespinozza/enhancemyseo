@@ -543,7 +543,8 @@ The replacement must read as a polished, standalone paragraph that could appear 
       ]
     });
 
-    let rewrittenContent = message.content[0].type === 'text' ? message.content[0].text : '';
+    const rewriteBlock = message.content.find((b) => b.type === 'text');
+    let rewrittenContent = (rewriteBlock && rewriteBlock.type === 'text' ? rewriteBlock.text : '');
     
     // Clean up the response
     rewrittenContent = rewrittenContent.trim();
@@ -704,7 +705,8 @@ CRITICAL RULES:
       ]
     });
 
-    const response = message.content[0].type === 'text' ? message.content[0].text : '';
+    const responseBlock = message.content.find((b) => b.type === 'text');
+    const response = (responseBlock && responseBlock.type === 'text' ? responseBlock.text : '');
     
     // Parse the response
     const originalMatch = response.match(/<original>([\s\S]*?)<\/original>/);
@@ -5531,8 +5533,8 @@ export async function POST(request: Request) {
         }),
         'Topic Breakdown Generation'
       );
-      const contentBlock = claudeRes.content[0];
-      topicBreakdown = (contentBlock.type === 'text' ? contentBlock.text : '') || '';
+      const contentBlock = claudeRes.content.find((b) => b.type === 'text');
+      topicBreakdown = (contentBlock && contentBlock.type === 'text' ? contentBlock.text : '') || '';
       log('✅ Topic breakdown generated');
       console.log('Successfully generated topic breakdown');
     } catch (err) {
@@ -6085,7 +6087,11 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     );
 
       // Get the generated content from the response
-      let generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
+      const articleBlock = message.content.find((b) => b.type === 'text');
+      if (!articleBlock || articleBlock.type !== 'text' || !articleBlock.text) {
+        throw new Error('Claude returned no text content for article generation');
+      }
+      let generatedContent = articleBlock.text;
       log(`✅ Article generated (${generatedContent.length} chars)`);
       console.log('Successfully generated article content');
 
