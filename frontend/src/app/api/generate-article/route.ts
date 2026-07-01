@@ -1547,7 +1547,7 @@ Answer:`;
       ]
     });
     
-    const contentBlock = response.content[0];
+    const contentBlock = response.content.find((b) => b.type === 'text') ?? response.content[0];
     const detectedVendor = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || 'NONE';
     console.log(`Claude fallback detected vendor: "${detectedVendor}"`);
     
@@ -1731,7 +1731,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       ]
     });
     
-    const contentBlock = response.content[0];
+    const contentBlock = response.content.find((b) => b.type === 'text') ?? response.content[0];
     let responseText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
     
     // 🆕 Parse JSON response to extract AI-detected primary product and components
@@ -5369,7 +5369,8 @@ ${cleaned}`;
         messages: [{ role: "user", content: cleanupPrompt }]
       });
       
-      cleaned = response.content[0].text;
+      const textBlock = response.content.find((b) => b.type === 'text') ?? response.content[0];
+      cleaned = textBlock.type === 'text' ? textBlock.text : '';
       console.log('✅ AI cleanup completed');
     } catch (error) {
       console.error('❌ AI cleanup failed, using regex-cleaned version:', error);

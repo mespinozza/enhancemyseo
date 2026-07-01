@@ -101,8 +101,8 @@ Generate related keywords now:`;
       ]
     });
 
-    const content = response.content[0];
-    if (content.type !== 'text') {
+    const content = response.content.find((block) => block.type === 'text');
+    if (!content || content.type !== 'text') {
       throw new Error('Unexpected response format from AI');
     }
 
