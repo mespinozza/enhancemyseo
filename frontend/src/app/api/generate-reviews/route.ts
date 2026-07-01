@@ -51,7 +51,6 @@ Generate diverse, authentic-sounding testimonials now:`;
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 2000,
-      temperature: 0.8,
       messages: [
         {
           role: 'user',
