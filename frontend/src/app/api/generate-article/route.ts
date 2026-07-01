@@ -521,7 +521,7 @@ CRITICAL REQUIREMENTS:
 7. Do NOT use Markdown syntax - only HTML
 8. Do NOT include any explanation, meta-commentary, or error messages
 9. If you cannot rewrite it properly, return the original element UNCHANGED
-10. If rewriting a table row (<tr> or <td>): keep all cell content to a single short phrase (max 10 words) — do NOT expand table cells into full sentences or paragraphs
+10. If the element being rewritten is a Key Takeaways table row (<td>), the Key Point cell must remain a single concise sentence of no more than 12 words — never multiple sentences or line breaks
 
 ⚠️ ABSOLUTE RULES:
 - NEVER start with "I cannot" or "I'm unable" or "I need more information"
@@ -6015,7 +6015,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       
       VISUAL STYLING REQUIREMENTS:
       - Use ${finalBrandColor} as the primary accent color throughout the article
-      - Key takeaways table: Light gray background (#f8f9fa) with ${finalBrandColor} left border (5px solid)
+      - Key takeaways table: Light gray background (#f8f9fa) with ${finalBrandColor} left border (5px solid); each row's Key Point cell must contain a single concise sentence of no more than 12 words — never multiple sentences or line breaks inside a cell
       - Data tables: ALL headers with background-color: ${finalBrandColor}; color: white; alternating row colors (#f2f2f2)
       - Call-out boxes: Light background (#f8f9fa) with ${finalBrandColor} left border (5px solid)
       - All borders: 1px solid #ddd; padding: 8-12px; border-collapse: collapse
@@ -6060,12 +6060,6 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       - CRITICAL: Always include a complete conclusion section - never end abruptly
       - CRITICAL: The Key Takeaways table must come directly after the <h1> — never after the introduction
       - Target total: 1400-1500 words maximum for optimal completion
-
-      KEY TAKEAWAYS TABLE RULES (strictly enforce):
-      - Each row in the Key Takeaways table must contain a single short phrase or sentence — maximum 10 words per cell
-      - Do NOT write full sentences or multi-clause explanations inside table cells
-      - Do NOT wrap table cell content in <p> tags — use plain text inside <td> only
-      - Keep every key point concise and scannable, e.g. "Shuts off heat above safe limit" not a full paragraph
 
       ${keyword.toLowerCase().match(/comparison|vs|breakdown|analysis/) ? 
         'PRIORITY: Include comparison charts and data visualizations for this topic.' : ''}
