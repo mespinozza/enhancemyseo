@@ -6066,6 +6066,13 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       The article should be written in a ${toneOfVoice || 'professional'} tone and framed as ${contentType}.
       This is a ${businessType} so write from the perspective of that business.
       ${instructions ? `Additional instructions:\n${instructions}` : ''}
+
+      ACCURACY RULES (verify before responding):
+      - All temperature ranges, thresholds, and technical specifications must reflect established manufacturer documentation. Do not estimate or approximate — if unsure, describe the concept generally without citing a specific figure.
+      - All statistics and percentages (e.g. "X% of cases") must be sourced from real published data. If no verified data exists, remove the statistic entirely and describe the concept qualitatively instead.
+      - All part numbers must be confirmed as valid OEM parts for the brand and model being discussed. Do not invent or guess part numbers.
+      - Do not make absolute claims about how a component behaves across all models if behavior varies by model (e.g. auto-reset vs. manual reset). Acknowledge variation where it exists.
+      - Avoid presenting speculative connections between unrelated components as established facts.
     `;
 
     // Generate content using Claude
