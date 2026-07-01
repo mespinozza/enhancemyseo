@@ -533,7 +533,7 @@ The replacement must read as a polished, standalone paragraph that could appear 
 
   try {
     const message = await anthropicClient.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 2000,
       messages: [
         {
@@ -694,7 +694,7 @@ CRITICAL RULES:
 
   try {
     const message = await anthropicClient.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 2000,
       messages: [
         {
@@ -1540,7 +1540,7 @@ Keyword: "${keyword}"
 Answer:`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
       max_tokens: 50,
       messages: [
         { role: 'user', content: fallbackPrompt }
@@ -1724,7 +1724,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     `;
     
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
       max_tokens: 250,  // Increased for JSON response
       messages: [
         { role: 'user', content: extractionPrompt }
@@ -5522,7 +5522,7 @@ export async function POST(request: Request) {
       console.log('Calling Claude API for topic breakdown');
       const claudeRes = await retryWithBackoff(
         () => anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-5',
           max_tokens: 1024,
           messages: [
             { role: 'user', content: topicBreakdownPrompt }
@@ -6071,7 +6071,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       console.log('Calling Claude API for article generation');
     const message = await retryWithBackoff(
       () => anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-5",
         max_tokens: 8192,
       messages: [
         {

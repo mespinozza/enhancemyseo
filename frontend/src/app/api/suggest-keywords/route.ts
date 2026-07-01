@@ -91,7 +91,7 @@ Example format: keyword one, keyword two, keyword three
 Generate related keywords now:`;
 
     const response = await anthropic.messages.create({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-sonnet-5',
       max_tokens: 300,
       temperature: 0.7,
       messages: [
