@@ -521,6 +521,7 @@ CRITICAL REQUIREMENTS:
 7. Do NOT use Markdown syntax - only HTML
 8. Do NOT include any explanation, meta-commentary, or error messages
 9. If you cannot rewrite it properly, return the original element UNCHANGED
+10. If rewriting a table row (<tr> or <td>): keep all cell content to a single short phrase (max 10 words) — do NOT expand table cells into full sentences or paragraphs
 
 ⚠️ ABSOLUTE RULES:
 - NEVER start with "I cannot" or "I'm unable" or "I need more information"
@@ -6059,6 +6060,12 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       - CRITICAL: Always include a complete conclusion section - never end abruptly
       - CRITICAL: The Key Takeaways table must come directly after the <h1> — never after the introduction
       - Target total: 1400-1500 words maximum for optimal completion
+
+      KEY TAKEAWAYS TABLE RULES (strictly enforce):
+      - Each row in the Key Takeaways table must contain a single short phrase or sentence — maximum 10 words per cell
+      - Do NOT write full sentences or multi-clause explanations inside table cells
+      - Do NOT wrap table cell content in <p> tags — use plain text inside <td> only
+      - Keep every key point concise and scannable, e.g. "Shuts off heat above safe limit" not a full paragraph
 
       ${keyword.toLowerCase().match(/comparison|vs|breakdown|analysis/) ? 
         'PRIORITY: Include comparison charts and data visualizations for this topic.' : ''}
