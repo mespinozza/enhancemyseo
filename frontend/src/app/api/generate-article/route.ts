@@ -6050,18 +6050,20 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
         <p style="margin: 0; color: #666;">[description]</p>
       </div>
 
-      ARTICLE STRUCTURE REQUIREMENTS:
-      - Introduction: 150-200 words introducing the topic and brand perspective
-      - Main content: 4-5 sections of 200-250 words each covering key aspects
-      - Conclusion: 150 words summarizing key points with call-to-action for Malachy Parts Plus
+      ARTICLE STRUCTURE REQUIREMENTS (follow this exact order — no exceptions):
+      1. <h1> title
+      2. Key Takeaways table — IMMEDIATELY after the <h1>, before any introductory text
+      3. Introduction: 150-200 words introducing the topic and brand perspective
+      4. Main content: 4-5 sections of 200-250 words each covering key aspects
+      5. Conclusion: 150 words summarizing key points with call-to-action for ${brandName}
       - CRITICAL: Always include a complete conclusion section - never end abruptly
+      - CRITICAL: The Key Takeaways table must come directly after the <h1> — never after the introduction
       - Target total: 1400-1500 words maximum for optimal completion
-      
+
       ${keyword.toLowerCase().match(/comparison|vs|breakdown|analysis/) ? 
         'PRIORITY: Include comparison charts and data visualizations for this topic.' : ''}
 
       Please use a lot of formatting, tables and visuals are great for ranking on Google. If there is data that can be displayed through a table or other visual, ensure its removed from the text and replaced with the visual.
-      Always include a modern styled key takeaways table at the beginning of the article listing the key points of the topic.
 
       The article should be written in a ${toneOfVoice || 'professional'} tone and framed as ${contentType}.
       This is a ${businessType} so write from the perspective of that business.
