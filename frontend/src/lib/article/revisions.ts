@@ -85,6 +85,22 @@ async function pruneRevisions(blogId: string): Promise<void> {
   await Promise.all(stale.map((entry) => deleteDoc(doc(revisionsRef(blogId), entry.id))));
 }
 
+/**
+ * Revision writes land in a subcollection that needs its own security rule. Without
+ * it deployed, Firestore denies the write while ordinary article saves keep working,
+ * so the distinction has to be spelled out rather than surfaced as a failed save.
+ */
+export function describeRevisionFailure(error: unknown): string {
+  const code = (error as { code?: string } | null)?.code;
+  const message = error instanceof Error ? error.message : '';
+
+  if (code === 'permission-denied' || /insufficient permissions/i.test(message)) {
+    return 'Revision history is turned off until the Firestore rule for blogs/{id}/revisions is deployed. Your edits are still saving normally.';
+  }
+
+  return 'Revision history is temporarily unavailable. Your edits are still saving normally.';
+}
+
 export function describeSource(source: RevisionSource): string {
   switch (source) {
     case 'original':

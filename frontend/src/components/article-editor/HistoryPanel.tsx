@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { History, RotateCcw, Loader2, Sparkles, Link2, Pencil, FileClock } from 'lucide-react';
+import { History, RotateCcw, Loader2, Sparkles, Link2, Pencil, FileClock, AlertTriangle } from 'lucide-react';
 import {
   describeSource,
   type ArticleRevision,
@@ -15,6 +15,7 @@ interface HistoryPanelProps {
   currentContent: string;
   originalContent: string | null;
   isLoading: boolean;
+  error: string | null;
   onRestore: (revision: ArticleRevision) => void;
   onRestoreOriginal: () => void;
 }
@@ -48,6 +49,7 @@ export default function HistoryPanel({
   currentContent,
   originalContent,
   isLoading,
+  error,
   onRestore,
   onRestoreOriginal,
 }: HistoryPanelProps) {
@@ -63,6 +65,14 @@ export default function HistoryPanel({
 
   return (
     <div className="flex h-full flex-col">
+      {error && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex gap-2">
+            <AlertTriangle className="mt-0.5 shrink-0 text-amber-600" size={14} />
+            <p className="text-xs leading-relaxed text-amber-800">{error}</p>
+          </div>
+        </div>
+      )}
       {originalContent && originalContent !== currentContent && (
         <div className="border-b border-gray-200 px-4 py-3">
           <button
@@ -80,7 +90,9 @@ export default function HistoryPanel({
         <div className="px-4 py-8 text-center">
           <History className="mx-auto mb-2 text-gray-300" size={24} />
           <p className="text-sm text-gray-500">
-            No saved revisions yet. Edits you make will be snapshotted here.
+            {error
+              ? 'No revisions can be recorded until history is enabled.'
+              : 'No saved revisions yet. Edits you make will be snapshotted here.'}
           </p>
         </div>
       ) : (

@@ -28,6 +28,7 @@ import { rewriteBlockLink, type ArticleLink } from '@/lib/article/links';
 import {
   createRevision,
   listRevisions,
+  describeRevisionFailure,
   type ArticleRevision,
   type RevisionSource,
 } from '@/lib/article/revisions';
@@ -82,6 +83,7 @@ export default function ArticleEditor({
   const [aiRequest, setAiRequest] = useState<AiEditRequest | null>(null);
   const [revisions, setRevisions] = useState<ArticleRevision[]>([]);
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const undoStack = useRef<ArticleBlock[][]>([]);
   const redoStack = useRef<ArticleBlock[][]>([]);
@@ -101,8 +103,10 @@ export default function ArticleEditor({
   const refreshRevisions = useCallback(async () => {
     try {
       setRevisions(await listRevisions(blogId));
+      setHistoryError(null);
     } catch (error) {
       console.error('Could not load revisions:', error);
+      setHistoryError(describeRevisionFailure(error));
     } finally {
       setIsLoadingRevisions(false);
     }
@@ -135,8 +139,20 @@ export default function ArticleEditor({
           ...(savedOriginalRef.current ? {} : { originalContent: initialContent }),
         });
         savedOriginalRef.current = true;
+        setIsDirty(false);
+        setSavedAt(new Date());
+      } catch (error) {
+        console.error('Failed to save article:', error);
+        toast.error('Could not save your changes.');
+        setIsSaving(false);
+        return false;
+      }
 
-        if (snapshot) {
+      // The article is already saved at this point. A snapshot failure costs the
+      // user their revision history, not their edit, so it must not be reported
+      // as a failed save.
+      if (snapshot) {
+        try {
           await createRevision(uid, blogId, {
             content: nextContent,
             source: snapshot.source,
@@ -144,18 +160,14 @@ export default function ArticleEditor({
             blockId: snapshot.blockId,
           });
           await refreshRevisions();
+        } catch (error) {
+          console.error('Saved the article but could not record a revision:', error);
+          setHistoryError(describeRevisionFailure(error));
         }
-
-        setIsDirty(false);
-        setSavedAt(new Date());
-        return true;
-      } catch (error) {
-        console.error('Failed to save article:', error);
-        toast.error('Could not save your changes.');
-        return false;
-      } finally {
-        setIsSaving(false);
       }
+
+      setIsSaving(false);
+      return true;
     },
     [uid, blogId, initialContent, refreshRevisions],
   );
@@ -499,6 +511,7 @@ export default function ArticleEditor({
                 currentContent={content}
                 originalContent={originalContent}
                 isLoading={isLoadingRevisions}
+                error={historyError}
                 onRestore={handleRestore}
                 onRestoreOriginal={handleRestoreOriginal}
               />
