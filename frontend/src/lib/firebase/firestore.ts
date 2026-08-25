@@ -60,6 +60,11 @@ export interface Blog extends BaseDocument {
   contentType?: string;
   toneOfVoice?: string;
   instructions?: string;
+  /** Written once on the first edit so "revert to original" always has a target. */
+  originalContent?: string;
+  /** Distinct from updatedAt, which any write touches. */
+  contentUpdatedAt?: Timestamp;
+  hasManualEdits?: boolean;
   generationSettings?: {
     usePerplexity: boolean;
     articleFraming: string;

@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
+import { ensureCompleteElement, ensureHTMLFormat } from '@/lib/article/rewrite';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -348,7 +349,6 @@ function expandToCompleteElement(content: string, partialText: string): string {
   
   // Find the opening tag before this text
   let startIndex = index;
-  let depth = 0;
   let foundStart = false;
   
   // Walk backwards to find the containing <p>, <li>, <td>, or <div>
@@ -631,25 +631,8 @@ The replacement must read as a polished, standalone paragraph that could appear 
 /**
  * Ensures the content is wrapped in a complete HTML element
  */
-function ensureCompleteElement(content: string, expectedTag: string): string {
-  const trimmed = content.trim();
-  const openTag = `<${expectedTag}`;
-  const closeTag = `</${expectedTag}>`;
-  
-  // Check if it already has the correct structure
-  if (trimmed.toLowerCase().startsWith(openTag.toLowerCase()) && 
-      trimmed.toLowerCase().endsWith(closeTag.toLowerCase())) {
-    return trimmed;
-  }
-  
-  // If it starts with a different tag, leave it alone (AI made a choice)
-  if (trimmed.startsWith('<') && trimmed.match(/^<[a-z]/i)) {
-    return trimmed;
-  }
-  
-  // Wrap in the expected tag
-  return `<${expectedTag}>${trimmed}</${expectedTag}>`;
-}
+// ensureCompleteElement and ensureHTMLFormat now live in @/lib/article/rewrite so the
+// fact-check loop and the article editor share one implementation.
 
 /**
  * Fallback: Ask Claude to identify the problematic section AND rewrite it
@@ -767,54 +750,7 @@ CRITICAL RULES:
   }
 }
 
-/**
- * Ensures the rewritten content maintains proper HTML format
- * Fixes common issues like Markdown syntax or missing tags
- */
-function ensureHTMLFormat(content: string, originalContent: string): string {
-  let result = content.trim();
-  
-  // Remove code block wrappers if accidentally added
-  result = result.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
-  
-  // Convert any Markdown that slipped through to HTML
-  // Bold: **text** or __text__ -> <strong>text</strong>
-  result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  result = result.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-  
-  // Italic: *text* or _text_ -> <em>text</em>
-  result = result.replace(/(?<![*_])\*([^*]+)\*(?![*_])/g, '<em>$1</em>');
-  result = result.replace(/(?<![*_])_([^_]+)_(?![*_])/g, '<em>$1</em>');
-  
-  // Headers: # Header -> <h2>Header</h2>
-  result = result.replace(/^######\s*(.+)$/gm, '<h6>$1</h6>');
-  result = result.replace(/^#####\s*(.+)$/gm, '<h5>$1</h5>');
-  result = result.replace(/^####\s*(.+)$/gm, '<h4>$1</h4>');
-  result = result.replace(/^###\s*(.+)$/gm, '<h3>$1</h3>');
-  result = result.replace(/^##\s*(.+)$/gm, '<h2>$1</h2>');
-  result = result.replace(/^#\s*(.+)$/gm, '<h1>$1</h1>');
-  
-  // Lists: - item -> <li>item</li>
-  result = result.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
-  
-  // Detect what HTML structure the original had
-  const originalStartTag = originalContent.match(/^<([a-z][a-z0-9]*)\b/i)?.[1];
-  const resultStartTag = result.match(/^<([a-z][a-z0-9]*)\b/i)?.[1];
-  
-  // If original started with a tag but result doesn't, wrap it
-  if (originalStartTag && !resultStartTag) {
-    // Check if it's a simple inline replacement or full element
-    if (originalContent.includes(`</${originalStartTag}>`)) {
-      result = `<${originalStartTag}>${result}</${originalStartTag}>`;
-    }
-  }
-  
-  // Clean up any double-wrapped tags
-  result = result.replace(/<p>\s*<p>/g, '<p>');
-  result = result.replace(/<\/p>\s*<\/p>/g, '</p>');
-  
-  return result;
-}
+// ensureHTMLFormat imported from @/lib/article/rewrite
 
 /**
  * Applies the rewritten content back to the original article
@@ -1197,9 +1133,7 @@ function parseKeywordByConnectors(keyword: string): ParsedKeyword {
   ];
   
   // Try to split the keyword by connectors
-  let segments: KeywordSegment[] = [];
-  let remainingText = keyword;
-  let position = 0;
+  const segments: KeywordSegment[] = [];
   
   // Find all connector positions
   interface ConnectorMatch {
@@ -2251,6 +2185,26 @@ async function findVendorCollection(shopDomain: string, token: string, vendorNam
   }
 }
 
+interface CollectionProductsPayload {
+  data?: {
+    collection?: {
+      products?: {
+        edges?: Array<{
+          node: {
+            id: string;
+            title: string;
+            handle: string;
+            description?: string;
+            vendor?: string;
+            productType?: string;
+          };
+        }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    };
+  };
+}
+
 /**
  * Fetch products directly from a collection (paginated)
  * Much faster than searching term-by-term
@@ -2292,7 +2246,7 @@ async function fetchProductsFromCollection(
     const pageSize = Math.min(50, maxProducts);
     
     while (hasNextPage && products.length < maxProducts) {
-      const response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+      const response: Response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'X-Shopify-Access-Token': token,
@@ -2312,7 +2266,9 @@ async function fetchProductsFromCollection(
         break;
       }
       
-      const data = await response.json();
+      // Annotated because cursor is reassigned from this payload and then read back
+      // by the next iteration's request, which TypeScript sees as circular inference.
+      const data: CollectionProductsPayload = await response.json();
       const collectionData = data.data?.collection;
       
       if (!collectionData?.products?.edges) break;
@@ -5176,7 +5132,7 @@ function sanitizeMarkdownToHTML(html: string): string {
   // 5. Fix Markdown unordered lists (- item or * item at start of line)
   // Only if not already in a list context
   const listItemPattern = /(?:^|\n)\s*[-*]\s+([^\n]+)/g;
-  let listMatches = result.match(listItemPattern);
+  const listMatches = result.match(listItemPattern);
   if (listMatches && listMatches.length > 0 && !result.includes('<ul>') && !result.includes('<li>')) {
     // Convert to HTML list
     result = result.replace(/(?:(?:^|\n)\s*[-*]\s+([^\n]+))+/g, (match) => {
@@ -5311,7 +5267,7 @@ function hasComplexHTMLIssues(html: string): boolean {
 /**
  * Main validation function - hybrid approach with fast regex + AI for complex cases
  */
-async function validateAndCleanHTML(htmlContent: string, anthropic: any): Promise<string> {
+async function validateAndCleanHTML(htmlContent: string, anthropic: Anthropic): Promise<string> {
   console.log('📊 Original content length:', htmlContent.length);
   
   let cleaned = htmlContent;
@@ -5366,7 +5322,7 @@ HTML to clean:
 ${cleaned}`;
 
       const response = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-5",
         max_tokens: 16000,
         messages: [{ role: "user", content: cleanupPrompt }]
       });

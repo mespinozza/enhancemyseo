@@ -8,7 +8,8 @@ import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
 import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { Download, Copy, Plus, Sparkles, X, Check } from 'lucide-react';
+import { Download, Copy, Plus, Sparkles, X, Check, Pencil } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, ContentSearchResults, WebsitePage } from '@/types/content-selection';
 import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
 
@@ -28,6 +29,7 @@ interface BulkGenerationStatus {
 export default function ArticlesPage() {
   const { user, subscription_status } = useAuth();
   const { refreshUsage, refreshSidebar } = useUsageRefresh();
+  const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
@@ -2004,6 +2006,17 @@ export default function ArticlesPage() {
                               </button>
                             </div>
                           </div>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/dashboard/articles/${article.id}/edit`);
+                            }}
+                            className="mb-3 flex items-center justify-center w-full px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
+                          >
+                            <Pencil className="w-4 h-4 mr-1.5" />
+                            Edit article
+                          </button>
                           
                           <div className="bg-white rounded p-3 flex-1 overflow-auto max-h-96">
                             {viewMode === 'preview' ? (

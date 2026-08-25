@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon } from 'lucide-react';
+import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon, Pencil } from 'lucide-react';
 import { blogOperations, historyOperations, generatedProductOperations, brandProfileOperations, Blog, HistoryItem, GeneratedProduct, BrandProfile } from '@/lib/firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { collection, query, where, getDocs, DocumentSnapshot, orderBy, doc, getDoc } from 'firebase/firestore';
@@ -1159,6 +1159,15 @@ ${blog.content || '<!-- No content available -->'}
                 Copy HTML
               </button>
             </div>
+            {blog.content && blog.id && (
+              <Link
+                href={`/dashboard/articles/${blog.id}/edit`}
+                className="mt-2 flex items-center justify-center px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 rounded-md transition-colors"
+              >
+                <Pencil className="w-4 h-4 mr-1.5" />
+                Edit article
+              </Link>
+            )}
           </div>
         );
       })}

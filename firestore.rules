@@ -63,6 +63,23 @@ service cloud.firestore {
       allow list: if request.auth != null;
     }
     
+    // Article editor revision snapshots. Subcollections do NOT inherit the /blogs
+    // rule above, and without this they would fall through to the catch-all at the
+    // bottom of this file, which would expose one user's revisions to every other
+    // signed-in user.
+    match /blogs/{blogId}/revisions/{revisionId} {
+      allow read, list: if request.auth != null && 
+                           request.auth.uid == resource.data.userId;
+      
+      allow create: if request.auth != null && 
+                       request.auth.uid == request.resource.data.userId;
+      
+      // Snapshots are immutable; pruning old ones is a delete, never an edit.
+      allow update: if false;
+      allow delete: if request.auth != null && 
+                       request.auth.uid == resource.data.userId;
+    }
+    
     match /history/{document} {
       allow read, write, create, delete: if 
         request.auth != null && 
