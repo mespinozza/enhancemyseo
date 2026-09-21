@@ -21,6 +21,13 @@ service cloud.firestore {
       allow create: if request.auth != null && 
                       request.auth.uid == userId &&
                       request.auth.uid == request.resource.data.uid;
+      
+      // Subscription lookup falls back to finding the user document by email when the
+      // UID lookup misses (see checkUserSubscriptionStatus in lib/firebase/admin-users).
+      // Scoped to the caller's own email so this permits `where('email','==',myEmail)`
+      // without allowing anyone to enumerate other accounts.
+      allow get, list: if request.auth != null && 
+                          request.auth.token.email == resource.data.email;
     }
     
     // CRITICAL: Usage collection security rules
@@ -38,35 +45,42 @@ service cloud.firestore {
       allow delete: if false;
     }
     
-    // Specific rules for user-owned collections
+    // Specific rules for user-owned collections.
+    //
+    // These deliberately do NOT carry `allow list: if request.auth != null`, which they
+    // used to. That grants a query over the whole collection to any signed-in user, so it
+    // let one account enumerate every other account's brand profiles — including their
+    // Shopify access tokens. Expressing read in terms of resource.data.userId still allows
+    // the owner-filtered queries the app actually makes, because Firestore accepts a query
+    // whose constraints guarantee the rule passes.
     match /brandProfiles/{document} {
-      allow read, write, create, delete: if 
-        request.auth != null && 
-        request.auth.uid == resource.data.userId;
-      allow list: if request.auth != null;
+      allow read: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      
+      allow create: if request.auth != null && 
+                       request.auth.uid == request.resource.data.userId;
+      
+      allow write, update, delete: if request.auth != null && 
+                                      request.auth.uid == resource.data.userId;
     }
     
     match /blogs/{document} {
-      // Allow public read access to published blogs (for Google crawlers and public users)
+      // Public read access to published blogs, for crawlers and blog readers. This also
+      // covers the public listing query, which filters on published == true.
       allow read: if resource.data.published == true;
       
-      // Allow authenticated users to read their own blogs (published or not)
+      // Owners read their own blogs whether published or not.
       allow read: if request.auth != null && 
                   request.auth.uid == resource.data.userId;
                   
-      // Allow authenticated users to write/delete their own blogs
       allow write, create, delete: if 
         request.auth != null && 
         request.auth.uid == resource.data.userId;
-        
-      // Allow authenticated users to list their own blogs
-      allow list: if request.auth != null;
     }
     
-    // Article editor revision snapshots. Subcollections do NOT inherit the /blogs
-    // rule above, and without this they would fall through to the catch-all at the
-    // bottom of this file, which would expose one user's revisions to every other
-    // signed-in user.
+    // Article editor revision snapshots. Subcollections do NOT inherit the /blogs rule
+    // above, and there is no longer any catch-all, so this block is the only thing that
+    // grants access to them.
     match /blogs/{blogId}/revisions/{revisionId} {
       allow read, list: if request.auth != null && 
                            request.auth.uid == resource.data.userId;
@@ -80,23 +94,62 @@ service cloud.firestore {
                        request.auth.uid == resource.data.userId;
     }
     
+    // Automation configuration, written from the browser by its owner.
+    // Stating `read` in terms of resource.data.userId (rather than a blanket
+    // `allow list: if request.auth != null`) lets an owner-filtered query through while
+    // rejecting an unfiltered listing of every account's automations.
+    match /automations/{automationId} {
+      allow read: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      
+      allow create: if request.auth != null && 
+                       request.auth.uid == request.resource.data.userId;
+      
+      allow update, delete: if request.auth != null && 
+                               request.auth.uid == resource.data.userId;
+    }
+    
+    // Run history is written only by the server through the Admin SDK, which bypasses
+    // these rules. Clients read their own and never write.
+    match /automationRuns/{runId} {
+      allow read: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      
+      allow create, update, delete: if false;
+    }
+    
+    // Google Search Console refresh tokens. No client access of any kind: a refresh token
+    // is long-lived credentials for the user's whole web property, and the browser never
+    // needs it — /api/gsc/status reports connection state instead. The owner field in
+    // these documents is named `ownerUid` rather than `userId` specifically so the generic
+    // owner rule at the top of this file cannot match them either.
+    match /gscConnections/{brandId} {
+      allow read, list, create, update, delete: if false;
+    }
+    
     match /history/{document} {
       allow read, write, create, delete: if 
         request.auth != null && 
         request.auth.uid == resource.data.userId;
-      allow list: if request.auth != null;
     }
     
     match /generatedProducts/{document} {
       allow read, write, create, delete: if 
         request.auth != null && 
         request.auth.uid == resource.data.userId;
-      allow list: if request.auth != null;
     }
     
-    // Fallback rule for any other collections
-    match /{path=**} {
-      allow read, list: if request.auth != null;
-    }
+    // There is deliberately NO `match /{path=**} { allow read, list: if request.auth != null; }`
+    // fallback here. It used to exist, and because rules are a union it silently granted
+    // every signed-in user read access to every document in the database — including
+    // brandProfiles, which hold Shopify access tokens — and made every owner-scoped rule
+    // above unenforceable. Every collection the app reads from the client now has an
+    // explicit rule, so nothing needs a catch-all. Do not add one back; add a specific
+    // match block instead.
+    //
+    // Known consequence: the diagnostic helpers in dashboard/history that probe arbitrary
+    // collection paths ('articles', 'posts', 'generated-content', users/{uid}/blogs) now
+    // get permission-denied instead of empty results. They are wrapped in try/catch and
+    // only log, so this is noise in the console rather than broken behaviour.
   }
 } 

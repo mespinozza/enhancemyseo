@@ -1,11 +1,113 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Check, Copy, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
+import SearchConsoleSection from './SearchConsoleSection';
 
 interface BrandProfileFormProps {
   existingProfile?: BrandProfile;
   onSave?: (profile: BrandProfile) => void;
   onCancel?: () => void;
+}
+
+interface CredentialFieldProps {
+  name: string;
+  label: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  secret?: boolean;
+  inputType?: 'text' | 'url';
+  placeholder?: string;
+}
+
+function CredentialField({
+  name,
+  label,
+  value,
+  onChange,
+  secret = false,
+  inputType = 'text',
+  placeholder,
+}: CredentialFieldProps) {
+  const [revealed, setRevealed] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  useEffect(() => {
+    if (copyState === 'idle') return;
+    const timer = setTimeout(() => setCopyState('idle'), 2500);
+    return () => clearTimeout(timer);
+  }, [copyState]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+  };
+
+  const isHidden = secret && !revealed;
+  const iconButton =
+    'flex h-7 w-7 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40';
+
+  return (
+    <div>
+      <label htmlFor={name} className="block text-sm font-medium text-gray-700">
+        {label}
+      </label>
+      <div className="relative mt-1">
+        <input
+          type={isHidden ? 'password' : inputType}
+          id={name}
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          autoComplete="off"
+          spellCheck={false}
+          className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 ${
+            secret ? 'pr-16' : 'pr-10'
+          } ${secret && revealed ? 'font-mono text-sm' : ''}`}
+        />
+        <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 pr-1.5">
+          {secret && (
+            <button
+              type="button"
+              onClick={() => setRevealed((prev) => !prev)}
+              disabled={!value}
+              className={iconButton}
+              aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
+              title={revealed ? 'Hide' : 'Show'}
+            >
+              {revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={!value}
+            className={iconButton}
+            aria-label={`Copy ${label}`}
+            title="Copy"
+          >
+            {copyState === 'copied' ? (
+              <Check className="h-4 w-4 text-green-600" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+      </div>
+      {copyState !== 'idle' && (
+        <p className={`mt-1 text-xs ${copyState === 'copied' ? 'text-green-600' : 'text-red-600'}`}>
+          {copyState === 'copied'
+            ? 'Copied to clipboard'
+            : 'Could not copy — reveal the value and copy it manually'}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function BrandProfileForm({ existingProfile, onSave, onCancel }: BrandProfileFormProps) {
@@ -191,64 +293,42 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
           </p>
           
           <div className="space-y-4">
-            <div>
-              <label htmlFor="shopifyStoreUrl" className="block text-sm font-medium text-gray-700">
-                Shopify Store URL
-              </label>
-              <input
-                type="url"
-                id="shopifyStoreUrl"
-                name="shopifyStoreUrl"
-                value={formData.shopifyStoreUrl}
-                onChange={handleChange}
-                placeholder="https://your-store.myshopify.com"
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+            <CredentialField
+              name="shopifyStoreUrl"
+              label="Shopify Store URL"
+              value={formData.shopifyStoreUrl}
+              onChange={handleChange}
+              inputType="url"
+              placeholder="https://your-store.myshopify.com"
+            />
 
-            <div>
-              <label htmlFor="shopifyAccessToken" className="block text-sm font-medium text-gray-700">
-                Shopify Access Token
-              </label>
-              <input
-                type="password"
-                id="shopifyAccessToken"
-                name="shopifyAccessToken"
-                value={formData.shopifyAccessToken}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+            <CredentialField
+              name="shopifyAccessToken"
+              label="Shopify Access Token"
+              value={formData.shopifyAccessToken}
+              onChange={handleChange}
+              secret
+            />
 
-            <div>
-              <label htmlFor="shopifyApiKey" className="block text-sm font-medium text-gray-700">
-                Shopify API Key
-              </label>
-              <input
-                type="password"
-                id="shopifyApiKey"
-                name="shopifyApiKey"
-                value={formData.shopifyApiKey}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+            <CredentialField
+              name="shopifyApiKey"
+              label="Shopify API Key"
+              value={formData.shopifyApiKey}
+              onChange={handleChange}
+              secret
+            />
 
-            <div>
-              <label htmlFor="shopifyApiSecret" className="block text-sm font-medium text-gray-700">
-                Shopify API Secret
-              </label>
-              <input
-                type="password"
-                id="shopifyApiSecret"
-                name="shopifyApiSecret"
-                value={formData.shopifyApiSecret}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+            <CredentialField
+              name="shopifyApiSecret"
+              label="Shopify API Secret"
+              value={formData.shopifyApiSecret}
+              onChange={handleChange}
+              secret
+            />
           </div>
         </div>
+
+        <SearchConsoleSection brandId={existingProfile?.id} />
 
         {/* Social Media Links Section - Moved to bottom */}
         <div className="border-t border-gray-200 pt-4">

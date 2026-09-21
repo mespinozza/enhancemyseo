@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
@@ -13,6 +13,7 @@ export default function BrandsPage() {
   const [selectedProfile, setSelectedProfile] = useState<BrandProfile | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const handledOAuthReturn = useRef(false);
 
   const loadBrandProfiles = useCallback(async () => {
     if (!user) return;
@@ -31,6 +32,33 @@ export default function BrandsPage() {
   useEffect(() => {
     loadBrandProfiles();
   }, [loadBrandProfiles]);
+
+  // Coming back from Google's consent screen: report the outcome and reopen the brand that
+  // was being edited, since the redirect otherwise drops the user on the bare list.
+  useEffect(() => {
+    if (isLoading || handledOAuthReturn.current) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get('gsc');
+    if (!outcome) return;
+
+    handledOAuthReturn.current = true;
+
+    if (outcome === 'connected') {
+      toast.success('Search Console connected');
+    } else {
+      toast.error(params.get('reason') || 'Could not connect Search Console');
+    }
+
+    const brandId = params.get('brandId');
+    const profile = brandId ? brandProfiles.find((entry) => entry.id === brandId) : undefined;
+    if (profile) {
+      setSelectedProfile(profile);
+      setShowForm(true);
+    }
+
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [isLoading, brandProfiles]);
 
   const handleSave = async () => {
     await loadBrandProfiles();

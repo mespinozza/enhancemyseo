@@ -6,7 +6,9 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p ${PORT:-3000}",
-    "lint": "next lint"
+    "lint": "next lint",
+    "automation:cron": "node scripts/automation-cron.mjs",
+    "verify:automation-schedule": "npx --yes tsx scripts/verify-automation-schedule.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",

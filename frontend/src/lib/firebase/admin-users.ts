@@ -437,7 +437,7 @@ if (typeof window !== 'undefined') {
           console.log(`  • ${feature.name} (${feature.href})`);
         });
         
-        const adminFeatures = ['Optimize Collections', 'Optimize Products'];
+        const adminFeatures = ['Collections', 'Products'];
         const hasAdminFeatures = features.some(f => adminFeatures.includes(f.name));
         
         if (status === 'free' && hasAdminFeatures) {
