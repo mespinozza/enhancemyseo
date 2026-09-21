@@ -11,7 +11,8 @@ Deviations from the plan as built:
 
 - Whole-document DOMPurify on save was dropped. Re-serializing the entire article
   through DOMPurify normalizes attributes and defeats the byte-fidelity guarantee, so
-  sanitizing happens only where new markup enters: AI responses and the raw-HTML editor.
+  sanitizing happens only where new markup enters: AI responses and both quick-edit
+  surfaces (hand-written HTML directly, and browser contentEditable output indirectly).
 - Rich text uses `contentEditable` scoped to one block rather than a library. The
   contentEditable host wraps the block element, so the element's tag and inline styles
   are preserved untouched. No editor dependency was needed after all.
@@ -21,6 +22,34 @@ Deviations from the plan as built:
   native per-element undo inside contentEditable.
 - Streaming AI responses was skipped. Validation needs the complete response before it
   can be trusted, so the panel shows a spinner and then a diff.
+
+Multi-block selection (added after the first release):
+
+Each block being its own contentEditable makes it a separate editing host, and browsers
+confine caret navigation to a single host, so native Shift+Arrow cannot walk out of a
+block. Block-range selection is therefore app-managed:
+
+- Shift+Click extends a range from the last touched block to the clicked one.
+- Shift+Arrow extends the range once the caret is against the block edge, so ordinary
+  within-block text selection still works up to that point.
+- Dragging across blocks promotes to a whole-block range rather than attempting a
+  partial-text edit that spans editing hosts.
+
+A multi-block edit posts the whole span to `/api/article/edit-block` with `blockCount`
+above 1, which switches the route to `buildSectionEditPrompt` and
+`validateSectionRewrite`. Unlike a single-element edit, the section prompt permits
+merging and splitting, so the response can contain a different number of elements than
+it was given. The returned HTML is parsed and spliced over the original index range,
+with `prefixBlockIds` giving the new blocks identities that cannot collide with the
+positional ids already in the document.
+
+Because block count can change, the change-tracking baseline is a `Map` keyed by block
+id rather than a positional lookup. Blocks the AI created map to `null`: they are
+flagged as changed but have no earlier version, so the per-block revert button is
+hidden for them. On load, the baseline only uses `originalContent` when its block count
+matches the current content, since positional ids drift apart after a structural edit
+and comparing across the offset would revert blocks to the wrong text. The generated
+version stays reachable from the History panel either way.
 
 Decisions already made:
 

@@ -43,7 +43,7 @@ export default function ArticleEditPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-96 items-center justify-center text-gray-400">
+      <div className="flex h-full items-center justify-center text-gray-400">
         <Loader2 className="animate-spin" size={24} />
       </div>
     );

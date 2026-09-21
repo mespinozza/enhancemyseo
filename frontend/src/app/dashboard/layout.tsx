@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { useRouter, usePathname } from 'next/navigation';
@@ -10,10 +10,20 @@ import {
   LogOut, 
   History,
   Package,
-  Search
+  Search,
+  ChevronDown,
+  Star,
+  GripVertical
 } from 'lucide-react';
 import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, historyOperations, HistoryItem, initializeUserCollections } from '@/lib/firebase/firestore';
-import { getFilteredNavigation } from '@/config/navigation';
+import { getFilteredNavigationGroups, type NavigationItem } from '@/config/navigation';
+import {
+  getPinnedNav,
+  setPinnedNav,
+  readCachedPinnedNav,
+  writeCachedPinnedNav,
+} from '@/lib/firebase/user-preferences';
+import toast from 'react-hot-toast';
 import { Timestamp } from 'firebase/firestore';
 
 // Helper function to format subscription status for display
@@ -59,9 +69,128 @@ export default function DashboardLayout({
 
   // Ensure we have user and subscription status loaded before showing navigation
   const isUserDataLoaded = !loading && user && user.subscription_status;
+  const navReady = Boolean(isUserDataLoaded);
   
   // Get filtered navigation based on subscription status, but only when data is loaded
-  const filteredNavigation = isUserDataLoaded ? getFilteredNavigation(subscription_status) : [];
+  const navigationGroups = useMemo(
+    () => (navReady ? getFilteredNavigationGroups(subscription_status) : []),
+    [navReady, subscription_status]
+  );
+
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const didInitGroupsRef = useRef(false);
+
+  const isItemActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
+  // Groups always start closed, including the one holding the current page - pinned
+  // items are the shortcut to where you are, so the menu stays compact. Navigation
+  // loads with the user's subscription rather than on first render, so this seeds the
+  // state the first time the groups are known.
+  useEffect(() => {
+    if (didInitGroupsRef.current || navigationGroups.length === 0) return;
+    didInitGroupsRef.current = true;
+    setCollapsedGroups(navigationGroups.map((group) => group.label));
+  }, [navigationGroups]);
+
+  const toggleGroup = (label: string) => {
+    setCollapsedGroups((prev) =>
+      prev.includes(label) ? prev.filter((entry) => entry !== label) : [...prev, label]
+    );
+  };
+
+  // Pinned nav items, stored as hrefs so they survive a rename of either the item or
+  // its group. Persisted per account, so they follow the user to any browser.
+  const [pinnedHrefs, setPinnedHrefs] = useState<string[]>([]);
+  const pinnedLoadedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const uid = user?.uid;
+
+    // Signing out, or switching accounts, must not leave the previous user's pins on
+    // screen while the new ones load.
+    if (!uid) {
+      pinnedLoadedForRef.current = null;
+      setPinnedHrefs([]);
+      return;
+    }
+
+    if (pinnedLoadedForRef.current === uid) return;
+    pinnedLoadedForRef.current = uid;
+    setPinnedHrefs(readCachedPinnedNav(uid));
+
+    let cancelled = false;
+    getPinnedNav(uid)
+      .then((stored) => {
+        if (cancelled || stored === null) return;
+        setPinnedHrefs(stored);
+        writeCachedPinnedNav(uid, stored);
+      })
+      .catch((error) => {
+        console.warn('Could not load pinned navigation:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  // Order is meaningful: the stored array *is* the pinned list's order, so reordering
+  // and pinning share the same write path.
+  const persistPinned = (next: string[]) => {
+    setPinnedHrefs(next);
+
+    const uid = user?.uid;
+    if (!uid) return;
+
+    writeCachedPinnedNav(uid, next);
+    setPinnedNav(uid, next).catch((error) => {
+      console.error('Could not save pinned navigation:', error);
+      toast.error('Could not save your pinned menu.');
+    });
+  };
+
+  const togglePinned = (href: string) => {
+    persistPinned(
+      pinnedHrefs.includes(href)
+        ? pinnedHrefs.filter((entry) => entry !== href)
+        : [...pinnedHrefs, href]
+    );
+  };
+
+  const [draggingHref, setDraggingHref] = useState<string | null>(null);
+  const [dropTargetHref, setDropTargetHref] = useState<string | null>(null);
+
+  const movePinned = (fromHref: string, toHref: string) => {
+    if (fromHref === toHref) return;
+
+    const next = [...pinnedHrefs];
+    const from = next.indexOf(fromHref);
+    const to = next.indexOf(toHref);
+    if (from === -1 || to === -1) return;
+
+    next.splice(from, 1);
+    next.splice(to, 0, fromHref);
+    persistPinned(next);
+  };
+
+  const endDrag = () => {
+    setDraggingHref(null);
+    setDropTargetHref(null);
+  };
+
+  // Resolved against the visible groups, so a pin the user has lost access to and a
+  // pin for a removed route both simply disappear.
+  const pinnedItems = useMemo(() => {
+    const lookup = new Map<string, { item: NavigationItem; groupLabel: string }>();
+    for (const group of navigationGroups) {
+      for (const item of group.items) lookup.set(item.href, { item, groupLabel: group.label });
+    }
+
+    return pinnedHrefs.flatMap((href) => {
+      const entry = lookup.get(href);
+      return entry ? [entry] : [];
+    });
+  }, [pinnedHrefs, navigationGroups]);
 
   // Load all recent items from different collections
   useEffect(() => {
@@ -236,22 +365,151 @@ export default function DashboardLayout({
 
           {/* Navigation */}
           <nav className="flex-1 p-4 bg-white overflow-hidden flex flex-col">
-            <div className="space-y-3">
-              {/* Role-based navigation items - only show when user data is fully loaded */}
-              {filteredNavigation.map((item) => (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`flex items-center px-4 py-2 rounded-md transition-colors ${
-                    pathname === item.href
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5 mr-3" />
-                  {item.name}
-                </Link>
-              ))}
+            <div className="space-y-1">
+              {/* Pinned items, promoted above the groups with their full names */}
+              {pinnedItems.length > 0 && (
+                <div className="mb-3 space-y-0.5 border-b border-gray-200 pb-3">
+                  {pinnedItems.map(({ item, groupLabel }) => (
+                    <div
+                      key={item.href}
+                      draggable
+                      onDragStart={(event) => {
+                        setDraggingHref(item.href);
+                        event.dataTransfer.effectAllowed = 'move';
+                        // Firefox ignores drags that carry no payload.
+                        event.dataTransfer.setData('text/plain', item.href);
+                      }}
+                      onDragOver={(event) => {
+                        if (!draggingHref || draggingHref === item.href) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = 'move';
+                        setDropTargetHref(item.href);
+                      }}
+                      onDragLeave={() => {
+                        setDropTargetHref((current) =>
+                          current === item.href ? null : current
+                        );
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        if (draggingHref) movePinned(draggingHref, item.href);
+                        endDrag();
+                      }}
+                      onDragEnd={endDrag}
+                      className={`group/pin flex items-center rounded-md transition-colors ${
+                        draggingHref === item.href ? 'opacity-40' : ''
+                      } ${
+                        dropTargetHref === item.href ? 'ring-1 ring-blue-400 bg-blue-50/60' : ''
+                      } ${
+                        isItemActive(item.href) ? 'bg-blue-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <span
+                        title="Drag to reorder"
+                        className="cursor-grab pl-1 text-gray-300 opacity-0 transition-opacity duration-200 group-hover/pin:opacity-100 active:cursor-grabbing"
+                      >
+                        <GripVertical className="w-3.5 h-3.5" />
+                      </span>
+                      <Link
+                        href={item.href}
+                        // Anchors are draggable by default, which would drag the URL
+                        // instead of letting the row own the gesture.
+                        draggable={false}
+                        className={`flex flex-1 items-center min-w-0 px-2 py-1.5 text-sm transition-colors ${
+                          isItemActive(item.href)
+                            ? 'text-blue-700 font-medium'
+                            : 'text-gray-700 hover:text-blue-600'
+                        }`}
+                      >
+                        <item.icon className="w-4 h-4 mr-2.5 flex-shrink-0" />
+                        <span className="truncate">{groupLabel} {item.name}</span>
+                      </Link>
+                      <button
+                        onClick={() => togglePinned(item.href)}
+                        title="Unpin from top"
+                        aria-label={`Unpin ${groupLabel} ${item.name}`}
+                        className="px-2 py-1.5"
+                      >
+                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400 transition-transform duration-200 ease-out group-hover/pin:scale-110" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Role-based navigation groups - only show when user data is fully loaded */}
+              {navigationGroups.map((group) => {
+                const isOpen = !collapsedGroups.includes(group.label);
+                return (
+                  <div key={group.label}>
+                    <button
+                      onClick={() => toggleGroup(group.label)}
+                      aria-expanded={isOpen}
+                      className="group w-full flex items-center justify-between px-4 py-2 rounded-md text-sm font-semibold text-gray-800 transition-colors duration-200 ease-out hover:bg-blue-50/60 hover:text-blue-600"
+                    >
+                      {/* Scaled rather than sized up, so growing the label can't reflow
+                          the sidebar and nudge the items below it. */}
+                      <span className="origin-left transition-transform duration-200 ease-out group-hover:scale-110">
+                        {group.label}...
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 text-gray-400 transition duration-200 ease-out group-hover:text-blue-600 ${
+                          isOpen ? '' : '-rotate-90'
+                        }`}
+                      />
+                    </button>
+
+                    {isOpen && (
+                      <div className="mt-0.5 ml-3 space-y-0.5 border-l border-gray-200 pl-3">
+                        {group.items.map((item) => {
+                          const isPinned = pinnedHrefs.includes(item.href);
+                          return (
+                            // The star sits beside the link rather than inside it,
+                            // because an anchor cannot legally contain a button.
+                            <div
+                              key={item.name}
+                              className={`group/item flex items-center rounded-md transition-colors ${
+                                isItemActive(item.href) ? 'bg-blue-50' : 'hover:bg-gray-50'
+                              }`}
+                            >
+                              <Link
+                                href={item.href}
+                                className={`flex flex-1 items-center min-w-0 px-3 py-1.5 text-sm transition-colors ${
+                                  isItemActive(item.href)
+                                    ? 'text-blue-700 font-medium'
+                                    : 'text-gray-700 hover:text-blue-600'
+                                }`}
+                              >
+                                <item.icon className="w-4 h-4 mr-2.5 flex-shrink-0" />
+                                <span className="truncate">{item.name}</span>
+                              </Link>
+                              <button
+                                onClick={() => togglePinned(item.href)}
+                                title={isPinned ? 'Unpin from top' : 'Pin to top'}
+                                aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${group.label} ${item.name}`}
+                                aria-pressed={isPinned}
+                                className={`px-2 py-1.5 transition-opacity duration-200 ease-out ${
+                                  isPinned
+                                    ? 'opacity-100'
+                                    : 'opacity-0 group-hover/item:opacity-100 focus:opacity-100'
+                                }`}
+                              >
+                                <Star
+                                  className={`w-4 h-4 transition duration-200 ease-out hover:scale-110 ${
+                                    isPinned
+                                      ? 'fill-yellow-400 text-yellow-400'
+                                      : 'text-gray-400 hover:text-yellow-500'
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Recent Items Section */}

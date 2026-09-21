@@ -20,6 +20,7 @@ import { blogOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import {
   parseBlocks,
   serializeBlocks,
+  prefixBlockIds,
   countWords,
   blockLabel,
   type ArticleBlock,
@@ -33,12 +34,47 @@ import {
   type RevisionSource,
 } from '@/lib/article/revisions';
 import BlockView from './BlockView';
+import BlockSelectionBar from './BlockSelectionBar';
 import SelectionToolbar, { type SelectionTarget } from './SelectionToolbar';
 import AiEditPanel, { type AiEditRequest } from './AiEditPanel';
 import LinkPanel from './LinkPanel';
 import HistoryPanel from './HistoryPanel';
 
 const AUTOSAVE_DELAY_MS = 4000;
+
+/** Anchor and focus of a whole-block selection; the range between them is derived. */
+interface BlockRange {
+  anchorId: string;
+  focusId: string;
+}
+
+/**
+ * True when the caret sits against the leading (up) or trailing (down) edge of its
+ * block, meaning the browser has nowhere further to extend a text selection inside
+ * this editing host and Shift+Arrow should start taking whole blocks instead.
+ */
+function isCaretAtBlockEdge(direction: 1 | -1): boolean {
+  const active = window.getSelection();
+  if (!active || active.rangeCount === 0 || !active.focusNode) return true;
+
+  const focusElement =
+    active.focusNode instanceof Element
+      ? active.focusNode
+      : active.focusNode.parentElement;
+  const host = focusElement?.closest('[data-block-id]');
+  if (!host) return true;
+
+  const probe = document.createRange();
+  probe.setStart(active.focusNode, active.focusOffset);
+  probe.collapse(true);
+
+  const bounds = document.createRange();
+  bounds.selectNodeContents(host);
+
+  return direction === -1
+    ? probe.compareBoundaryPoints(Range.START_TO_START, bounds) <= 0
+    : probe.compareBoundaryPoints(Range.END_TO_END, bounds) >= 0;
+}
 
 interface ArticleEditorProps {
   uid: string;
@@ -80,6 +116,7 @@ export default function ArticleEditor({
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('links');
   const [selection, setSelection] = useState<SelectionTarget | null>(null);
+  const [blockRange, setBlockRange] = useState<BlockRange | null>(null);
   const [aiRequest, setAiRequest] = useState<AiEditRequest | null>(null);
   const [revisions, setRevisions] = useState<ArticleRevision[]>([]);
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(true);
@@ -88,17 +125,57 @@ export default function ArticleEditor({
   const undoStack = useRef<ArticleBlock[][]>([]);
   const redoStack = useRef<ArticleBlock[][]>([]);
   const savedOriginalRef = useRef(Boolean(originalContent));
+  const lastTouchedBlockRef = useRef<string | null>(null);
+  const sectionSeqRef = useRef(0);
 
-  // Positional block ids stay stable because edits replace blocks in place rather
-  // than adding or removing them, so a baseline comparison marks what changed.
-  const baseline = useMemo(
-    () => parseBlocks(originalContent ?? initialContent),
-    [originalContent, initialContent],
-  );
+  // Keyed by block id rather than position, because a multi-block rewrite can change
+  // how many blocks exist. A null entry marks a block the AI created, which is
+  // flagged as changed but has no earlier version to revert to.
+  const [baseline, setBaseline] = useState<Map<string, string | null>>(() => {
+    const current = parseBlocks(initialContent);
+    const generated = originalContent ? parseBlocks(originalContent) : null;
+
+    // Positional ids line up with the generated version only while the block counts
+    // match. Once a structural edit has been saved they don't, and comparing across
+    // the offset would mark untouched blocks as changed and revert them to the wrong
+    // text - so per-block revert falls back to the state the editor opened in. The
+    // generated version is still reachable from the History panel.
+    const source =
+      generated && generated.length === current.length ? generated : current;
+
+    const map = new Map<string, string | null>();
+    for (const block of source) map.set(block.id, block.html);
+    return map;
+  });
 
   const content = useMemo(() => serializeBlocks(blocks), [blocks]);
   const words = useMemo(() => countWords(content), [content]);
   const editableBlocks = useMemo(() => blocks.filter((block) => block.kind !== 'raw'), [blocks]);
+
+  const selectedBlockIds = useMemo(() => {
+    if (!blockRange) return [];
+    const anchorIndex = blocks.findIndex((block) => block.id === blockRange.anchorId);
+    const focusIndex = blocks.findIndex((block) => block.id === blockRange.focusId);
+    if (anchorIndex === -1 || focusIndex === -1) return [];
+
+    const [start, end] =
+      anchorIndex <= focusIndex ? [anchorIndex, focusIndex] : [focusIndex, anchorIndex];
+
+    return blocks
+      .slice(start, end + 1)
+      .filter((block) => block.kind !== 'raw')
+      .map((block) => block.id);
+  }, [blockRange, blocks]);
+
+  const selectedWords = useMemo(() => {
+    if (selectedBlockIds.length < 2) return 0;
+    return countWords(
+      blocks
+        .filter((block) => selectedBlockIds.includes(block.id))
+        .map((block) => block.html)
+        .join(' '),
+    );
+  }, [selectedBlockIds, blocks]);
 
   const refreshRevisions = useCallback(async () => {
     try {
@@ -254,10 +331,17 @@ export default function ArticleEditor({
         ? active.focusNode
         : active.focusNode?.parentElement ?? null;
     const focusHost = focusElement?.closest('[data-block-id]');
+    const focusId = focusHost?.getAttribute('data-block-id');
 
-    // A selection crossing blocks falls back to a whole-block edit of the anchor
-    // block, which keeps the "one element at a time" contract intact.
-    const crossesBlocks = focusHost !== host;
+    // Dragging across blocks can't produce a coherent partial-text edit spanning
+    // separate editing hosts, so it promotes to a whole-block range instead.
+    if (focusId && focusId !== blockId) {
+      setSelection(null);
+      setBlockRange({ anchorId: blockId, focusId });
+      active.removeAllRanges();
+      return;
+    }
+
     const text = active.toString().trim();
     if (!text) {
       setSelection(null);
@@ -267,21 +351,103 @@ export default function ArticleEditor({
     const rect = range.getBoundingClientRect();
     setSelection({
       blockId,
-      text: crossesBlocks ? '' : text,
+      text,
       top: Math.max(8, rect.top - 46),
       left: Math.max(8, rect.left),
     });
   }, []);
+
+  const selectBlock = useCallback((blockId: string, extend: boolean) => {
+    if (!extend) {
+      lastTouchedBlockRef.current = blockId;
+      setBlockRange(null);
+      return;
+    }
+
+    setBlockRange((current) => ({
+      anchorId: current?.anchorId ?? lastTouchedBlockRef.current ?? blockId,
+      focusId: blockId,
+    }));
+    setSelection(null);
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
+  /** Walks the focus end of the block range one editable block up or down. */
+  const extendBlockRange = useCallback(
+    (direction: 1 | -1) => {
+      const editableIds = blocks
+        .filter((block) => block.kind !== 'raw')
+        .map((block) => block.id);
+
+      setBlockRange((current) => {
+        const anchorId = current?.anchorId ?? lastTouchedBlockRef.current;
+        const focusId = current?.focusId ?? lastTouchedBlockRef.current;
+        if (!anchorId || !focusId) return current;
+
+        const index = editableIds.indexOf(focusId);
+        const nextIndex = index + direction;
+        if (index === -1 || nextIndex < 0 || nextIndex >= editableIds.length) {
+          return current ?? { anchorId, focusId };
+        }
+
+        return { anchorId, focusId: editableIds[nextIndex] };
+      });
+      setSelection(null);
+      window.getSelection()?.removeAllRanges();
+    },
+    [blocks],
+  );
+
+  const handleEditorKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setBlockRange(null);
+        setSelection(null);
+        return;
+      }
+
+      if (!event.shiftKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+
+      // Once a block range exists, Shift+Arrow belongs to it. Before that, the
+      // browser keeps its normal text selection until the caret hits the block edge.
+      if (selectedBlockIds.length === 0 && !isCaretAtBlockEdge(direction)) return;
+      if (!blockRange && !lastTouchedBlockRef.current) return;
+
+      event.preventDefault();
+      extendBlockRange(direction);
+    },
+    [selectedBlockIds.length, blockRange, extendBlockRange],
+  );
 
   const openAiForBlock = (blockId: string, selectedText?: string) => {
     const block = blocks.find((entry) => entry.id === blockId);
     if (!block) return;
 
     setAiRequest({
-      blockId,
+      blockIds: [blockId],
       blockHtml: block.html,
       blockLabel: blockLabel(block),
       selectedText: selectedText || undefined,
+    });
+    setSelection(null);
+  };
+
+  /** Sends the contiguous span from the first to the last selected block as one unit. */
+  const openAiForSelection = () => {
+    if (selectedBlockIds.length < 2) return;
+
+    const startIndex = blocks.findIndex((block) => block.id === selectedBlockIds[0]);
+    const endIndex = blocks.findIndex(
+      (block) => block.id === selectedBlockIds[selectedBlockIds.length - 1],
+    );
+    if (startIndex === -1 || endIndex === -1) return;
+
+    setAiRequest({
+      blockIds: [...selectedBlockIds],
+      blockHtml: serializeBlocks(blocks.slice(startIndex, endIndex + 1)),
+      blockLabel: `${selectedBlockIds.length} blocks`,
     });
     setSelection(null);
   };
@@ -366,9 +532,12 @@ export default function ArticleEditor({
         ? `Saved ${savedAt.toLocaleTimeString()}`
         : 'No changes yet';
 
+  // The dashboard layout has no top bar and already sizes its main area to the
+  // viewport, so the editor fills its container instead of subtracting a chrome
+  // height that would leave dead space below it.
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
         <button
           type="button"
           onClick={() => router.back()}
@@ -448,21 +617,31 @@ export default function ArticleEditor({
           className="flex-1 overflow-y-auto bg-gray-50 px-4 py-6"
           onMouseUp={captureSelection}
           onKeyUp={captureSelection}
+          onKeyDown={handleEditorKeyDown}
         >
+          <p className="mx-auto mb-2 max-w-3xl text-xs text-gray-400">
+            Highlight text to rewrite a passage. Shift+click another block, or Shift+Arrow
+            from a block edge, to edit several blocks together.
+          </p>
           <div className="mx-auto max-w-3xl rounded-lg bg-white p-6 shadow-sm">
             <div className="prose prose-sm max-w-none space-y-1">
               {blocks.map((block) => {
-                const original = baseline.find((entry) => entry.id === block.id);
+                const baselineHtml = baseline.get(block.id);
+                const canRevert = typeof baselineHtml === 'string';
+                const isNew = baseline.has(block.id) && baselineHtml === null;
                 return (
                   <BlockView
                     key={block.id}
                     block={block}
-                    isModified={Boolean(original && original.html !== block.html)}
+                    isModified={isNew || (canRevert && baselineHtml !== block.html)}
+                    isSelected={selectedBlockIds.includes(block.id)}
+                    canRevert={canRevert}
                     onChange={(html) => updateBlock(block.id, html)}
                     onRequestAi={() => openAiForBlock(block.id)}
                     onRevertBlock={() => {
-                      if (original) updateBlock(block.id, original.html);
+                      if (canRevert) updateBlock(block.id, baselineHtml);
                     }}
+                    onSelect={(extend) => selectBlock(block.id, extend)}
                   />
                 );
               })}
@@ -537,11 +716,20 @@ export default function ArticleEditor({
         </aside>
       </div>
 
-      {selection && (
+      {selection && selectedBlockIds.length < 2 && (
         <SelectionToolbar
           target={selection}
           onRewrite={() => openAiForBlock(selection.blockId, selection.text)}
           onDismiss={() => setSelection(null)}
+        />
+      )}
+
+      {selectedBlockIds.length >= 2 && (
+        <BlockSelectionBar
+          count={selectedBlockIds.length}
+          words={selectedWords}
+          onRewrite={openAiForSelection}
+          onClear={() => setBlockRange(null)}
         />
       )}
 
@@ -557,16 +745,48 @@ export default function ArticleEditor({
           }}
           getToken={getToken}
           onApply={async (html, description) => {
-            const next = blocks.map((block) =>
-              block.id === aiRequest.blockId ? { ...block, html } : block,
-            );
+            const ids = aiRequest.blockIds;
             setAiRequest(null);
-            await commitWithSnapshot(next, {
-              source: 'ai-edit',
-              label: description || 'AI edit',
-              blockId: aiRequest.blockId,
+            setBlockRange(null);
+
+            if (ids.length === 1) {
+              const next = blocks.map((block) =>
+                block.id === ids[0] ? { ...block, html } : block,
+              );
+              await commitWithSnapshot(next, {
+                source: 'ai-edit',
+                label: description || 'AI edit',
+                blockId: ids[0],
+              });
+              toast.success('Edit applied.');
+              return;
+            }
+
+            const startIndex = blocks.findIndex((block) => block.id === ids[0]);
+            const endIndex = blocks.findIndex((block) => block.id === ids[ids.length - 1]);
+            if (startIndex === -1 || endIndex === -1) {
+              toast.error('Those blocks are no longer in the article.');
+              return;
+            }
+
+            const replacement = prefixBlockIds(
+              parseBlocks(html),
+              `s${sectionSeqRef.current++}-`,
+            );
+
+            setBaseline((current) => {
+              const next = new Map(current);
+              for (const block of replacement) {
+                if (!next.has(block.id)) next.set(block.id, null);
+              }
+              return next;
             });
-            toast.success('Edit applied.');
+
+            await commitWithSnapshot(
+              [...blocks.slice(0, startIndex), ...replacement, ...blocks.slice(endIndex + 1)],
+              { source: 'ai-edit', label: description || `AI edit of ${ids.length} blocks` },
+            );
+            toast.success(`Rewrote ${ids.length} blocks.`);
           }}
           onClose={() => setAiRequest(null)}
         />

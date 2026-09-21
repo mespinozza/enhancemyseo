@@ -1,5 +1,5 @@
 /**
- * Shared single-element rewrite primitives.
+ * Shared rewrite primitives for single elements and multi-block sections.
  *
  * These guards were built for the fact-check loop in the article generator and are
  * reused verbatim by the interactive editor, so both paths reject the same failure
@@ -226,6 +226,61 @@ ABSOLUTE RULES:
 Return only the replacement <${tag}> element.`;
 }
 
+export interface BuildSectionPromptArgs {
+  sectionHtml: string;
+  instruction: string;
+  blockCount: number;
+  brand?: BrandContext;
+}
+
+/**
+ * Multi-block edits are allowed to restructure the section - merging two thin
+ * paragraphs or splitting an overlong one usually improves the writing - so the
+ * prompt asks for replacement HTML for the whole span rather than a fixed element.
+ */
+export function buildSectionEditPrompt({
+  sectionHtml,
+  instruction,
+  blockCount,
+  brand,
+}: BuildSectionPromptArgs): string {
+  const brandLines = [
+    brand?.brandName ? `Brand: ${brand.brandName}` : null,
+    brand?.businessType ? `Business type: ${brand.businessType}` : null,
+    brand?.toneOfVoice ? `Tone of voice: ${brand.toneOfVoice}` : null,
+    brand?.keyword ? `Article target keyword: ${brand.keyword}` : null,
+  ].filter(Boolean);
+
+  return `You are editing a section of a published SEO article. The section currently contains ${blockCount} top-level HTML elements. Return replacement HTML for the whole section.
+
+${brandLines.length ? `CONTEXT:\n${brandLines.join('\n')}\n` : ''}
+ORIGINAL SECTION HTML:
+${sectionHtml}
+
+WHAT TO CHANGE:
+${instruction}
+
+STRUCTURE:
+- You may merge or split paragraphs, or change the number of elements, when it genuinely improves the writing
+- Do NOT drop any topic covered in the original, and do NOT introduce new sections or headings that were not there
+- Keep headings as headings and lists as lists
+
+CRITICAL REQUIREMENTS:
+1. Preserve every existing <a href="..."> link, its URL, and its surrounding phrasing unless the instruction is explicitly about links
+2. Reproduce any <table> and any <div> carrying inline styles byte-for-byte unless the instruction is explicitly about that element
+3. Preserve all inline style attributes exactly as they appear
+4. Do NOT invent statistics, percentages, temperatures, specifications, or part numbers
+5. Output HTML only - never Markdown
+6. Output the replacement HTML only - no explanation, preamble, or commentary
+
+ABSOLUTE RULES:
+- NEVER begin with "Here is", "Sure", "Certainly", "I cannot", or any similar preamble
+- NEVER wrap the output in code fences
+- NEVER ask for more context - make the best reasonable edit with what is provided
+
+Return only the replacement HTML for this section.`;
+}
+
 export type RewriteValidation =
   | { ok: true; html: string }
   | { ok: false; reason: string };
@@ -258,6 +313,38 @@ export function validateRewrite(raw: string, originalHtml: string): RewriteValid
 
   if (!html.trim()) {
     return { ok: false, reason: 'The edited element was empty after cleanup.' };
+  }
+
+  return { ok: true, html };
+}
+
+/**
+ * Same guard chain minus the single-element check, since a section rewrite is
+ * expected to return several top-level elements and may legitimately change how
+ * many.
+ */
+export function validateSectionRewrite(raw: string, originalHtml: string): RewriteValidation {
+  const stripped = stripCodeFences(raw ?? '');
+
+  if (!stripped) {
+    return { ok: false, reason: 'The model returned an empty response.' };
+  }
+
+  if (AI_REFUSAL_PATTERNS.some((pattern) => pattern.test(stripped))) {
+    return {
+      ok: false,
+      reason: 'The model replied with commentary instead of edited HTML. Try rephrasing the instruction.',
+    };
+  }
+
+  if (!/<[a-z]+[^>]*>/i.test(stripped)) {
+    return { ok: false, reason: 'The model response contained no HTML markup.' };
+  }
+
+  const html = hardenHtml(ensureHTMLFormat(stripped, originalHtml));
+
+  if (!html.trim()) {
+    return { ok: false, reason: 'The edited section was empty after cleanup.' };
   }
 
   return { ok: true, html };

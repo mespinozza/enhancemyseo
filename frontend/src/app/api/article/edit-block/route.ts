@@ -5,7 +5,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import {
   buildBlockEditPrompt,
+  buildSectionEditPrompt,
   validateRewrite,
+  validateSectionRewrite,
   EDIT_PRESETS,
   type BrandContext,
 } from '@/lib/article/rewrite';
@@ -13,6 +15,7 @@ import {
 initializeFirebaseAdmin();
 
 const MAX_BLOCK_LENGTH = 20000;
+const MAX_SECTION_LENGTH = 40000;
 const MAX_INSTRUCTION_LENGTH = 1000;
 
 let anthropic: Anthropic | null = null;
@@ -31,6 +34,8 @@ interface EditBlockBody {
   instruction?: string;
   presetId?: string;
   brand?: BrandContext;
+  /** Number of top-level elements in blockHtml. Above 1, the section prompt is used. */
+  blockCount?: number;
 }
 
 export async function POST(request: Request) {
@@ -59,6 +64,8 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as EditBlockBody;
     const { blogId, blockHtml, selectedText, presetId, brand } = body;
+    const blockCount = Math.max(1, Math.floor(body.blockCount ?? 1));
+    const isSection = blockCount > 1;
 
     if (!blogId || !blockHtml) {
       return NextResponse.json(
@@ -67,9 +74,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (blockHtml.length > MAX_BLOCK_LENGTH) {
+    const maxLength = isSection ? MAX_SECTION_LENGTH : MAX_BLOCK_LENGTH;
+    if (blockHtml.length > maxLength) {
       return NextResponse.json(
-        { error: 'That block is too large to edit with AI. Edit it directly instead.' },
+        {
+          error: isSection
+            ? 'That selection is too large to edit with AI. Select fewer blocks.'
+            : 'That block is too large to edit with AI. Edit it directly instead.',
+        },
         { status: 413 },
       );
     }
@@ -97,11 +109,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const prompt = buildBlockEditPrompt({ blockHtml, instruction, selectedText, brand });
+    const prompt = isSection
+      ? buildSectionEditPrompt({ sectionHtml: blockHtml, instruction, blockCount, brand })
+      : buildBlockEditPrompt({ blockHtml, instruction, selectedText, brand });
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 4000,
+      max_tokens: isSection ? 8000 : 4000,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -113,7 +127,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const validated = validateRewrite(textBlock.text, blockHtml);
+    const validated = isSection
+      ? validateSectionRewrite(textBlock.text, blockHtml)
+      : validateRewrite(textBlock.text, blockHtml);
     if (!validated.ok) {
       return NextResponse.json({ error: validated.reason }, { status: 422 });
     }

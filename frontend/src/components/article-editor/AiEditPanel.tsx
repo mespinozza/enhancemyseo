@@ -7,7 +7,8 @@ import { sanitizeArticleHtml } from '@/lib/article/sanitize';
 import DiffView from './DiffView';
 
 export interface AiEditRequest {
-  blockId: string;
+  /** Editable blocks in scope, in document order. */
+  blockIds: string[];
   blockHtml: string;
   blockLabel: string;
   selectedText?: string;
@@ -37,12 +38,16 @@ export default function AiEditPanel({
   const [result, setResult] = useState<string | null>(null);
   const [lastDescription, setLastDescription] = useState('');
 
+  const blockCount = request.blockIds.length;
+  const isSection = blockCount > 1;
+  const scopeKey = request.blockIds.join(',');
+
   useEffect(() => {
     setPresetId(null);
     setInstruction('');
     setResult(null);
     setError(null);
-  }, [request.blockId, request.selectedText]);
+  }, [scopeKey, request.selectedText]);
 
   const run = async () => {
     const preset = presetId ? EDIT_PRESETS.find((entry) => entry.id === presetId) : undefined;
@@ -70,6 +75,7 @@ export default function AiEditPanel({
         body: JSON.stringify({
           blogId,
           blockHtml: request.blockHtml,
+          blockCount,
           selectedText: request.selectedText,
           presetId: preset?.id,
           instruction: freeText || undefined,
@@ -98,9 +104,11 @@ export default function AiEditPanel({
             <div>
               <h2 className="text-sm font-semibold text-gray-900">Edit with AI</h2>
               <p className="text-xs text-gray-500">
-                {request.selectedText
-                  ? 'Rewriting the highlighted passage'
-                  : `Rewriting the whole ${request.blockLabel.toLowerCase()}`}
+                {isSection
+                  ? `Rewriting ${blockCount} blocks together`
+                  : request.selectedText
+                    ? 'Rewriting the highlighted passage'
+                    : `Rewriting the whole ${request.blockLabel.toLowerCase()}`}
               </p>
             </div>
           </div>
@@ -110,6 +118,13 @@ export default function AiEditPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {isSection && (
+            <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              Editing several blocks at once lets the AI restructure them, so paragraphs
+              may be merged or split. Review the diff before accepting.
+            </div>
+          )}
+
           {request.selectedText && (
             <div>
               <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">

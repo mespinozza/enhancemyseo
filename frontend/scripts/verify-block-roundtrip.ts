@@ -9,6 +9,7 @@
 import {
   parseBlocks,
   serializeBlocks,
+  prefixBlockIds,
   splitElement,
   replaceInner,
   htmlToText,
@@ -200,6 +201,51 @@ console.log('\n=== Shopify link handling ===');
     'href swap can leave anchor text alone',
     hrefOnly === '<p>See <a href="/products/c">A</a> and <a href="/products/a">A again</a>.</p>',
     hrefOnly,
+  );
+}
+
+console.log('\n=== Multi-block section splice ===');
+{
+  const blocks = parseBlocks(FIXTURES[0].html);
+  const editable = blocks.filter((b) => b.kind !== 'raw');
+
+  // Mirrors what the editor does when a section rewrite returns a different number
+  // of elements than it was given.
+  const first = editable[2];
+  const last = editable[4];
+  const startIndex = blocks.findIndex((b) => b.id === first.id);
+  const endIndex = blocks.findIndex((b) => b.id === last.id);
+
+  const replacement = prefixBlockIds(
+    parseBlocks('<p>Merged replacement paragraph.</p>'),
+    's0-',
+  );
+  const spliced = [
+    ...blocks.slice(0, startIndex),
+    ...replacement,
+    ...blocks.slice(endIndex + 1),
+  ];
+
+  check('splice narrowed the block count', spliced.length < blocks.length);
+  check(
+    'new block ids cannot collide with existing ones',
+    new Set(spliced.map((b) => b.id)).size === spliced.length,
+  );
+  check(
+    'blocks outside the range keep their ids',
+    spliced[0].id === blocks[0].id && spliced[spliced.length - 1].id === blocks[blocks.length - 1].id,
+  );
+
+  const output = serializeBlocks(spliced);
+  check(
+    'spliced output re-parses without loss',
+    serializeBlocks(parseBlocks(output)) === output,
+  );
+  check('replaced range is gone', !output.includes(last.html));
+  check('replacement is present', output.includes('Merged replacement paragraph.'));
+  check(
+    'untouched head of the article is byte-identical',
+    output.startsWith(serializeBlocks(blocks.slice(0, startIndex))),
   );
 }
 

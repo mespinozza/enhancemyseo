@@ -174,6 +174,16 @@ export function serializeBlocks(blocks: ArticleBlock[]): string {
   return blocks.map((block) => block.html).join('');
 }
 
+/**
+ * Re-ids a freshly parsed run of blocks so it can be spliced into a document
+ * without colliding with the positional ids already in use there. A section
+ * rewrite can return a different number of elements than it was given, so the
+ * blocks it produces need identities of their own.
+ */
+export function prefixBlockIds(blocks: ArticleBlock[], prefix: string): ArticleBlock[] {
+  return blocks.map((block, index) => ({ ...block, id: `${prefix}${index}` }));
+}
+
 export interface SplitElement {
   open: string;
   inner: string;

@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon, Pencil } from 'lucide-react';
+import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon, Pencil, Search } from 'lucide-react';
 import { blogOperations, historyOperations, generatedProductOperations, brandProfileOperations, Blog, HistoryItem, GeneratedProduct, BrandProfile } from '@/lib/firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { collection, query, where, getDocs, DocumentSnapshot, orderBy, doc, getDoc } from 'firebase/firestore';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
+import ArticlePreview, { HighlightedText } from '@/components/history/ArticlePreview';
 
 type TabType = 'blogs' | 'keywords' | 'thumbnails' | 'collections' | 'products';
 type SubscriptionTier = 'free' | 'kickstart' | 'seo_takeover' | 'agency' | 'admin';
@@ -47,8 +48,11 @@ export default function HistoryPage() {
   const highlightedItemRef = useRef<HTMLDivElement>(null);
   const lastLogTimeRef = useRef<number>(0);
   
-  // Brand filter state
+  // Brand filter, full-text search, and sort state
   const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>('all');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   
   // Main page selection states (for bulk actions when brand is selected)
   const [selectedBlogIds, setSelectedBlogIds] = useState<string[]>([]);
@@ -632,23 +636,68 @@ ${blog.content || '<!-- No content available -->'}
     initializeModalArticles();
   };
 
-  // Get filtered blogs based on selected brand
-  const getFilteredBlogs = useCallback((blogsData: Blog[]) => {
-    if (selectedBrandFilter === 'all') {
-      return blogsData;
+  // Typing re-filters every article, so the query settles before doing that work.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(searchInput.trim().toLowerCase()), 250);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Searchable text is derived per article and memoized, not built up front: a full
+  // library is megabytes of HTML and indexing all of it on load would stall the page
+  // for users who never search. Keyed on the blogs array so it self-invalidates.
+  const searchTextCache = useRef<{ source: Blog[]; texts: Map<string, string> }>({
+    source: [],
+    texts: new Map(),
+  });
+
+  const getSearchText = useCallback((blog: Blog) => {
+    if (searchTextCache.current.source !== blogs) {
+      searchTextCache.current = { source: blogs, texts: new Map() };
     }
-    return blogsData.filter(blog => blog.brandId === selectedBrandFilter);
-  }, [selectedBrandFilter]);
+
+    const key = blog.id ?? '';
+    const cached = searchTextCache.current.texts.get(key);
+    if (cached !== undefined) return cached;
+
+    // Tags are stripped so a query can't match markup like "div" or "style". A single
+    // pass rather than full entity decoding keeps the first keystroke responsive.
+    const text = [blog.title, blog.keyword, (blog.content || '').replace(/<[^>]+>/g, ' ')]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    searchTextCache.current.texts.set(key, text);
+    return text;
+  }, [blogs]);
+
+  // Get filtered blogs based on the selected brand and the search query
+  const getFilteredBlogs = useCallback((blogsData: Blog[]) => {
+    let result = blogsData;
+
+    if (selectedBrandFilter !== 'all') {
+      result = result.filter(blog => blog.brandId === selectedBrandFilter);
+    }
+
+    if (searchQuery) {
+      result = result.filter(blog => getSearchText(blog).includes(searchQuery));
+    }
+
+    return result;
+  }, [selectedBrandFilter, searchQuery, getSearchText]);
+
+  const sortBlogs = useCallback((blogsData: Blog[]) => {
+    return [...blogsData].sort((a, b) => {
+      const dateA = a.createdAt?.toDate?.()?.getTime() ?? 0;
+      const dateB = b.createdAt?.toDate?.()?.getTime() ?? 0;
+      return sortOrder === 'oldest' ? dateA - dateB : dateB - dateA;
+    });
+  }, [sortOrder]);
 
   // Main page pagination functionality
   // Initialize blogs for main page
   const initializeMainPageBlogs = useCallback((blogsData: Blog[]) => {
     const filteredBlogs = getFilteredBlogs(blogsData);
-    const sortedBlogs = [...filteredBlogs].sort((a, b) => {
-      const dateA = a.createdAt?.toDate?.() || new Date(0);
-      const dateB = b.createdAt?.toDate?.() || new Date(0);
-      return dateB.getTime() - dateA.getTime(); // Most recent first
-    });
+    const sortedBlogs = sortBlogs(filteredBlogs);
     
     const initial = sortedBlogs.slice(0, blogsPerPage);
     console.log('Initializing main page blogs:', {
@@ -661,7 +710,7 @@ ${blog.content || '<!-- No content available -->'}
     
     setDisplayedBlogs(initial);
     setHasMoreBlogs(sortedBlogs.length > blogsPerPage);
-  }, [blogsPerPage, getFilteredBlogs, selectedBrandFilter]);
+  }, [blogsPerPage, getFilteredBlogs, sortBlogs, selectedBrandFilter]);
 
   // Load more blogs for main page
   const loadMoreBlogs = useCallback(() => {
@@ -681,12 +730,7 @@ ${blog.content || '<!-- No content available -->'}
     setIsLoadingMoreBlogs(true);
     
     setTimeout(() => {
-      const filteredBlogs = getFilteredBlogs(blogs);
-      const sortedBlogs = [...filteredBlogs].sort((a, b) => {
-        const dateA = a.createdAt?.toDate?.() || new Date(0);
-        const dateB = b.createdAt?.toDate?.() || new Date(0);
-        return dateB.getTime() - dateA.getTime(); // Most recent first
-      });
+      const sortedBlogs = sortBlogs(getFilteredBlogs(blogs));
       
       const nextBlogs = sortedBlogs.slice(
         displayedBlogs.length,
@@ -703,7 +747,7 @@ ${blog.content || '<!-- No content available -->'}
       setHasMoreBlogs(displayedBlogs.length + nextBlogs.length < sortedBlogs.length);
       setIsLoadingMoreBlogs(false);
     }, 300); // Small delay for smooth UX
-  }, [isLoadingMoreBlogs, hasMoreBlogs, blogs, displayedBlogs.length, blogsPerPage, selectedBrandFilter, getFilteredBlogs]);
+  }, [isLoadingMoreBlogs, hasMoreBlogs, blogs, displayedBlogs.length, blogsPerPage, selectedBrandFilter, getFilteredBlogs, sortBlogs]);
 
   // Ensure displayedBlogs is updated when blogs change
   useEffect(() => {
@@ -713,15 +757,15 @@ ${blog.content || '<!-- No content available -->'}
     }
   }, [blogs, displayedBlogs.length, initializeMainPageBlogs]);
 
-  // Reinitialize when brand filter changes
+  // Reinitialize when the brand filter, search query, or sort order changes.
+  // initializeMainPageBlogs closes over all three, so its identity change drives this.
   useEffect(() => {
     if (blogs.length > 0) {
-      console.log('Brand filter changed, reinitializing blogs:', selectedBrandFilter);
       initializeMainPageBlogs(blogs);
-      // Clear selection when brand filter changes
+      // The previous selection may no longer be visible under the new filters.
       setSelectedBlogIds([]);
     }
-  }, [selectedBrandFilter, blogs, initializeMainPageBlogs]);
+  }, [selectedBrandFilter, searchQuery, sortOrder, blogs, initializeMainPageBlogs]);
 
   // Handle scroll in main page with useCallback
   const handleMainPageScroll = useCallback(() => {
@@ -1048,16 +1092,23 @@ ${blog.content || '<!-- No content available -->'}
         </div>
       )}
       
-      {/* Show message when brand filter has no articles */}
-      {displayedBlogs.length === 0 && blogs.length > 0 && selectedBrandFilter !== 'all' && (
+      {/* Show message when the active filters match nothing */}
+      {displayedBlogs.length === 0 && blogs.length > 0 && (selectedBrandFilter !== 'all' || searchQuery) && (
         <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300">
           <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 mb-2">No articles found for this brand</p>
+          <p className="text-gray-500 mb-2">
+            {searchQuery
+              ? `No articles match "${searchQuery}"`
+              : 'No articles found for this brand'}
+          </p>
           <button
-            onClick={() => setSelectedBrandFilter('all')}
+            onClick={() => {
+              setSelectedBrandFilter('all');
+              setSearchInput('');
+            }}
             className="text-blue-600 hover:text-blue-500 text-sm font-medium"
           >
-            View all articles
+            Clear filters
           </button>
         </div>
       )}
@@ -1099,11 +1150,13 @@ ${blog.content || '<!-- No content available -->'}
             
             <div className="flex items-center mb-4">
               <FileText className="w-5 h-5 text-blue-600 mr-2" />
-              <h3 className={`text-lg font-semibold truncate ${showCheckbox ? 'pr-8' : ''}`}>{blog.title}</h3>
+              <h3 className={`text-lg font-semibold truncate ${showCheckbox ? 'pr-8' : ''}`}>
+                <HighlightedText text={blog.title} query={searchQuery} />
+              </h3>
             </div>
             <div className="mb-4">
               <p className="text-sm text-gray-500">
-                Keyword: {blog.keyword || 'Not specified'}
+                Keyword: {blog.keyword ? <HighlightedText text={blog.keyword} query={searchQuery} /> : 'Not specified'}
               </p>
               <p className="text-sm text-gray-500">
                 Status: <span className="capitalize">{blog.status}</span>
@@ -1113,35 +1166,7 @@ ${blog.content || '<!-- No content available -->'}
               </p>
             </div>
             {blog.content && (
-              <div className="mb-4 h-48 overflow-y-auto overflow-x-hidden bg-gray-50 rounded p-3 text-sm border relative">
-                <div 
-                  className="max-w-full break-words text-wrap"
-                  style={{
-                    wordWrap: 'break-word',
-                    overflowWrap: 'break-word',
-                    wordBreak: 'break-word',
-                    hyphens: 'auto',
-                    maxWidth: '100%',
-                    overflow: 'hidden',
-                    lineHeight: '1.5'
-                  }}
-                  dangerouslySetInnerHTML={{ 
-                    __html: blog.content.replace(
-                      /<img[^>]*>/g, 
-                      (match) => {
-                        // Remove images that might cause 404s, or add proper error handling
-                        if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
-                          return ''; // Remove problematic images
-                        }
-                        return match.replace(/style="[^"]*"/g, '').replace(/>$/, ' style="max-width: 100%; height: auto;" onerror="this.style.display=\'none\'">')
-                      }
-                    ).replace(
-                      /<table[^>]*>/g,
-                      (match) => match.replace(/style="[^"]*"/g, '').replace(/>$/, ' style="max-width: 100%; table-layout: fixed;">')
-                    )
-                  }} 
-                />
-              </div>
+              <ArticlePreview html={blog.content} query={searchQuery} />
             )}
             <div className="flex space-x-2">
               <button
@@ -1190,7 +1215,7 @@ ${blog.content || '<!-- No content available -->'}
             onClick={loadMoreBlogs}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
-            Load More ({displayedBlogs.length} of {selectedBrandFilter === 'all' ? blogs.length : blogs.filter(b => b.brandId === selectedBrandFilter).length})
+            Load More ({displayedBlogs.length} of {getFilteredBlogs(blogs).length})
           </button>
         </div>
       )}
@@ -1446,42 +1471,60 @@ ${blog.content || '<!-- No content available -->'}
           </nav>
         </div>
         
-        {/* Brand Subtabs - Only show when on blogs tab and there are brand profiles */}
-        {activeTab === 'blogs' && brandProfiles.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setSelectedBrandFilter('all')}
-              className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                selectedBrandFilter === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              All Brands
-              <span className="ml-1.5 text-xs opacity-75">({blogs.length})</span>
-            </button>
-            {brandProfiles.map((brand) => {
-              const brandArticleCount = blogs.filter(blog => blog.brandId === brand.id).length;
-              return (
+        {/* Search, brand filter, and sort - only on the blogs tab */}
+        {activeTab === 'blogs' && blogs.length > 0 && (
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search titles and article content..."
+                className="w-full rounded-full border border-gray-300 bg-white py-1.5 pl-9 pr-9 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              {searchInput && (
                 <button
-                  key={brand.id}
-                  onClick={() => setSelectedBrandFilter(brand.id || '')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors flex items-center gap-2 ${
-                    selectedBrandFilter === brand.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
+                  onClick={() => setSearchInput('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  title="Clear search"
                 >
-                  <div
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: brand.brandColor }}
-                  />
-                  {brand.brandName}
-                  <span className="text-xs opacity-75">({brandArticleCount})</span>
+                  <X className="h-3.5 w-3.5" />
                 </button>
-              );
-            })}
+              )}
+            </div>
+
+            {brandProfiles.length > 0 && (
+              <select
+                value={selectedBrandFilter}
+                onChange={(e) => setSelectedBrandFilter(e.target.value)}
+                className="rounded-full border border-gray-300 bg-white py-1.5 pl-3 pr-8 text-sm text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              >
+                <option value="all">All brands ({blogs.length})</option>
+                {brandProfiles.map((brand) => (
+                  <option key={brand.id} value={brand.id || ''}>
+                    {brand.brandName} ({blogs.filter(blog => blog.brandId === brand.id).length})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')}
+              className="rounded-full border border-gray-300 bg-white py-1.5 pl-3 pr-8 text-sm text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
           </div>
+        )}
+
+        {activeTab === 'blogs' && (searchQuery || selectedBrandFilter !== 'all') && (
+          <p className="mt-2 text-xs text-gray-500">
+            {getFilteredBlogs(blogs).length} of {blogs.length} articles
+            {searchQuery && <> matching &ldquo;{searchQuery}&rdquo;</>}
+          </p>
         )}
         
         {/* Bulk Action Bar - Show when a specific brand is selected */}
