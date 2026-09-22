@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   Clock,
   Loader2,
@@ -21,6 +22,7 @@ import {
   deleteAutomation,
   listAutomations,
   listRuns,
+  scheduleTestRun,
   setAutomationEnabled,
 } from '@/lib/firebase/automations';
 import AutomationForm from '@/components/automation/AutomationForm';
@@ -81,6 +83,7 @@ export default function AutomatePage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [testMinutes, setTestMinutes] = useState(5);
 
   const load = useCallback(
     async (options: { quiet?: boolean } = {}) => {
@@ -159,6 +162,21 @@ export default function AutomatePage() {
     } catch (error) {
       console.error('Error deleting automation:', error);
       toast.error('Could not delete that automation');
+    }
+  };
+
+  const handleTestSchedule = async (automation: Automation) => {
+    try {
+      const dueAt = await scheduleTestRun(automation, testMinutes);
+      toast.success(
+        `Due at ${dueAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}. ` +
+          'The cron service checks every 15 minutes, so it may start a little after that. ' +
+          'You can close this page.'
+      );
+      await load({ quiet: true });
+    } catch (error) {
+      console.error('Error scheduling test run:', error);
+      toast.error('Could not schedule that test run');
     }
   };
 
@@ -325,6 +343,34 @@ export default function AutomatePage() {
                             cap.
                           </p>
                         )}
+
+                        {/* Run now skips the scheduler, so this is the only way to check
+                            that the cron service actually fires on its own. */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-gray-500">Test the schedule:</span>
+                          <select
+                            value={testMinutes}
+                            onChange={(event) => setTestMinutes(Number(event.target.value))}
+                            aria-label="Minutes until the test run is due"
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700"
+                          >
+                            <option value={5}>in 5 minutes</option>
+                            <option value={15}>in 15 minutes</option>
+                            <option value={30}>in 30 minutes</option>
+                            <option value={60}>in an hour</option>
+                          </select>
+                          <button
+                            onClick={() => void handleTestSchedule(automation)}
+                            disabled={Boolean(activeRun)}
+                            className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" />
+                            Schedule it
+                          </button>
+                          <span className="text-xs text-gray-400">
+                            Turns the automation on, then you can close the page.
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex shrink-0 items-center gap-2">
