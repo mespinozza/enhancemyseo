@@ -254,8 +254,8 @@ async function generateArticle(
       instructions: automation.instructions || '',
       brandGuidelines: brand.brandGuidelines || '',
       contentSelection: automation.contentSelection,
-      shopifyStoreUrl: brand.shopifyStoreUrl || '',
-      shopifyAccessToken: brand.shopifyAccessToken || '',
+      // Shopify credentials are resolved server-side from the brand.
+      brandId: automation.brandId,
       websiteUrl: brand.websiteUrl || '',
       brandColor: brand.brandColor || '#000000',
     }),
@@ -299,8 +299,10 @@ async function pushToShopify(
   article: GeneratedArticle,
   idToken: string
 ): Promise<void> {
-  if (!brand.shopifyStoreUrl || !brand.shopifyAccessToken) {
-    throw new Error('Auto-push is on but the brand profile has no Shopify credentials');
+  // Only the store URL is checked here. A token may not exist at all: stores on a Dev
+  // Dashboard app get one minted per request, which the push route handles.
+  if (!brand.shopifyStoreUrl) {
+    throw new Error('Auto-push is on but the brand profile has no Shopify store URL');
   }
 
   const response = await fetch(`${internalBaseUrl()}/api/shopify/push-article`, {
@@ -310,8 +312,7 @@ async function pushToShopify(
       Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({
-      shopifyStoreUrl: brand.shopifyStoreUrl,
-      shopifyAccessToken: brand.shopifyAccessToken,
+      brandId: automation.brandId,
       blogId: automation.shopifyBlogId,
       article: {
         title: article.title,

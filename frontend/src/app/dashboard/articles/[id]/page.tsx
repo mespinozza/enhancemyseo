@@ -32,7 +32,19 @@ export default function ArticleDetailPage() {
         publish_url: "#" // Not implemented
       };
     },
-    enabled: !!user?.uid && !!articleId
+    enabled: !!user?.uid && !!articleId,
+    // Auto-refresh every 3 seconds while content is empty (article is generating)
+    refetchInterval: (query) => {
+      // Stop polling once we have content
+      const data = query.state.data;
+      if (data && data.content && data.content.trim().length > 0) {
+        return false; // Stop refetching
+      }
+      // Poll every 3 seconds while content is empty
+      return 3000;
+    },
+    // Keep refetching even when tab is in background
+    refetchIntervalInBackground: true,
   });
 
   const publishMutation = useMutation({
@@ -55,11 +67,40 @@ export default function ArticleDetailPage() {
   });
 
   if (isLoading || !article) {
-    return <div>Loading article...</div>;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading article...</p>
+        </div>
+      </div>
+    );
   }
+
+  // Check if article is still being generated
+  const isGenerating = !article.content || article.content.trim().length === 0;
 
   return (
       <div className="max-w-7xl mx-auto">
+        {/* Generation Status Banner */}
+        {isGenerating && (
+          <div className="mb-4 bg-blue-50 border-l-4 border-blue-400 p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="animate-spin h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-blue-700">
+                  <strong>Article is being generated...</strong> This page will automatically update when the content is ready. (Refreshing every 3 seconds)
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="md:flex md:items-center md:justify-between">
           <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
@@ -149,20 +190,31 @@ export default function ArticleDetailPage() {
                 Article Preview
               </h3>
               <div className="mt-4 prose prose-sm max-w-none">
-                <div
-                  dangerouslySetInnerHTML={{ 
-                    __html: article.html_content.replace(
-                      /<img[^>]*>/g, 
-                      (match) => {
-                        // Remove problematic images or add error handling
-                        if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
-                          return ''; // Remove problematic images
+                {isGenerating ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-lg font-medium">Generating article content...</p>
+                    <p className="mt-2 text-sm">This typically takes 2-4 minutes. The page will automatically update when ready.</p>
+                  </div>
+                ) : (
+                  <div
+                    dangerouslySetInnerHTML={{ 
+                      __html: article.html_content.replace(
+                        /<img[^>]*>/g, 
+                        (match) => {
+                          // Remove problematic images or add error handling
+                          if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
+                            return ''; // Remove problematic images
+                          }
+                          return match.replace(/>$/, ' onerror="this.style.display=\'none\'" style="max-width: 100%; height: auto;">')
                         }
-                        return match.replace(/>$/, ' onerror="this.style.display=\'none\'" style="max-width: 100%; height: auto;">')
-                      }
-                    )
-                  }}
-                />
+                      )
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>

@@ -138,8 +138,8 @@ export default function GenerateThumbnailPage() {
 
   const loadShopifyArticles = useCallback(async (brandId: string, reset = true) => {
     const selectedBrand = brandProfiles.find(p => p.id === brandId);
-    if (!selectedBrand?.shopifyStoreUrl || !selectedBrand?.shopifyAccessToken) {
-      toast.error('Shopify credentials not found. Please update your brand profile.');
+    if (!selectedBrand?.shopifyStoreUrl) {
+      toast.error('No Shopify store URL found. Please update your brand profile.');
       return;
     }
 
@@ -159,10 +159,7 @@ export default function GenerateThumbnailPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await user?.getIdToken()}`,
         },
-        body: JSON.stringify({
-          shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-          shopifyAccessToken: selectedBrand.shopifyAccessToken,
-        }),
+        body: JSON.stringify({ brandId: selectedBrand.id }),
       });
 
       if (response.ok) {
@@ -295,8 +292,7 @@ export default function GenerateThumbnailPage() {
             body: JSON.stringify({
               articleTitle: article.title,
               articleId: article.id,
-              shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-              shopifyAccessToken: selectedBrand.shopifyAccessToken,
+              brandId: selectedBrand.id,
             }),
           });
 
@@ -433,7 +429,7 @@ export default function GenerateThumbnailPage() {
                       <span className="font-medium">{profile.brandName}</span>
                     </div>
                     <div className="flex items-center space-x-2 text-sm text-gray-500">
-                      {profile.shopifyStoreUrl && profile.shopifyAccessToken ? (
+                      {profile.shopifyStoreUrl ? (
                         <span className="flex items-center text-green-600">
                           <Check className="w-4 h-4 mr-1" />
                           Shopify Connected

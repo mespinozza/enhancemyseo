@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import {
+  resolveShopifyCredentials,
+  shopifyCredentialResponse,
+} from '@/lib/shopify/credentials';
 
 // Interface for Shopify article structure
 interface ShopifyArticle {
@@ -33,16 +37,17 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { shopifyStoreUrl, shopifyAccessToken } = body;
 
-    if (!shopifyStoreUrl || !shopifyAccessToken) {
-      return NextResponse.json({ 
-        error: 'Shopify store URL and access token are required' 
-      }, { status: 400 });
+    let cleanStoreUrl: string;
+    let shopifyAccessToken: string;
+    try {
+      const credentials = await resolveShopifyCredentials(decodedToken.uid, body);
+      cleanStoreUrl = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      const { error: message, status } = shopifyCredentialResponse(error);
+      return NextResponse.json({ error: message }, { status });
     }
-
-    // Clean the store URL to ensure proper format
-    const cleanStoreUrl = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
     // Fetch blogs first
     const blogsResponse = await fetch(`https://${cleanStoreUrl}/admin/api/2023-10/blogs.json`, {

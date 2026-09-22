@@ -113,9 +113,7 @@ export default function AutomationForm({
     [brandProfiles, brandId]
   );
 
-  const brandHasShopify = Boolean(
-    selectedBrand?.shopifyStoreUrl && selectedBrand?.shopifyAccessToken
-  );
+  const brandHasShopify = Boolean(selectedBrand?.shopifyStoreUrl);
 
   const topics = useMemo(
     () =>
@@ -143,10 +141,7 @@ export default function AutomationForm({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${await user.getIdToken()}`,
         },
-        body: JSON.stringify({
-          shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-          shopifyAccessToken: selectedBrand.shopifyAccessToken,
-        }),
+        body: JSON.stringify({ brandId }),
       });
 
       const payload = await response.json();

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import {
+  resolveShopifyCredentials,
+  shopifyCredentialResponse,
+} from '@/lib/shopify/credentials';
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,16 +34,24 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { articleTitle, articleId, shopifyStoreUrl, shopifyAccessToken } = body;
+    const { articleTitle, articleId } = body;
 
-    if (!articleTitle || !articleId || !shopifyStoreUrl || !shopifyAccessToken) {
-      return NextResponse.json({ 
-        error: 'Article title, ID, Shopify store URL and access token are required' 
+    if (!articleTitle || !articleId) {
+      return NextResponse.json({
+        error: 'Article title and ID are required'
       }, { status: 400 });
     }
 
-    // Clean the store URL to ensure proper format
-    const cleanStoreUrl = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    let cleanStoreUrl: string;
+    let shopifyAccessToken: string;
+    try {
+      const credentials = await resolveShopifyCredentials(decodedToken.uid, body);
+      cleanStoreUrl = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      const { error: message, status } = shopifyCredentialResponse(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
     // Generate the detailed prompt
     const prompt = `Create a cinematic, hyper-realistic horizontal image (16:9 aspect ratio) inspired by the article title: "${articleTitle}".

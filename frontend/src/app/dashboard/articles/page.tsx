@@ -136,8 +136,8 @@ export default function ArticlesPage() {
     }
 
     const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
-    if (!selectedProfile?.shopifyStoreUrl || !selectedProfile?.shopifyAccessToken) {
-      toast.error('Shopify credentials not found for selected brand profile');
+    if (!selectedProfile?.shopifyStoreUrl) {
+      toast.error('No Shopify store URL on the selected brand profile');
       return;
     }
 
@@ -156,8 +156,7 @@ export default function ArticlesPage() {
         },
         body: JSON.stringify({
           searchTerm: term.trim(),
-          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
-          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          brandId: selectedProfile.id,
           cursor: loadMore ? pagination.products.endCursor : null
         })
       });
@@ -205,8 +204,8 @@ export default function ArticlesPage() {
     }
 
     const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
-    if (!selectedProfile?.shopifyStoreUrl || !selectedProfile?.shopifyAccessToken) {
-      toast.error('Shopify credentials not found for selected brand profile');
+    if (!selectedProfile?.shopifyStoreUrl) {
+      toast.error('No Shopify store URL on the selected brand profile');
       return;
     }
 
@@ -225,8 +224,7 @@ export default function ArticlesPage() {
         },
         body: JSON.stringify({
           searchTerm: term.trim(),
-          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
-          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          brandId: selectedProfile.id,
           cursor: loadMore ? pagination.collections.endCursor : null
         })
       });
@@ -274,8 +272,8 @@ export default function ArticlesPage() {
     }
 
     const selectedProfile = brandProfiles.find(p => p.id === selectedBrandId);
-    if (!selectedProfile?.shopifyStoreUrl || !selectedProfile?.shopifyAccessToken) {
-      toast.error('Shopify credentials not found for selected brand profile');
+    if (!selectedProfile?.shopifyStoreUrl) {
+      toast.error('No Shopify store URL on the selected brand profile');
       return;
     }
 
@@ -294,8 +292,7 @@ export default function ArticlesPage() {
         },
         body: JSON.stringify({
           searchTerm: term.trim(),
-          shopifyStoreUrl: selectedProfile.shopifyStoreUrl,
-          shopifyAccessToken: selectedProfile.shopifyAccessToken,
+          brandId: selectedProfile.id,
           cursor: loadMore ? pagination.pages.endCursor : null
         })
       });
@@ -635,8 +632,8 @@ export default function ArticlesPage() {
               instructions,
               brandGuidelines: selectedProfile.brandGuidelines || '',
               contentSelection,
-              shopifyStoreUrl: selectedProfile.shopifyStoreUrl || '',
-              shopifyAccessToken: selectedProfile.shopifyAccessToken || '',
+              // Shopify credentials are resolved server-side from the brand.
+              brandId: selectedProfile.id,
               websiteUrl: selectedProfile.websiteUrl || '',
               brandColor: selectedProfile.brandColor || '#000000',
             }),
@@ -906,7 +903,7 @@ export default function ArticlesPage() {
 
   const fetchShopifyBlogs = async (brandId: string) => {
     const selectedBrand = brandProfiles.find(p => p.id === brandId);
-    if (!selectedBrand?.shopifyStoreUrl || !selectedBrand?.shopifyAccessToken) {
+    if (!selectedBrand?.shopifyStoreUrl) {
       return;
     }
 
@@ -918,10 +915,7 @@ export default function ArticlesPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await user?.getIdToken()}`,
         },
-        body: JSON.stringify({
-          shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-          shopifyAccessToken: selectedBrand.shopifyAccessToken,
-        }),
+        body: JSON.stringify({ brandId: selectedBrand.id }),
       });
 
       if (response.ok) {
@@ -951,8 +945,8 @@ export default function ArticlesPage() {
     }
 
     const selectedBrand = brandProfiles.find(profile => profile.id === selectedBrandId);
-    if (!selectedBrand?.shopifyStoreUrl || !selectedBrand?.shopifyAccessToken) {
-      toast.error('Shopify store URL and access token are required. Please update your brand profile.');
+    if (!selectedBrand?.shopifyStoreUrl) {
+      toast.error('A Shopify store URL is required. Please update your brand profile.');
       return;
     }
 
@@ -971,8 +965,7 @@ export default function ArticlesPage() {
             'Authorization': `Bearer ${await user?.getIdToken()}`,
           },
           body: JSON.stringify({
-            shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-            shopifyAccessToken: selectedBrand.shopifyAccessToken,
+            brandId: selectedBrand.id,
             blogId: selectedBlogId,
             article: {
               title: article.title,
@@ -2144,7 +2137,7 @@ export default function ArticlesPage() {
               {/* Shopify Connection Status */}
               {(() => {
                 const selectedBrand = brandProfiles.find(profile => profile.id === selectedBrandId);
-                const hasShopifyCredentials = selectedBrand?.shopifyStoreUrl && selectedBrand?.shopifyAccessToken;
+                const hasShopifyCredentials = Boolean(selectedBrand?.shopifyStoreUrl);
                 
                 if (!selectedBrand) {
                   return (
@@ -2361,8 +2354,7 @@ export default function ArticlesPage() {
                   isPushingToShopify ||
                   !selectedBrandId ||
                   !selectedBlogId ||
-                  !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl ||
-                  !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyAccessToken
+                  !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl
                 }
                 className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -2374,8 +2366,8 @@ export default function ArticlesPage() {
                   ? 'Select a brand profile first'
                   : !selectedBlogId
                   ? 'Select a blog to publish to'
-                  : !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl || !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyAccessToken
-                  ? 'Shopify credentials required'
+                  : !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl
+                  ? 'Shopify store URL required'
                   : `Push ${selectedArticleIds.length} article${selectedArticleIds.length !== 1 ? 's' : ''} to Shopify`
                 }
               </button>

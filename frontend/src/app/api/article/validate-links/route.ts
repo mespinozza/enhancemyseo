@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import {
+  resolveShopifyCredentials,
+  shopifyCredentialResponse,
+} from '@/lib/shopify/credentials';
 
 initializeFirebaseAdmin();
 
@@ -17,6 +21,8 @@ const SAFE_HANDLE = /^[a-zA-Z0-9._~%-]+$/;
 type Kind = 'product' | 'collection' | 'page';
 
 interface RequestBody {
+  /** Preferred: credentials are looked up server-side from the brand profile. */
+  brandId?: string;
   shopifyStoreUrl?: string;
   shopifyAccessToken?: string;
   links?: Array<{ kind?: string; handle?: string }>;
@@ -36,20 +42,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    let uid: string;
     try {
       const verified = await getAuth().verifyIdToken(authHeader.split('Bearer ')[1]);
       if (!verified.uid) throw new Error('Invalid token');
+      uid = verified.uid;
     } catch {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
     const body = (await request.json()) as RequestBody;
-    const { shopifyStoreUrl, shopifyAccessToken } = body;
 
-    if (!shopifyStoreUrl || !shopifyAccessToken) {
+    let shopDomain: string;
+    let shopifyAccessToken: string;
+    try {
+      const credentials = await resolveShopifyCredentials(uid, body);
+      shopDomain = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      const { error: message, status } = shopifyCredentialResponse(error);
       return NextResponse.json(
-        { error: 'This article\u2019s brand has no Shopify connection configured.' },
-        { status: 400 },
+        { error: message === 'Missing required field: brandId or shopifyStoreUrl'
+            ? 'This article\u2019s brand has no Shopify connection configured.'
+            : message },
+        { status },
       );
     }
 
@@ -68,7 +84,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ resources: [] });
     }
 
-    const shopDomain = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
     const needsPages = targets.some((target) => target.kind === 'page');
 
     // Aliased sub-queries let every handle resolve in a single round trip.

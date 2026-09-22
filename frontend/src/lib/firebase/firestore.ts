@@ -877,7 +877,9 @@ export const historyOperations = createGenericOperations<HistoryItem>('history')
 
 // New: Integration detection utilities
 export function detectIntegrationType(brandProfile: BrandProfile): IntegrationType {
-  const hasShopify = !!(brandProfile.shopifyStoreUrl && brandProfile.shopifyAccessToken);
+  // A saved token is no longer required. Stores reached through the Dev Dashboard app
+  // have one minted per request, so the store URL is what says "this is a Shopify brand".
+  const hasShopify = !!brandProfile.shopifyStoreUrl;
   const hasWebsite = !!brandProfile.websiteUrl;
   
   if (hasShopify && hasWebsite) return 'both';

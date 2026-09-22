@@ -894,7 +894,7 @@ ${blog.content || '<!-- No content available -->'}
   // Fetch Shopify blogs for selected brand
   const fetchShopifyBlogs = async (brandId: string) => {
     const selectedBrand = brandProfiles.find(profile => profile.id === brandId);
-    if (!selectedBrand?.shopifyStoreUrl || !selectedBrand?.shopifyAccessToken) {
+    if (!selectedBrand?.shopifyStoreUrl) {
       return;
     }
 
@@ -906,10 +906,7 @@ ${blog.content || '<!-- No content available -->'}
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await user?.getIdToken()}`,
         },
-        body: JSON.stringify({
-          shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-          shopifyAccessToken: selectedBrand.shopifyAccessToken,
-        }),
+        body: JSON.stringify({ brandId: selectedBrand.id }),
       });
 
       if (response.ok) {
@@ -979,8 +976,8 @@ ${blog.content || '<!-- No content available -->'}
     }
 
     const selectedBrand = brandProfiles.find(profile => profile.id === selectedBrandId);
-    if (!selectedBrand?.shopifyStoreUrl || !selectedBrand?.shopifyAccessToken) {
-      toast.error('Selected brand profile needs Shopify store URL and access token. Please update the brand profile.');
+    if (!selectedBrand?.shopifyStoreUrl) {
+      toast.error('Selected brand profile needs a Shopify store URL. Please update the brand profile.');
       return;
     }
 
@@ -1014,8 +1011,7 @@ ${blog.content || '<!-- No content available -->'}
             'Authorization': `Bearer ${await user?.getIdToken()}`,
           },
           body: JSON.stringify({
-            shopifyStoreUrl: selectedBrand.shopifyStoreUrl,
-            shopifyAccessToken: selectedBrand.shopifyAccessToken,
+            brandId: selectedBrand.id,
             blogId: selectedBlogId,
             article: {
               title: article.title,
@@ -1872,8 +1868,7 @@ ${blog.content || '<!-- No content available -->'}
                   isPushingToShopify ||
                   !selectedBrandId ||
                   !selectedBlogId ||
-                  !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl ||
-                  !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyAccessToken
+                  !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl
                 }
                 className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1885,8 +1880,8 @@ ${blog.content || '<!-- No content available -->'}
                   ? 'Select a brand profile first'
                   : !selectedBlogId
                   ? 'Select a blog to publish to'
-                  : !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl || !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyAccessToken
-                  ? 'Shopify credentials required'
+                  : !brandProfiles.find(p => p.id === selectedBrandId)?.shopifyStoreUrl
+                  ? 'Shopify store URL required'
                   : `Push ${selectedArticleIds.length} article${selectedArticleIds.length !== 1 ? 's' : ''} to Shopify`
                 }
               </button>

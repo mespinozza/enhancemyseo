@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import {
+  resolveShopifyCredentials,
+  shopifyCredentialResponse,
+} from '@/lib/shopify/credentials';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
 
 interface ShopifyBlogsRequest {
-  shopifyStoreUrl: string;
-  shopifyAccessToken: string;
+  /** Preferred: credentials are looked up server-side from the brand profile. */
+  brandId?: string;
+  shopifyStoreUrl?: string;
+  shopifyAccessToken?: string;
 }
 
 export async function POST(request: Request) {
@@ -27,28 +33,16 @@ export async function POST(request: Request) {
 
     // Parse request body
     const body: ShopifyBlogsRequest = await request.json();
-    const { shopifyStoreUrl, shopifyAccessToken } = body;
 
-    // Validate required fields
-    if (!shopifyStoreUrl || !shopifyAccessToken) {
-      return NextResponse.json(
-        { error: 'Missing required fields: shopifyStoreUrl or shopifyAccessToken' },
-        { status: 400 }
-      );
-    }
-
-    // Clean up the store URL to get the shop domain
-    let shopDomain = shopifyStoreUrl;
-    if (shopDomain.includes('://')) {
-      shopDomain = shopDomain.split('://')[1];
-    }
-    if (shopDomain.endsWith('/')) {
-      shopDomain = shopDomain.slice(0, -1);
-    }
-    if (!shopDomain.endsWith('.myshopify.com')) {
-      if (!shopDomain.includes('.')) {
-        shopDomain = `${shopDomain}.myshopify.com`;
-      }
+    let shopDomain: string;
+    let shopifyAccessToken: string;
+    try {
+      const credentials = await resolveShopifyCredentials(decodedToken.uid, body);
+      shopDomain = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      const { error: message, status } = shopifyCredentialResponse(error);
+      return NextResponse.json({ error: message }, { status });
     }
 
     // Fetch blogs from Shopify

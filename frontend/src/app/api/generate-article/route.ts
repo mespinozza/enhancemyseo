@@ -5,7 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
-import { ensureCompleteElement, ensureHTMLFormat } from '@/lib/article/rewrite';
+import { resolveShopifyCredentials } from '@/lib/shopify/credentials';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -349,6 +349,7 @@ function expandToCompleteElement(content: string, partialText: string): string {
   
   // Find the opening tag before this text
   let startIndex = index;
+  let depth = 0;
   let foundStart = false;
   
   // Walk backwards to find the containing <p>, <li>, <td>, or <div>
@@ -533,7 +534,7 @@ The replacement must read as a polished, standalone paragraph that could appear 
 
   try {
     const message = await anthropicClient.messages.create({
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
       messages: [
         {
@@ -543,8 +544,7 @@ The replacement must read as a polished, standalone paragraph that could appear 
       ]
     });
 
-    const rewriteBlock = message.content.find((b) => b.type === 'text');
-    let rewrittenContent = (rewriteBlock && rewriteBlock.type === 'text' ? rewriteBlock.text : '');
+    let rewrittenContent = message.content[0].type === 'text' ? message.content[0].text : '';
     
     // Clean up the response
     rewrittenContent = rewrittenContent.trim();
@@ -631,8 +631,25 @@ The replacement must read as a polished, standalone paragraph that could appear 
 /**
  * Ensures the content is wrapped in a complete HTML element
  */
-// ensureCompleteElement and ensureHTMLFormat now live in @/lib/article/rewrite so the
-// fact-check loop and the article editor share one implementation.
+function ensureCompleteElement(content: string, expectedTag: string): string {
+  const trimmed = content.trim();
+  const openTag = `<${expectedTag}`;
+  const closeTag = `</${expectedTag}>`;
+  
+  // Check if it already has the correct structure
+  if (trimmed.toLowerCase().startsWith(openTag.toLowerCase()) && 
+      trimmed.toLowerCase().endsWith(closeTag.toLowerCase())) {
+    return trimmed;
+  }
+  
+  // If it starts with a different tag, leave it alone (AI made a choice)
+  if (trimmed.startsWith('<') && trimmed.match(/^<[a-z]/i)) {
+    return trimmed;
+  }
+  
+  // Wrap in the expected tag
+  return `<${expectedTag}>${trimmed}</${expectedTag}>`;
+}
 
 /**
  * Fallback: Ask Claude to identify the problematic section AND rewrite it
@@ -678,7 +695,7 @@ CRITICAL RULES:
 
   try {
     const message = await anthropicClient.messages.create({
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
       messages: [
         {
@@ -688,8 +705,7 @@ CRITICAL RULES:
       ]
     });
 
-    const responseBlock = message.content.find((b) => b.type === 'text');
-    const response = (responseBlock && responseBlock.type === 'text' ? responseBlock.text : '');
+    const response = message.content[0].type === 'text' ? message.content[0].text : '';
     
     // Parse the response
     const originalMatch = response.match(/<original>([\s\S]*?)<\/original>/);
@@ -750,7 +766,54 @@ CRITICAL RULES:
   }
 }
 
-// ensureHTMLFormat imported from @/lib/article/rewrite
+/**
+ * Ensures the rewritten content maintains proper HTML format
+ * Fixes common issues like Markdown syntax or missing tags
+ */
+function ensureHTMLFormat(content: string, originalContent: string): string {
+  let result = content.trim();
+  
+  // Remove code block wrappers if accidentally added
+  result = result.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
+  
+  // Convert any Markdown that slipped through to HTML
+  // Bold: **text** or __text__ -> <strong>text</strong>
+  result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  result = result.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  
+  // Italic: *text* or _text_ -> <em>text</em>
+  result = result.replace(/(?<![*_])\*([^*]+)\*(?![*_])/g, '<em>$1</em>');
+  result = result.replace(/(?<![*_])_([^_]+)_(?![*_])/g, '<em>$1</em>');
+  
+  // Headers: # Header -> <h2>Header</h2>
+  result = result.replace(/^######\s*(.+)$/gm, '<h6>$1</h6>');
+  result = result.replace(/^#####\s*(.+)$/gm, '<h5>$1</h5>');
+  result = result.replace(/^####\s*(.+)$/gm, '<h4>$1</h4>');
+  result = result.replace(/^###\s*(.+)$/gm, '<h3>$1</h3>');
+  result = result.replace(/^##\s*(.+)$/gm, '<h2>$1</h2>');
+  result = result.replace(/^#\s*(.+)$/gm, '<h1>$1</h1>');
+  
+  // Lists: - item -> <li>item</li>
+  result = result.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+  
+  // Detect what HTML structure the original had
+  const originalStartTag = originalContent.match(/^<([a-z][a-z0-9]*)\b/i)?.[1];
+  const resultStartTag = result.match(/^<([a-z][a-z0-9]*)\b/i)?.[1];
+  
+  // If original started with a tag but result doesn't, wrap it
+  if (originalStartTag && !resultStartTag) {
+    // Check if it's a simple inline replacement or full element
+    if (originalContent.includes(`</${originalStartTag}>`)) {
+      result = `<${originalStartTag}>${result}</${originalStartTag}>`;
+    }
+  }
+  
+  // Clean up any double-wrapped tags
+  result = result.replace(/<p>\s*<p>/g, '<p>');
+  result = result.replace(/<\/p>\s*<\/p>/g, '</p>');
+  
+  return result;
+}
 
 /**
  * Applies the rewritten content back to the original article
@@ -1133,7 +1196,9 @@ function parseKeywordByConnectors(keyword: string): ParsedKeyword {
   ];
   
   // Try to split the keyword by connectors
-  const segments: KeywordSegment[] = [];
+  let segments: KeywordSegment[] = [];
+  let remainingText = keyword;
+  let position = 0;
   
   // Find all connector positions
   interface ConnectorMatch {
@@ -1476,14 +1541,14 @@ Keyword: "${keyword}"
 Answer:`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 50,
       messages: [
         { role: 'user', content: fallbackPrompt }
       ]
     });
     
-    const contentBlock = response.content.find((b) => b.type === 'text') ?? response.content[0];
+    const contentBlock = response.content[0];
     const detectedVendor = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || 'NONE';
     console.log(`Claude fallback detected vendor: "${detectedVendor}"`);
     
@@ -1660,14 +1725,14 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     `;
     
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 250,  // Increased for JSON response
       messages: [
         { role: 'user', content: extractionPrompt }
       ]
     });
     
-    const contentBlock = response.content.find((b) => b.type === 'text') ?? response.content[0];
+    const contentBlock = response.content[0];
     let responseText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
     
     // 🆕 Parse JSON response to extract AI-detected primary product and components
@@ -2185,26 +2250,6 @@ async function findVendorCollection(shopDomain: string, token: string, vendorNam
   }
 }
 
-interface CollectionProductsPayload {
-  data?: {
-    collection?: {
-      products?: {
-        edges?: Array<{
-          node: {
-            id: string;
-            title: string;
-            handle: string;
-            description?: string;
-            vendor?: string;
-            productType?: string;
-          };
-        }>;
-        pageInfo: { hasNextPage: boolean; endCursor: string | null };
-      };
-    };
-  };
-}
-
 /**
  * Fetch products directly from a collection (paginated)
  * Much faster than searching term-by-term
@@ -2246,6 +2291,8 @@ async function fetchProductsFromCollection(
     const pageSize = Math.min(50, maxProducts);
     
     while (hasNextPage && products.length < maxProducts) {
+      // Annotated because the request body reads `cursor`, which is written from this
+      // same response: without it TypeScript sees a circular inference and gives up.
       const response: Response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
@@ -2266,10 +2313,10 @@ async function fetchProductsFromCollection(
         break;
       }
       
-      // Annotated because cursor is reassigned from this payload and then read back
-      // by the next iteration's request, which TypeScript sees as circular inference.
-      const data: CollectionProductsPayload = await response.json();
-      const collectionData = data.data?.collection;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = await response.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const collectionData: any = data.data?.collection;
       
       if (!collectionData?.products?.edges) break;
       
@@ -5132,7 +5179,7 @@ function sanitizeMarkdownToHTML(html: string): string {
   // 5. Fix Markdown unordered lists (- item or * item at start of line)
   // Only if not already in a list context
   const listItemPattern = /(?:^|\n)\s*[-*]\s+([^\n]+)/g;
-  const listMatches = result.match(listItemPattern);
+  let listMatches = result.match(listItemPattern);
   if (listMatches && listMatches.length > 0 && !result.includes('<ul>') && !result.includes('<li>')) {
     // Convert to HTML list
     result = result.replace(/(?:(?:^|\n)\s*[-*]\s+([^\n]+))+/g, (match) => {
@@ -5267,7 +5314,7 @@ function hasComplexHTMLIssues(html: string): boolean {
 /**
  * Main validation function - hybrid approach with fast regex + AI for complex cases
  */
-async function validateAndCleanHTML(htmlContent: string, anthropic: Anthropic): Promise<string> {
+async function validateAndCleanHTML(htmlContent: string, anthropic: any): Promise<string> {
   console.log('📊 Original content length:', htmlContent.length);
   
   let cleaned = htmlContent;
@@ -5322,13 +5369,12 @@ HTML to clean:
 ${cleaned}`;
 
       const response = await anthropic.messages.create({
-        model: "claude-sonnet-5",
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 16000,
         messages: [{ role: "user", content: cleanupPrompt }]
       });
       
-      const textBlock = response.content.find((b) => b.type === 'text') ?? response.content[0];
-      cleaned = textBlock.type === 'text' ? textBlock.text : '';
+      cleaned = response.content[0].text;
       console.log('✅ AI cleanup completed');
     } catch (error) {
       console.error('❌ AI cleanup failed, using regex-cleaned version:', error);
@@ -5453,10 +5499,25 @@ export async function POST(request: Request) {
       toneOfVoice,
       instructions,
       contentSelection,
-      shopifyStoreUrl,
-      shopifyAccessToken,
       brandColor,
     } = body;
+
+    // Shopify credentials are resolved here rather than taken from the request, so a
+    // store on a Dev Dashboard app (whose tokens last a day and are minted on demand)
+    // works the same as one with a legacy permanent token. A store that cannot be
+    // reached is not fatal: the article is still written, just without store content.
+    let shopifyStoreUrl = '';
+    let shopifyAccessToken = '';
+    try {
+      const credentials = await resolveShopifyCredentials(verifiedUser.uid, body);
+      shopifyStoreUrl = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      console.warn(
+        'No usable Shopify credentials for this generation:',
+        error instanceof Error ? error.message : error
+      );
+    }
     
     // Log key generation parameters
     log(`🎯 Keyword: "${keyword}"`);
@@ -5481,7 +5542,7 @@ export async function POST(request: Request) {
       console.log('Calling Claude API for topic breakdown');
       const claudeRes = await retryWithBackoff(
         () => anthropic.messages.create({
-          model: 'claude-sonnet-5',
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 1024,
           messages: [
             { role: 'user', content: topicBreakdownPrompt }
@@ -5489,8 +5550,8 @@ export async function POST(request: Request) {
         }),
         'Topic Breakdown Generation'
       );
-      const contentBlock = claudeRes.content.find((b) => b.type === 'text');
-      topicBreakdown = (contentBlock && contentBlock.type === 'text' ? contentBlock.text : '') || '';
+      const contentBlock = claudeRes.content[0];
+      topicBreakdown = (contentBlock.type === 'text' ? contentBlock.text : '') || '';
       log('✅ Topic breakdown generated');
       console.log('Successfully generated topic breakdown');
     } catch (err) {
@@ -6006,31 +6067,22 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
         <p style="margin: 0; color: #666;">[description]</p>
       </div>
 
-      ARTICLE STRUCTURE REQUIREMENTS (follow this exact order — no exceptions):
-      1. <h1> title
-      2. Key Takeaways table — IMMEDIATELY after the <h1>, before any introductory text
-      3. Introduction: 150-200 words introducing the topic and brand perspective
-      4. Main content: 4-5 sections of 200-250 words each covering key aspects
-      5. Conclusion: 150 words summarizing key points with call-to-action for ${brandName}
+      ARTICLE STRUCTURE REQUIREMENTS:
+      - Introduction: 150-200 words introducing the topic and brand perspective
+      - Main content: 4-5 sections of 200-250 words each covering key aspects
+      - Conclusion: 150 words summarizing key points with call-to-action for Malachy Parts Plus
       - CRITICAL: Always include a complete conclusion section - never end abruptly
-      - CRITICAL: The Key Takeaways table must come directly after the <h1> — never after the introduction
       - Target total: 1400-1500 words maximum for optimal completion
-
+      
       ${keyword.toLowerCase().match(/comparison|vs|breakdown|analysis/) ? 
         'PRIORITY: Include comparison charts and data visualizations for this topic.' : ''}
 
       Please use a lot of formatting, tables and visuals are great for ranking on Google. If there is data that can be displayed through a table or other visual, ensure its removed from the text and replaced with the visual.
+      Always include a modern styled key takeaways table at the beginning of the article listing the key points of the topic.
 
       The article should be written in a ${toneOfVoice || 'professional'} tone and framed as ${contentType}.
       This is a ${businessType} so write from the perspective of that business.
       ${instructions ? `Additional instructions:\n${instructions}` : ''}
-
-      ACCURACY RULES (verify before responding):
-      - All temperature ranges, thresholds, and technical specifications must reflect established manufacturer documentation. Do not estimate or approximate — if unsure, describe the concept generally without citing a specific figure.
-      - All statistics and percentages (e.g. "X% of cases") must be sourced from real published data. If no verified data exists, remove the statistic entirely and describe the concept qualitatively instead.
-      - All part numbers must be confirmed as valid OEM parts for the brand and model being discussed. Do not invent or guess part numbers.
-      - Do not make absolute claims about how a component behaves across all models if behavior varies by model (e.g. auto-reset vs. manual reset). Acknowledge variation where it exists.
-      - Avoid presenting speculative connections between unrelated components as established facts.
     `;
 
     // Generate content using Claude
@@ -6039,7 +6091,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       console.log('Calling Claude API for article generation');
     const message = await retryWithBackoff(
       () => anthropic.messages.create({
-        model: "claude-sonnet-5",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
       messages: [
         {
@@ -6052,11 +6104,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     );
 
       // Get the generated content from the response
-      const articleBlock = message.content.find((b) => b.type === 'text');
-      if (!articleBlock || articleBlock.type !== 'text' || !articleBlock.text) {
-        throw new Error('Claude returned no text content for article generation');
-      }
-      let generatedContent = articleBlock.text;
+      let generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
       log(`✅ Article generated (${generatedContent.length} chars)`);
       console.log('Successfully generated article content');
 

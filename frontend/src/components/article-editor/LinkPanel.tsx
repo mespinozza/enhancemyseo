@@ -13,8 +13,9 @@ import {
 } from '@/lib/article/links';
 
 interface BrandConnection {
+  /** Sent to the API, which resolves the store's credentials server-side. */
+  id?: string;
   shopifyStoreUrl?: string;
-  shopifyAccessToken?: string;
   websiteUrl?: string;
 }
 
@@ -58,7 +59,9 @@ export default function LinkPanel({
   const [isValidating, setIsValidating] = useState(false);
   const [active, setActive] = useState<ArticleLink | null>(null);
 
-  const hasConnection = Boolean(brand?.shopifyStoreUrl && brand?.shopifyAccessToken);
+  // A token is no longer part of this check: stores on a Dev Dashboard app have one
+  // minted per request, so a store URL and a brand to look it up against is enough.
+  const hasConnection = Boolean(brand?.id && brand?.shopifyStoreUrl);
 
   const validate = async () => {
     if (!hasConnection) {
@@ -73,8 +76,7 @@ export default function LinkPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          shopifyStoreUrl: brand?.shopifyStoreUrl,
-          shopifyAccessToken: brand?.shopifyAccessToken,
+          brandId: brand?.id,
           links: links.map((link) => ({ kind: link.kind, handle: link.handle })),
         }),
       });
@@ -227,8 +229,7 @@ function LinkPicker({ link, brand, getToken, onClose, onChoose }: LinkPickerProp
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          shopifyStoreUrl: brand?.shopifyStoreUrl,
-          shopifyAccessToken: brand?.shopifyAccessToken,
+          brandId: brand?.id,
           searchTerm: term.trim(),
         }),
       });

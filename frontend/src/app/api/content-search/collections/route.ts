@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import {
+  resolveShopifyCredentials,
+  shopifyCredentialResponse,
+} from '@/lib/shopify/credentials';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -35,16 +39,25 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { shopifyStoreUrl, shopifyAccessToken, searchTerm, cursor } = body;
+    const { searchTerm, cursor } = body;
 
-    if (!shopifyStoreUrl || !shopifyAccessToken || !searchTerm) {
+    if (!searchTerm) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    const shopDomain = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    let shopDomain: string;
+    let shopifyAccessToken: string;
+    try {
+      const credentials = await resolveShopifyCredentials(verifiedUser.uid, body);
+      shopDomain = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      const { error: message, status } = shopifyCredentialResponse(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
     // GraphQL query for collection search with pagination
     const graphqlQuery = `

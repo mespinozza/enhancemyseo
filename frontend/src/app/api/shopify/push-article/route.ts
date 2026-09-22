@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import {
+  resolveShopifyCredentials,
+  shopifyCredentialResponse,
+} from '@/lib/shopify/credentials';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
 
 interface ShopifyArticleRequest {
-  shopifyStoreUrl: string;
-  shopifyAccessToken: string;
+  /** Preferred: credentials are looked up server-side from the brand profile. */
+  brandId?: string;
+  shopifyStoreUrl?: string;
+  shopifyAccessToken?: string;
   blogId?: string;
   article: {
     title: string;
@@ -34,14 +40,21 @@ export async function POST(request: Request) {
 
     // Parse request body
     const body: ShopifyArticleRequest = await request.json();
-    const { shopifyStoreUrl, shopifyAccessToken, blogId: requestedBlogId, article } = body;
+    const { blogId: requestedBlogId, article } = body;
 
-    // Validate required fields
-    if (!shopifyStoreUrl || !shopifyAccessToken || !article) {
-      return NextResponse.json(
-        { error: 'Missing required fields: shopifyStoreUrl, shopifyAccessToken, or article' },
-        { status: 400 }
-      );
+    if (!article) {
+      return NextResponse.json({ error: 'Missing required field: article' }, { status: 400 });
+    }
+
+    let shopDomain: string;
+    let shopifyAccessToken: string;
+    try {
+      const credentials = await resolveShopifyCredentials(decodedToken.uid, body);
+      shopDomain = credentials.shopDomain;
+      shopifyAccessToken = credentials.accessToken;
+    } catch (error) {
+      const { error: message, status } = shopifyCredentialResponse(error);
+      return NextResponse.json({ error: message }, { status });
     }
 
     // Debug logging
@@ -62,20 +75,6 @@ export async function POST(request: Request) {
         { error: 'Article must have both title and content' },
         { status: 400 }
       );
-    }
-
-    // Clean up the store URL to get the shop domain
-    let shopDomain = shopifyStoreUrl;
-    if (shopDomain.includes('://')) {
-      shopDomain = shopDomain.split('://')[1];
-    }
-    if (shopDomain.endsWith('/')) {
-      shopDomain = shopDomain.slice(0, -1);
-    }
-    if (!shopDomain.endsWith('.myshopify.com')) {
-      if (!shopDomain.includes('.')) {
-        shopDomain = `${shopDomain}.myshopify.com`;
-      }
     }
 
     // Determine which blog to use

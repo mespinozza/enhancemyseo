@@ -18,6 +18,7 @@ interface CredentialFieldProps {
   secret?: boolean;
   inputType?: 'text' | 'url';
   placeholder?: string;
+  hint?: string;
 }
 
 function CredentialField({
@@ -28,6 +29,7 @@ function CredentialField({
   secret = false,
   inputType = 'text',
   placeholder,
+  hint,
 }: CredentialFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -99,6 +101,7 @@ function CredentialField({
           </button>
         </div>
       </div>
+      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
       {copyState !== 'idle' && (
         <p className={`mt-1 text-xs ${copyState === 'copied' ? 'text-green-600' : 'text-red-600'}`}>
           {copyState === 'copied'
@@ -260,7 +263,7 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
           
           {/* Integration Status Indicator */}
           {(() => {
-            const hasCompleteShopify = formData.shopifyStoreUrl && formData.shopifyAccessToken;
+            const hasCompleteShopify = Boolean(formData.shopifyStoreUrl);
             const hasWebsiteUrl = formData.websiteUrl;
             
             if (hasCompleteShopify && hasWebsiteUrl) {
@@ -301,19 +304,21 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
               onChange={handleChange}
               inputType="url"
               placeholder="https://your-store.myshopify.com"
+              hint="The only field this needs for stores reached through our Shopify app."
             />
 
             <CredentialField
               name="shopifyAccessToken"
-              label="Shopify Access Token"
+              label="Shopify Access Token (optional)"
               value={formData.shopifyAccessToken}
               onChange={handleChange}
               secret
+              hint="Only for stores with an older custom app that issued a permanent shpat_ token. Leave it blank otherwise — access is requested per call."
             />
 
             <CredentialField
               name="shopifyApiKey"
-              label="Shopify API Key"
+              label="Shopify API Key (unused)"
               value={formData.shopifyApiKey}
               onChange={handleChange}
               secret
@@ -321,7 +326,7 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
 
             <CredentialField
               name="shopifyApiSecret"
-              label="Shopify API Secret"
+              label="Shopify API Secret (unused)"
               value={formData.shopifyApiSecret}
               onChange={handleChange}
               secret
