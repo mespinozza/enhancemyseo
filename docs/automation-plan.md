@@ -219,11 +219,10 @@ npm run automation:cron
 */5 * * * *
 ```
 
-   Every 5 minutes keeps the feedback loop short while testing, since an automation only
-   starts at the first tick after it becomes due — on a 15-minute cadence a "test in 5
-   minutes" can take 15. Widening it to `*/15 * * * *` later costs nothing but patience.
-   The tick is cheap either way: it claims work and exits in about a second, and a
-   concurrent batch is skipped rather than duplicated.
+   An automation starts at the first tick after it becomes due, so this interval is also
+   the worst-case lateness for a scheduled run. Widening it to `*/15 * * * *` costs
+   nothing but punctuality. The tick is cheap either way: it claims work and exits in
+   about a second, and a concurrent batch is skipped rather than duplicated.
 
    Give it `CRON_SECRET` (same value as the web service) and `AUTOMATION_TICK_URL` set to
    the web service's URL. The script is plain JavaScript run by `node` so the cron

@@ -79,36 +79,6 @@ export async function setAutomationEnabled(
   });
 }
 
-/**
- * Makes an automation due shortly so the real cron path runs it, browser closed or not.
- *
- * Run now proves the server finishes work without the tab open, but it bypasses the
- * scheduler entirely. This is the only way to check the parts Run now never touches:
- * that the cron service fires, that the due query finds the automation, and that
- * claiming works. Waiting for the configured hour to find that out is a day-long
- * feedback loop.
- *
- * Safe to use repeatedly: claiming overwrites `nextRunAt` from the stored schedule, so
- * the normal cadence resumes by itself after the test run.
- */
-export async function scheduleTestRun(
-  automation: Automation,
-  minutesFromNow: number
-): Promise<Date> {
-  const dueAt = new Date(Date.now() + minutesFromNow * 60_000);
-
-  await updateDoc(doc(db, AUTOMATIONS_COLLECTION, automation.id as string), {
-    // The due query only considers enabled automations, so a paused one would never
-    // be picked up and the test would silently prove nothing.
-    enabled: true,
-    nextRunAt: Timestamp.fromDate(dueAt),
-    claimedAt: null,
-    updatedAt: serverTimestamp(),
-  });
-
-  return dueAt;
-}
-
 export async function deleteAutomation(automationId: string): Promise<void> {
   await deleteDoc(doc(db, AUTOMATIONS_COLLECTION, automationId));
 }
