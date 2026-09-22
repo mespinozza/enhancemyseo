@@ -18,7 +18,17 @@ import {
   localHourToUtc,
   utcHourToLocal,
 } from '../src/lib/automation/schedule';
-import { rankGscCandidates, rotateTopics, type QueryRow } from '../src/lib/automation/selection';
+import {
+  collectPageCandidates,
+  collectQueryCandidates,
+  eligibleCandidates,
+  rankGscCandidates,
+  rankGscPageCandidates,
+  rotateTopics,
+  shortenPage,
+  type PageQueryRow,
+  type QueryRow,
+} from '../src/lib/automation/selection';
 import type { AutomationGscConfig, AutomationSchedule } from '../src/lib/automation/types';
 
 let passed = 0;
@@ -237,7 +247,98 @@ console.log('\nSearch Console ranking');
     rankGscCandidates([{ query: '   ', clicks: 500, impressions: 1, position: 1 }], config, new Set(), 3)
       .length === 0
   );
+
+  // The preview shows rejects as well, so the user can see why a list came back short.
+  const previewed = collectQueryCandidates(rows, config, new Set(['freezer door gasket']));
+  check('the preview keeps every row', previewed.length === rows.length);
+  check('the preview is ranked', previewed[0]?.keyword === 'walk in cooler not cooling');
+  check(
+    'the preview flags a term below the threshold',
+    previewed.find((c) => c.keyword === 'barely searched thing')?.belowThreshold === true
+  );
+  check(
+    'the preview flags a term that already has an article',
+    previewed.find((c) => c.keyword === 'freezer door gasket')?.covered === true
+  );
+  check(
+    'the eligible set matches what a run would take',
+    eligibleCandidates(previewed).map((c) => c.keyword).join(',') ===
+      rankGscCandidates(rows, config, new Set(['freezer door gasket']), 99)
+        .map((c) => c.keyword)
+        .join(',')
+  );
 }
+
+console.log('\nSearch Console ranking by page');
+{
+  const config: AutomationGscConfig = {
+    siteUrl: 'sc-domain:example.com',
+    dimension: 'page',
+    metric: 'clicks',
+    lookbackDays: 30,
+    minMetric: 10,
+  };
+
+  const rows: PageQueryRow[] = [
+    // 130 clicks across two terms; the page wins on the total, not on either term alone.
+    { page: 'https://example.com/guides/coolers', query: 'walk in cooler repair', clicks: 70, impressions: 2000, position: 6 },
+    { page: 'https://example.com/guides/coolers', query: 'cooler not cooling', clicks: 60, impressions: 1000, position: 14 },
+    { page: 'https://example.com/guides/gaskets', query: 'freezer door gasket', clicks: 90, impressions: 500, position: 4 },
+    { page: 'https://example.com/quiet', query: 'obscure part number', clicks: 2, impressions: 30, position: 50 },
+  ];
+
+  const ranked = collectPageCandidates(rows, config, new Set());
+  check('totals a page across its terms', ranked[0]?.clicks === 130);
+  check('the busiest page comes first', ranked[0]?.page === 'https://example.com/guides/coolers');
+  check('the topic is the page\'s best term', ranked[0]?.keyword === 'walk in cooler repair');
+  check(
+    'position is weighted by impressions, not a flat average',
+    Math.abs((ranked[0]?.position ?? 0) - (6 * 2000 + 14 * 1000) / 3000) < 0.001
+  );
+  check('a quiet page is flagged, not dropped', ranked[2]?.belowThreshold === true);
+  check(
+    'the reason names the page and the term',
+    Boolean(
+      ranked[0]?.reason.includes('/guides/coolers') &&
+        ranked[0]?.reason.includes('walk in cooler repair')
+    )
+  );
+
+  const choices = rankGscPageCandidates(rows, config, new Set(), 5);
+  check('only pages over the threshold are written', choices.length === 2);
+  check('an article already written for the top term is skipped',
+    rankGscPageCandidates(rows, config, new Set(['walk in cooler repair']), 1)[0]?.keyword ===
+      'freezer door gasket'
+  );
+
+  // Two pages chasing the same term would otherwise produce the same article twice.
+  const contested: PageQueryRow[] = [
+    { page: 'https://example.com/a', query: 'shared term', clicks: 100, impressions: 900, position: 3 },
+    { page: 'https://example.com/b', query: 'shared term', clicks: 40, impressions: 400, position: 9 },
+  ];
+  const deduped = rankGscPageCandidates(contested, config, new Set(), 5);
+  check('a contested term is only written once', deduped.length === 1);
+  check('the bigger page keeps it', deduped[0]?.reason.includes('/a'));
+  check(
+    'the loser is visible in the preview',
+    collectPageCandidates(contested, config, new Set())[1]?.duplicate === true
+  );
+
+  const byImpressions = collectPageCandidates(rows, { ...config, metric: 'impressions' }, new Set());
+  check('switching the metric reorders pages', byImpressions[0]?.impressions === 3000);
+
+  check('rows with no page are ignored', collectPageCandidates(
+    [{ page: '  ', query: 'x', clicks: 10, impressions: 10, position: 1 }],
+    config,
+    new Set()
+  ).length === 0);
+  check('no rows yields nothing', collectPageCandidates([], config, new Set()).length === 0);
+}
+
+console.log('\nPage display');
+check('a URL shortens to its path', shortenPage('https://example.com/guides/coolers') === '/guides/coolers');
+check('a home page shows the host', shortenPage('https://example.com/') === 'example.com');
+check('a non-URL is left alone', shortenPage('not a url') === 'not a url');
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

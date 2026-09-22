@@ -64,9 +64,21 @@ export interface AutomationSchedule {
   displayTimeZone?: string;
 }
 
+/**
+ * Whether traffic is judged per search term or per landing page.
+ *
+ * Pages still produce a search term to write about — the page's own best-performing
+ * query — because that is what the article generator takes. The difference is what the
+ * traffic is measured on: 'query' finds terms that are big on their own, 'page' finds
+ * the pages pulling the most traffic and writes around what they already rank for.
+ */
+export type AutomationGscDimension = 'query' | 'page';
+
 export interface AutomationGscConfig {
   /** Property as Search Console reports it, e.g. 'sc-domain:example.com'. */
   siteUrl: string;
+  /** Older automations predate this and are read as 'query'. */
+  dimension?: AutomationGscDimension;
   /** Which metric decides "high traffic". */
   metric: 'clicks' | 'impressions';
   lookbackDays: number;
@@ -76,6 +88,7 @@ export interface AutomationGscConfig {
 
 export const DEFAULT_GSC_CONFIG: AutomationGscConfig = {
   siteUrl: '',
+  dimension: 'query',
   metric: 'clicks',
   lookbackDays: 30,
   minMetric: 10,

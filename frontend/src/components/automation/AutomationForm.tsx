@@ -19,8 +19,10 @@ import {
   type AutomationDraft,
   type AutomationFrequency,
   type AutomationGscConfig,
+  type AutomationGscDimension,
   type AutomationTrigger,
 } from '@/lib/automation/types';
+import { shortenPage, type GscCandidate } from '@/lib/automation/selection';
 import {
   WEEKDAY_NAMES,
   formatHour,
@@ -49,6 +51,15 @@ interface GscStatus {
   error?: string;
 }
 
+interface GscPreview {
+  dimension: AutomationGscDimension;
+  metric: AutomationGscConfig['metric'];
+  lookbackDays: number;
+  totalCandidates: number;
+  eligibleCount: number;
+  candidates: GscCandidate[];
+}
+
 const inputClass =
   'mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500';
 const labelClass = 'block text-sm font-medium text-gray-700';
@@ -70,6 +81,9 @@ export default function AutomationForm({
   const [gscStatus, setGscStatus] = useState<GscStatus | null>(null);
   const [gscLoading, setGscLoading] = useState(false);
   const [gscCheckError, setGscCheckError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<GscPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [frequency, setFrequency] = useState<AutomationFrequency>(
     existing?.schedule.frequency || 'weekly'
   );
@@ -181,6 +195,45 @@ export default function AutomationForm({
     if (trigger === 'gscTraffic') void loadGscStatus();
   }, [trigger, loadGscStatus]);
 
+  const loadPreview = useCallback(async () => {
+    if (!user || !brandId || !gsc.siteUrl) return;
+
+    setPreviewLoading(true);
+    try {
+      const response = await fetch('/api/gsc/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({ brandId, ...gsc }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not read your traffic');
+      setPreview(payload as GscPreview);
+      setPreviewError(null);
+    } catch (error) {
+      console.error('Error previewing Search Console traffic:', error);
+      setPreview(null);
+      setPreviewError(error instanceof Error ? error.message : 'Could not read your traffic');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [user, brandId, gsc]);
+
+  // Debounced because the threshold is a number input: typing "150" would otherwise fire
+  // three Search Console calls, and they are neither free nor fast.
+  useEffect(() => {
+    if (trigger !== 'gscTraffic' || !gscStatus?.connected || !gsc.siteUrl) {
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
+
+    const timer = setTimeout(() => void loadPreview(), 400);
+    return () => clearTimeout(timer);
+  }, [trigger, gscStatus?.connected, gsc.siteUrl, loadPreview]);
+
   const toggleDay = (day: number) => {
     setDaysOfWeek((previous) =>
       previous.includes(day) ? previous.filter((entry) => entry !== day) : [...previous, day].sort()
@@ -234,7 +287,9 @@ export default function AutomationForm({
       trigger,
       topics,
       topicCursor: existing?.topicCursor ?? 0,
-      ...(trigger === 'gscTraffic' ? { gsc } : {}),
+      // Defaulted rather than left undefined: Firestore rejects undefined fields, and an
+      // automation saved before the page option existed ranks by query.
+      ...(trigger === 'gscTraffic' ? { gsc: { ...gsc, dimension: gsc.dimension || 'query' } } : {}),
       schedule: {
         frequency,
         hourUtc: localHourToUtc(hourLocal),
@@ -481,10 +536,35 @@ export default function AutomationForm({
                 </select>
               </div>
 
+              <div>
+                <label htmlFor="automation-gsc-dimension" className={labelClass}>
+                  Pick topics from
+                </label>
+                <select
+                  id="automation-gsc-dimension"
+                  value={gsc.dimension || 'query'}
+                  onChange={(event) =>
+                    setGsc({
+                      ...gsc,
+                      dimension: event.target.value as AutomationGscDimension,
+                    })
+                  }
+                  className={inputClass}
+                >
+                  <option value="query">Search terms</option>
+                  <option value="page">Pages</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {(gsc.dimension || 'query') === 'page'
+                    ? 'Finds the pages pulling the most traffic and writes about the term each one ranks best for.'
+                    : 'Finds the individual search terms bringing in the most traffic.'}
+                </p>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
                   <label htmlFor="automation-gsc-metric" className={labelClass}>
-                    Rank terms by
+                    Measure traffic in
                   </label>
                   <select
                     id="automation-gsc-metric"
@@ -532,6 +612,115 @@ export default function AutomationForm({
                   </select>
                 </div>
               </div>
+
+              {gsc.siteUrl && (
+                <div className="rounded-md border border-gray-200">
+                  <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        What it would write next
+                      </p>
+                      {preview && (
+                        <p className="text-xs text-gray-500">
+                          {preview.eligibleCount} of {preview.totalCandidates}{' '}
+                          {preview.dimension === 'page' ? 'pages' : 'terms'} available
+                          {preview.eligibleCount > 0 &&
+                            `, top ${Math.min(articlesPerRun, preview.eligibleCount)} taken each run`}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void loadPreview()}
+                      disabled={previewLoading}
+                      className="shrink-0 rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {previewLoading ? 'Checking...' : 'Refresh'}
+                    </button>
+                  </div>
+
+                  {previewLoading && !preview ? (
+                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-gray-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Reading your Search Console traffic...
+                    </div>
+                  ) : previewError ? (
+                    <p className="px-3 py-4 text-xs text-amber-800">{previewError}</p>
+                  ) : !preview || preview.candidates.length === 0 ? (
+                    <p className="px-3 py-4 text-xs text-gray-600">
+                      Search Console reported no traffic for this property over the last{' '}
+                      {gsc.lookbackDays} days.
+                    </p>
+                  ) : (
+                    <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+                      {preview.candidates.map((candidate, index) => {
+                        const usable =
+                          !candidate.covered && !candidate.belowThreshold && !candidate.duplicate;
+                        // Position among the usable ones, which is the order a run works in.
+                        const queuePosition = preview.candidates
+                          .slice(0, index)
+                          .filter(
+                            (earlier) =>
+                              !earlier.covered && !earlier.belowThreshold && !earlier.duplicate
+                          ).length;
+                        const nextUp = usable && queuePosition < articlesPerRun;
+
+                        return (
+                          <li
+                            key={`${candidate.page || ''}-${candidate.keyword}-${index}`}
+                            className={`flex items-start justify-between gap-3 px-3 py-2 text-xs ${
+                              usable ? '' : 'bg-gray-50 text-gray-500'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p
+                                className={`truncate ${
+                                  usable ? 'font-medium text-gray-900' : 'text-gray-500'
+                                }`}
+                              >
+                                {candidate.keyword}
+                              </p>
+                              {candidate.page && (
+                                <p className="truncate text-gray-500">
+                                  {shortenPage(candidate.page)}
+                                </p>
+                              )}
+                              <p className="text-gray-500">
+                                {Math.round(candidate.metricValue).toLocaleString()} {preview.metric}
+                                , position {candidate.position.toFixed(1)}
+                              </p>
+                            </div>
+
+                            <span className="shrink-0 whitespace-nowrap">
+                              {nextUp ? (
+                                <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700">
+                                  Next up
+                                </span>
+                              ) : candidate.covered ? (
+                                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-600">
+                                  Already written
+                                </span>
+                              ) : candidate.duplicate ? (
+                                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-600">
+                                  Same term as a bigger page
+                                </span>
+                              ) : candidate.belowThreshold ? (
+                                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-600">
+                                  Below {gsc.minMetric}
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700">
+                                  Queued
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />

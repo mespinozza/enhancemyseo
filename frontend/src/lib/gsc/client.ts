@@ -50,6 +50,11 @@ export interface GscQueryRow {
   position: number;
 }
 
+/** One search term on one landing page, the grain Search Console reports pages at. */
+export interface GscPageQueryRow extends GscQueryRow {
+  page: string;
+}
+
 function adminDb(): Firestore {
   initializeFirebaseAdmin();
   return getFirestore();
@@ -261,18 +266,26 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+interface SearchAnalyticsRow {
+  keys: string[];
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
 /**
- * Top search queries for a property over a trailing window.
+ * One Search Analytics call over a trailing window.
  *
  * Search Console data lags by a couple of days, so the window ends three days back:
  * asking for today returns partial or empty rows and would make a healthy property look
  * like it has no traffic.
  */
-export async function topQueries(
+async function searchAnalytics(
   connection: GscConnection,
   siteUrl: string,
-  options: { lookbackDays: number; rowLimit?: number }
-): Promise<GscQueryRow[]> {
+  options: { dimensions: string[]; lookbackDays: number; rowLimit: number }
+): Promise<SearchAnalyticsRow[]> {
   const accessToken = await accessTokenFor(connection.refreshToken);
 
   const endDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
@@ -289,8 +302,8 @@ export async function topQueries(
       body: JSON.stringify({
         startDate: isoDate(startDate),
         endDate: isoDate(endDate),
-        dimensions: ['query'],
-        rowLimit: options.rowLimit ?? 250,
+        dimensions: options.dimensions,
+        rowLimit: options.rowLimit,
         dataState: 'final',
       }),
     }
@@ -303,12 +316,51 @@ export async function topQueries(
     );
   }
 
-  const payload = (await response.json()) as {
-    rows?: Array<{ keys: string[]; clicks: number; impressions: number; ctr: number; position: number }>;
-  };
+  const payload = (await response.json()) as { rows?: SearchAnalyticsRow[] };
+  return payload.rows || [];
+}
 
-  return (payload.rows || []).map((row) => ({
+/** Top search queries for a property, regardless of which page they land on. */
+export async function topQueries(
+  connection: GscConnection,
+  siteUrl: string,
+  options: { lookbackDays: number; rowLimit?: number }
+): Promise<GscQueryRow[]> {
+  const rows = await searchAnalytics(connection, siteUrl, {
+    dimensions: ['query'],
+    lookbackDays: options.lookbackDays,
+    rowLimit: options.rowLimit ?? 250,
+  });
+
+  return rows.map((row) => ({
     query: row.keys[0],
+    clicks: row.clicks,
+    impressions: row.impressions,
+    ctr: row.ctr,
+    position: row.position,
+  }));
+}
+
+/**
+ * Page-and-query pairs, which is the only grain that answers "what is this page getting
+ * its traffic for". Totalling a page happens in `selection.ts` so the arithmetic is
+ * testable without a network. The row limit is high because a busy page can easily hold
+ * a hundred queries, and a page whose rows get truncated would be under-counted.
+ */
+export async function topPageQueries(
+  connection: GscConnection,
+  siteUrl: string,
+  options: { lookbackDays: number; rowLimit?: number }
+): Promise<GscPageQueryRow[]> {
+  const rows = await searchAnalytics(connection, siteUrl, {
+    dimensions: ['page', 'query'],
+    lookbackDays: options.lookbackDays,
+    rowLimit: options.rowLimit ?? 2000,
+  });
+
+  return rows.map((row) => ({
+    page: row.keys[0],
+    query: row.keys[1],
     clicks: row.clicks,
     impressions: row.impressions,
     ctr: row.ctr,

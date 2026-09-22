@@ -28,8 +28,14 @@ import {
   type AutomationRunStatus,
 } from './types';
 import { computeNextRun, monthKey } from './schedule';
-import { rankGscCandidates, rotateTopics, type KeywordChoice } from './selection';
-import { getConnection, isGscConfigured, topQueries } from '@/lib/gsc/client';
+import {
+  rankGscCandidates,
+  rankGscPageCandidates,
+  rotateTopics,
+  type KeywordChoice,
+} from './selection';
+import { coveredKeywords } from './covered';
+import { getConnection, isGscConfigured, topPageQueries, topQueries } from '@/lib/gsc/client';
 
 const FIREBASE_WEB_API_KEY =
   process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyC8SaduwnXf05zyvldhXeDL-MmQf4W8DTs';
@@ -102,26 +108,6 @@ async function mintIdToken(uid: string): Promise<string> {
   return payload.idToken;
 }
 
-/**
- * Keywords this brand already has articles for, lowercased. Used to stop a traffic-driven
- * automation from writing the same article every week for its best-performing query.
- */
-async function existingKeywords(db: Firestore, automation: Automation): Promise<Set<string>> {
-  const snapshot = await db
-    .collection('blogs')
-    .where('userId', '==', automation.userId)
-    .where('brandId', '==', automation.brandId)
-    .limit(1000)
-    .get();
-
-  const keywords = new Set<string>();
-  for (const doc of snapshot.docs) {
-    const keyword = (doc.data().keyword as string | undefined)?.trim().toLowerCase();
-    if (keyword) keywords.add(keyword);
-  }
-  return keywords;
-}
-
 /** Thrown when a run cannot proceed for a reason the user needs to read and act on. */
 class SkipRun extends Error {}
 
@@ -144,22 +130,34 @@ async function chooseGscKeywords(
     throw new SkipRun('Search Console is not connected for this brand. Reconnect it and try again.');
   }
 
-  const rows = await topQueries(connection, config.siteUrl, {
-    lookbackDays: config.lookbackDays,
-  });
+  const byPage = config.dimension === 'page';
+  const covered = await coveredKeywords(db, automation.userId, automation.brandId);
+  const options = { lookbackDays: config.lookbackDays };
 
-  if (rows.length === 0) {
-    throw new SkipRun(
-      `Search Console returned no query data for the last ${config.lookbackDays} days.`
-    );
+  let choices: KeywordChoice[];
+  if (byPage) {
+    const rows = await topPageQueries(connection, config.siteUrl, options);
+    if (rows.length === 0) {
+      throw new SkipRun(
+        `Search Console returned no page data for the last ${config.lookbackDays} days.`
+      );
+    }
+    choices = rankGscPageCandidates(rows, config, covered, count);
+  } else {
+    const rows = await topQueries(connection, config.siteUrl, options);
+    if (rows.length === 0) {
+      throw new SkipRun(
+        `Search Console returned no query data for the last ${config.lookbackDays} days.`
+      );
+    }
+    choices = rankGscCandidates(rows, config, covered, count);
   }
-
-  const covered = await existingKeywords(db, automation);
-  const choices = rankGscCandidates(rows, config, covered, count);
 
   if (choices.length === 0) {
     throw new SkipRun(
-      `No Search Console query cleared ${config.minMetric} ${config.metric} without an article already written for it.`
+      byPage
+        ? `No page cleared ${config.minMetric} ${config.metric} in the last ${config.lookbackDays} days with a top search term that has no article yet.`
+        : `No Search Console query cleared ${config.minMetric} ${config.metric} without an article already written for it.`
     );
   }
 
