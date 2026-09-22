@@ -123,6 +123,7 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
     shopifyAccessToken: existingProfile?.shopifyAccessToken || '',
     shopifyApiKey: existingProfile?.shopifyApiKey || '',
     shopifyApiSecret: existingProfile?.shopifyApiSecret || '',
+    shopifyAuthor: existingProfile?.shopifyAuthor || '',
     socialMedia: {
       facebook: existingProfile?.socialMedia?.facebook || '',
       twitter: existingProfile?.socialMedia?.twitter || '',
@@ -325,6 +326,26 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
               onChange={handleChange}
               secret
             />
+
+            <div>
+              <label htmlFor="shopifyAuthor" className="block text-sm font-medium text-gray-700">
+                Blog author
+              </label>
+              <input
+                type="text"
+                id="shopifyAuthor"
+                name="shopifyAuthor"
+                value={formData.shopifyAuthor}
+                onChange={handleChange}
+                placeholder={formData.brandName || 'e.g. Malachy Parts Plus'}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Shown as the byline on articles pushed to Shopify. Leave it blank to use the
+                brand name — without either, Shopify credits the app and shows &quot;Shopify
+                API&quot;.
+              </p>
+            </div>
           </div>
         </div>
 

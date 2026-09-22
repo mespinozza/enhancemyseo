@@ -319,6 +319,9 @@ async function pushToShopify(
         title: article.title,
         content: article.content,
         status: automation.shopifyStatus,
+        // Without this Shopify bylines the article as "Shopify API", which is the
+        // access token's app rather than anyone the reader should see.
+        author: brand.shopifyAuthor || brand.brandName,
       },
     }),
   });

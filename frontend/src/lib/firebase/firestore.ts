@@ -40,6 +40,11 @@ export interface BrandProfile extends BaseDocument {
   shopifyAccessToken?: string;
   shopifyApiKey?: string;
   shopifyApiSecret?: string;
+  /**
+   * Byline for articles pushed to Shopify. Left unset, Shopify credits the access
+   * token's app, which shows up publicly as "Shopify API".
+   */
+  shopifyAuthor?: string;
   socialMedia?: {
     facebook?: string;
     twitter?: string;

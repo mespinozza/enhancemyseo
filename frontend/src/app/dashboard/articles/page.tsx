@@ -978,7 +978,9 @@ export default function ArticlesPage() {
               title: article.title,
               content: article.content,
               status: 'draft',
-              author: articleAuthor || undefined
+              // Falling through to undefined would let Shopify byline the article as
+              // "Shopify API", so an unfilled box uses the brand's author instead.
+              author: articleAuthor || selectedBrand.shopifyAuthor || selectedBrand.brandName
             }
           }),
         });
@@ -2217,7 +2219,11 @@ export default function ArticlesPage() {
                         type="text"
                         value={articleAuthor}
                         onChange={(e) => setArticleAuthor(e.target.value)}
-                        placeholder="Enter author name (optional)"
+                        placeholder={
+                          brandProfiles.find(b => b.id === selectedBrandId)?.shopifyAuthor ||
+                          brandProfiles.find(b => b.id === selectedBrandId)?.brandName ||
+                          'Enter author name'
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
