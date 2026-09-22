@@ -23,6 +23,7 @@ import {
   watchAutomations,
   watchRuns,
 } from '@/lib/firebase/automations';
+import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota';
 import AutomationForm from '@/components/automation/AutomationForm';
 import { describeSchedule, monthKey } from '@/lib/automation/schedule';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
@@ -95,7 +96,7 @@ export default function AutomatePage() {
 
     const reportError = (error: Error) => {
       console.error('Error watching automations:', error);
-      toast.error('Could not load your automations');
+      toast.error(isQuotaExhausted(error) ? QUOTA_EXHAUSTED_MESSAGE : 'Could not load your automations');
       setIsLoading(false);
     };
 

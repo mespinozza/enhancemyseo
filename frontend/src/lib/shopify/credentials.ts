@@ -17,6 +17,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota';
 
 const TOKEN_PATH = '/admin/oauth/access_token';
 
@@ -210,6 +211,11 @@ export async function resolveShopifyCredentials(
 export function shopifyCredentialResponse(error: unknown): { error: string; status: number } {
   if (error instanceof ShopifyCredentialError) {
     return { error: error.message, status: error.status };
+  }
+  // Reading the brand profile is the first thing that happens here, so a project-wide
+  // database stop looks like a Shopify failure unless it is named.
+  if (isQuotaExhausted(error)) {
+    return { error: QUOTA_EXHAUSTED_MESSAGE, status: 503 };
   }
   return {
     error: error instanceof Error ? error.message : 'Could not reach Shopify',
