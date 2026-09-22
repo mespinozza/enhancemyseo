@@ -111,6 +111,12 @@ export default function AutomationForm({
     [topicsText]
   );
 
+  /** Average weeks per month, for turning a weekly schedule into a monthly figure. */
+  const projectedPerMonth = useMemo(() => {
+    const runsPerMonth = frequency === 'daily' ? 30.4 : daysOfWeek.length * 4.35;
+    return Math.round(runsPerMonth * articlesPerRun);
+  }, [frequency, daysOfWeek, articlesPerRun]);
+
   const loadShopifyBlogs = useCallback(async () => {
     if (!user || !selectedBrand || !brandHasShopify) return;
 
@@ -592,18 +598,19 @@ export default function AutomationForm({
             <label htmlFor="automation-per-run" className={labelClass}>
               Articles per run
             </label>
-            <select
+            <input
               id="automation-per-run"
+              type="number"
+              min={1}
+              max={MAX_ARTICLES_PER_RUN}
               value={articlesPerRun}
               onChange={(event) => setArticlesPerRun(Number(event.target.value))}
               className={inputClass}
-            >
-              {Array.from({ length: MAX_ARTICLES_PER_RUN }, (_, index) => index + 1).map((count) => (
-                <option key={count} value={count}>
-                  {count}
-                </option>
-              ))}
-            </select>
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Up to {MAX_ARTICLES_PER_RUN}. They are written one after another, so a large run
+              takes a while to finish.
+            </p>
           </div>
 
           <div>
@@ -625,6 +632,20 @@ export default function AutomationForm({
             </p>
           </div>
         </div>
+
+        {/* Articles per run and the monthly cap are easy to set in conflict: five a day
+            against a cap of ten stops writing on the third day, and only the run history
+            would say why. */}
+        <p
+          className={`mt-3 text-xs ${
+            projectedPerMonth > monthlyArticleCap ? 'font-medium text-amber-700' : 'text-gray-500'
+          }`}
+        >
+          This works out to about {projectedPerMonth} article
+          {projectedPerMonth === 1 ? '' : 's'} a month.
+          {projectedPerMonth > monthlyArticleCap &&
+            ` That is over your cap of ${monthlyArticleCap}, so runs will be skipped once the cap is reached. Raise the cap to ${projectedPerMonth} to see the whole schedule through.`}
+        </p>
       </div>
 
       <div className="border-t border-gray-200 pt-4">

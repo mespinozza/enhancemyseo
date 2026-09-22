@@ -10,8 +10,12 @@ import type { ContentSelection } from '@/types/content-selection';
 export const AUTOMATIONS_COLLECTION = 'automations';
 export const AUTOMATION_RUNS_COLLECTION = 'automationRuns';
 
-/** Generation is expensive and serial, so a single run stays small. */
-export const MAX_ARTICLES_PER_RUN = 3;
+/**
+ * Articles in a run are generated one after another, so this bounds how long a single
+ * run occupies the process. At roughly five minutes each, ten articles is about an hour,
+ * which is why STALE_CLAIM_MS below has to be comfortably longer.
+ */
+export const MAX_ARTICLES_PER_RUN = 10;
 
 /**
  * A hard ceiling per automation, independent of subscription tier. The `admin` and
@@ -21,8 +25,13 @@ export const MAX_ARTICLES_PER_RUN = 3;
 export const DEFAULT_MONTHLY_ARTICLE_CAP = 10;
 export const MAX_MONTHLY_ARTICLE_CAP = 200;
 
-/** A claim older than this is assumed to belong to a process that died mid-run. */
-export const STALE_CLAIM_MS = 30 * 60 * 1000;
+/**
+ * A claim older than this is assumed to belong to a process that died mid-run.
+ *
+ * It has to exceed the longest legitimate run, or a healthy multi-article run would be
+ * mistaken for a dead one while it is still working.
+ */
+export const STALE_CLAIM_MS = 2 * 60 * 60 * 1000;
 
 export interface TimestampLike {
   toDate(): Date;
