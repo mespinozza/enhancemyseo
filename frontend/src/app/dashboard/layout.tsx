@@ -15,7 +15,7 @@ import {
   Star,
   GripVertical
 } from 'lucide-react';
-import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, historyOperations, HistoryItem, initializeUserCollections } from '@/lib/firebase/firestore';
+import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, historyOperations, HistoryItem } from '@/lib/firebase/firestore';
 import { getFilteredNavigationGroups, type NavigationItem } from '@/config/navigation';
 import {
   getPinnedNav,
@@ -44,6 +44,9 @@ const formatSubscriptionStatus = (status: string): string => {
 };
 
 // Combined interface for recent items
+/** How many rows the sidebar's recent list shows, and so how many each query asks for. */
+const RECENTS_SHOWN = 8;
+
 interface RecentItem {
   id: string;
   type: 'blog' | 'product' | 'history';
@@ -212,45 +215,16 @@ export default function DashboardLayout({
       
       try {
         setIsLoadingRecents(true);
-        
-        // Initialize collections for the user (helps with permission errors)
-        await initializeUserCollections(user.uid);
-        
-        // Load all collections in parallel, with individual error handling
-        const [blogs, products, historyItems] = await Promise.all([
-          blogOperations.getAll(user.uid).catch((error) => {
-            console.warn('Error loading blogs for recent items:', error);
-            return [];
-          }),
-          // Handle generatedProducts more gracefully - it might not exist yet
-          (async () => {
-            try {
-              const products = await generatedProductOperations.getAll(user.uid);
-              console.log('Successfully loaded products for recent items:', products.length);
-              return products;
-            } catch (error: unknown) {
-              // Don't log permission errors for generatedProducts - collection might not exist yet
-              const firebaseError = error as { code?: string; message?: string };
-              if (firebaseError?.code === 'permission-denied' || firebaseError?.message?.includes('permission')) {
-                console.log('generatedProducts collection not yet available for this user');
-                return [];
-              } else {
-                console.warn('Error loading generated products for recent items:', error);
-                return [];
-              }
-            }
-          })(),
-          historyOperations.getAll(user.uid).catch((error) => {
-            console.warn('Error loading history for recent items:', error);
-            return [];
-          })
-        ]);
 
-        console.log('Recent items loaded successfully:', {
-          blogs: blogs.length,
-          products: products.length,
-          history: historyItems.length
-        });
+        // Only the newest few from each collection: the list shows RECENTS_SHOWN rows, and
+        // every extra document a query returns is a billed read even though it is dropped
+        // by the slice below. Each call swallows its own errors so one empty or
+        // not-yet-created collection cannot blank out the whole list.
+        const [blogs, products, historyItems] = await Promise.all([
+          blogOperations.getRecent(user.uid, RECENTS_SHOWN),
+          generatedProductOperations.getRecent(user.uid, RECENTS_SHOWN),
+          historyOperations.getRecent(user.uid, RECENTS_SHOWN),
+        ]);
 
         // Transform all items to common format
         const allItems: RecentItem[] = [
@@ -283,14 +257,14 @@ export default function DashboardLayout({
           }))
         ];
 
-        // Sort by creation date and take the 8 most recent
+        // Interleave the three sources by date; each already holds at most RECENTS_SHOWN.
         const sortedItems = allItems.sort((a, b) => {
           const dateA = a.createdAt instanceof Date ? a.createdAt : (a.createdAt?.toDate?.() || new Date(0));
           const dateB = b.createdAt instanceof Date ? b.createdAt : (b.createdAt?.toDate?.() || new Date(0));
           return dateB.getTime() - dateA.getTime();
         });
 
-        setRecentItems(sortedItems.slice(0, 8));
+        setRecentItems(sortedItems.slice(0, RECENTS_SHOWN));
       } catch (error) {
         console.warn('Error loading recent items:', error);
         setRecentItems([]);
@@ -302,9 +276,13 @@ export default function DashboardLayout({
     // Only run when we have a fully authenticated user and user data is loaded
     if (user?.uid && isUserDataLoaded && !loading) {
       // Add delay to ensure Firestore rules have been applied
-      setTimeout(loadRecentItems, 500);
+      const timer = setTimeout(loadRecentItems, 500);
+      return () => clearTimeout(timer);
     }
-  }, [user, isUserDataLoaded, loading]);
+    // Keyed on the uid rather than the user object, which Firebase replaces on every
+    // token refresh and would otherwise re-run this load roughly hourly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, isUserDataLoaded, loading]);
 
   // Register sidebar refresh function
   useEffect(() => {

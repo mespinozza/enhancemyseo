@@ -1,10 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { blogOperations } from '@/lib/firebase/firestore';
+
+const GENERATION_POLL_INTERVAL_MS = 3000;
+/** Long enough for the slowest generation, short enough to not poll an empty page all day. */
+const GENERATION_POLL_TIMEOUT_MS = 15 * 60_000;
 
 export default function ArticleDetailPage() {
   const params = useParams();
@@ -12,6 +17,7 @@ export default function ArticleDetailPage() {
   const queryClient = useQueryClient();
   const articleId = params.id as string;
   const { user } = useAuth();
+  const [openedAt] = useState(() => Date.now());
 
   const { data: article, isLoading } = useQuery({
     queryKey: ['article', articleId],
@@ -33,18 +39,23 @@ export default function ArticleDetailPage() {
       };
     },
     enabled: !!user?.uid && !!articleId,
-    // Auto-refresh every 3 seconds while content is empty (article is generating)
+    // Auto-refresh while content is empty (article is generating)
     refetchInterval: (query) => {
       // Stop polling once we have content
       const data = query.state.data;
       if (data && data.content && data.content.trim().length > 0) {
         return false; // Stop refetching
       }
-      // Poll every 3 seconds while content is empty
-      return 3000;
+      // A generation that has not produced content by now has failed rather than
+      // stalled, and polling a permanently empty article costs a read every few
+      // seconds for as long as the tab stays open.
+      if (Date.now() - openedAt > GENERATION_POLL_TIMEOUT_MS) {
+        return false;
+      }
+      return GENERATION_POLL_INTERVAL_MS;
     },
-    // Keep refetching even when tab is in background
-    refetchIntervalInBackground: true,
+    // Nobody is watching a background tab, and the query re-runs on focus anyway.
+    refetchIntervalInBackground: false,
   });
 
   const publishMutation = useMutation({

@@ -33,6 +33,8 @@ export const dynamic = 'force-dynamic';
 
 /** Enough to show the shape of the traffic without turning the panel into a report. */
 const PREVIEW_ROWS = 25;
+/** How stale the already-written set may be while a user tunes the settings. */
+const COVERED_MAX_AGE_MS = 5 * 60_000;
 
 interface PreviewRequest {
   brandId?: string;
@@ -87,7 +89,12 @@ export async function POST(request: Request) {
   };
 
   try {
-    const covered = await coveredKeywords(getFirestore(), uid, body.brandId);
+    // The preview re-fires on every settings change, and scanning the brand's articles
+    // is the expensive half of it. A few minutes of staleness here only affects which
+    // rows are badged as already written; the run itself still checks for real.
+    const covered = await coveredKeywords(getFirestore(), uid, body.brandId, {
+      maxAgeMs: COVERED_MAX_AGE_MS,
+    });
     const options = { lookbackDays: config.lookbackDays };
 
     let candidates: GscCandidate[];

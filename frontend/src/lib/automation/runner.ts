@@ -34,7 +34,7 @@ import {
   rotateTopics,
   type KeywordChoice,
 } from './selection';
-import { coveredKeywords } from './covered';
+import { coveredKeywords, forgetCoveredKeywords } from './covered';
 import { getConnection, isGscConfigured, topPageQueries, topQueries } from '@/lib/gsc/client';
 
 const FIREBASE_WEB_API_KEY =
@@ -237,6 +237,9 @@ async function generateArticle(
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
   });
+
+  // This keyword is now taken, so drop the cached set the preview reads from.
+  forgetCoveredKeywords(automation.userId, automation.brandId);
 
   const response = await fetch(`${internalBaseUrl()}/api/generate-article`, {
     method: 'POST',

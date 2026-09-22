@@ -128,6 +128,37 @@ export interface BlogPost extends BaseDocument {
 // Generic operations for any collection
 const createGenericOperations = <T extends BaseDocument>(collectionName: string) => {
   return {
+    /**
+     * The newest few documents, for previews like the sidebar's recent list.
+     *
+     * Firestore bills a read per document a query returns, so fetching everything and
+     * slicing in the browser costs the same as showing everything. This asks the server
+     * for only what is displayed. Relies on the userId + createdAt index.
+     */
+    getRecent: async (userId: string, max: number = 8): Promise<T[]> => {
+      if (!userId) return [];
+
+      try {
+        const snapshot = await getDocs(
+          query(
+            collection(db, collectionName),
+            where('userId', '==', userId),
+            orderBy('createdAt', 'desc'),
+            limit(max)
+          )
+        );
+
+        return snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as T[];
+      } catch (error) {
+        const firebaseError = error as { code?: string };
+        // Expected for a new account whose collection does not exist yet.
+        if (firebaseError?.code !== 'permission-denied') {
+          console.warn(`Error getting recent ${collectionName}:`, error);
+        }
+        return [];
+      }
+    },
+
     // Get all documents for a user
     getAll: async (userId: string): Promise<T[]> => {
       try {
@@ -375,6 +406,30 @@ export const brandProfileOperations = {
 };
 
 export const blogOperations = {
+  /**
+   * The newest few articles. Same reasoning as the generic getRecent: a list that shows
+   * eight rows should not read, or pay for, the user's entire article history.
+   */
+  getRecent: async (uid: string, max: number = 8): Promise<Blog[]> => {
+    if (!uid) return [];
+
+    try {
+      const snapshot = await getDocs(
+        query(
+          collection(db, 'blogs'),
+          where('userId', '==', uid),
+          orderBy('createdAt', 'desc'),
+          limit(max)
+        )
+      );
+
+      return snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as Blog);
+    } catch (error) {
+      console.warn('Error getting recent blog posts:', error);
+      return [];
+    }
+  },
+
   // Get all blog posts (with optional published filter) - for articles system
   getAll: async (uid: string, publishedOnly: boolean = false): Promise<Blog[]> => {
     try {
