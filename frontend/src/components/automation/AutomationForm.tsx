@@ -69,6 +69,7 @@ export default function AutomationForm({
   const [gsc, setGsc] = useState<AutomationGscConfig>(existing?.gsc || DEFAULT_GSC_CONFIG);
   const [gscStatus, setGscStatus] = useState<GscStatus | null>(null);
   const [gscLoading, setGscLoading] = useState(false);
+  const [gscCheckError, setGscCheckError] = useState<string | null>(null);
   const [frequency, setFrequency] = useState<AutomationFrequency>(
     existing?.schedule.frequency || 'weekly'
   );
@@ -164,9 +165,13 @@ export default function AutomationForm({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not check Search Console');
       setGscStatus(payload as GscStatus);
+      setGscCheckError(null);
     } catch (error) {
       console.error('Error checking Search Console:', error);
       setGscStatus(null);
+      setGscCheckError(
+        error instanceof Error ? error.message : 'Could not check Search Console'
+      );
     } finally {
       setGscLoading(false);
     }
@@ -373,10 +378,29 @@ export default function AutomationForm({
         </div>
       ) : (
         <div className="space-y-4">
-          {gscLoading ? (
+          {!brandId ? (
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-4 text-xs text-gray-600">
+              Choose a brand profile above and its Search Console properties will show up
+              here.
+            </div>
+          ) : gscLoading ? (
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Checking Search Console...
+            </div>
+          ) : gscCheckError ? (
+            <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                {gscCheckError}{' '}
+                <button
+                  type="button"
+                  onClick={() => void loadGscStatus()}
+                  className="font-medium underline"
+                >
+                  Try again
+                </button>
+              </p>
             </div>
           ) : !gscStatus?.configured ? (
             <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
