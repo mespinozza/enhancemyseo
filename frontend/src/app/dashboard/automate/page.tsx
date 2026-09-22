@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -19,17 +19,16 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import {
   deleteAutomation,
-  listAutomations,
-  listRuns,
   setAutomationEnabled,
+  watchAutomations,
+  watchRuns,
 } from '@/lib/firebase/automations';
 import AutomationForm from '@/components/automation/AutomationForm';
 import { describeSchedule, monthKey } from '@/lib/automation/schedule';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
 
-const POLL_INTERVAL_MS = 20_000;
-/** While something is mid-generation the user is watching, so refresh sooner. */
-const ACTIVE_POLL_INTERVAL_MS = 5_000;
+/** How many recent runs the history panel keeps live. */
+const RUN_HISTORY_LIMIT = 25;
 
 function isActive(run: AutomationRun): boolean {
   return run.status === 'running' || run.status === 'queued';
@@ -82,33 +81,62 @@ export default function AutomatePage() {
   const [editing, setEditing] = useState<Automation | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (options: { quiet?: boolean } = {}) => {
-      if (!user) return;
-      if (!options.quiet) setIsLoading(true);
+  // Automations and runs are live: both change underneath this page while the server
+  // works, and a listener costs a read per changed document rather than a read per
+  // document per tick. Brand profiles are static enough to fetch once.
+  useEffect(() => {
+    if (!user) return;
 
-      try {
-        const [automationList, runList, profiles] = await Promise.all([
-          listAutomations(user.uid),
-          listRuns(user.uid),
-          brandProfileOperations.getAll(user.uid),
-        ]);
-        setAutomations(automationList);
-        setRuns(runList);
-        setBrandProfiles(profiles);
-      } catch (error) {
-        console.error('Error loading automations:', error);
-        if (!options.quiet) toast.error('Could not load your automations');
-      } finally {
-        if (!options.quiet) setIsLoading(false);
-      }
-    },
-    [user]
-  );
+    let automationsReady = false;
+    let runsReady = false;
+    const settle = () => {
+      if (automationsReady && runsReady) setIsLoading(false);
+    };
+
+    const reportError = (error: Error) => {
+      console.error('Error watching automations:', error);
+      toast.error('Could not load your automations');
+      setIsLoading(false);
+    };
+
+    const stopAutomations = watchAutomations(
+      user.uid,
+      (list) => {
+        setAutomations(list);
+        automationsReady = true;
+        settle();
+      },
+      reportError
+    );
+
+    const stopRuns = watchRuns(
+      user.uid,
+      RUN_HISTORY_LIMIT,
+      (list) => {
+        setRuns(list);
+        runsReady = true;
+        settle();
+      },
+      reportError
+    );
+
+    return () => {
+      stopAutomations();
+      stopRuns();
+    };
+  }, [user]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!user) return;
+
+    brandProfileOperations
+      .getAll(user.uid)
+      .then(setBrandProfiles)
+      .catch((error) => {
+        console.error('Error loading brand profiles:', error);
+        toast.error('Could not load your brand profiles');
+      });
+  }, [user]);
 
   // The Search Console callback can only report back through the URL, since it returns
   // as a plain browser redirect from Google.
@@ -126,23 +154,12 @@ export default function AutomatePage() {
     window.history.replaceState({}, '', window.location.pathname);
   }, []);
 
-  // Runs are written by the server after the request returns, so the only way to see
-  // them progress is to re-read.
   const hasActiveRun = runs.some(isActive);
-
-  useEffect(() => {
-    const timer = setInterval(
-      () => void load({ quiet: true }),
-      hasActiveRun ? ACTIVE_POLL_INTERVAL_MS : POLL_INTERVAL_MS
-    );
-    return () => clearInterval(timer);
-  }, [load, hasActiveRun]);
 
   const handleToggle = async (automation: Automation) => {
     try {
       await setAutomationEnabled(automation, !automation.enabled);
       toast.success(automation.enabled ? 'Automation paused' : 'Automation turned on');
-      await load({ quiet: true });
     } catch (error) {
       console.error('Error toggling automation:', error);
       toast.error('Could not change that automation');
@@ -155,7 +172,6 @@ export default function AutomatePage() {
     try {
       await deleteAutomation(automation.id as string);
       toast.success('Automation deleted');
-      await load({ quiet: true });
     } catch (error) {
       console.error('Error deleting automation:', error);
       toast.error('Could not delete that automation');
@@ -180,10 +196,6 @@ export default function AutomatePage() {
       if (!response.ok) throw new Error(payload.error || 'Could not start that run');
 
       toast.success('Started. Articles take a few minutes, and progress shows under Recent runs.');
-
-      // Pull the freshly opened run record in rather than waiting for the next poll, so
-      // the in-progress row appears while the click still feels connected to it.
-      await load({ quiet: true });
     } catch (error) {
       console.error('Error starting run:', error);
       toast.error(error instanceof Error ? error.message : 'Could not start that run');
@@ -231,7 +243,6 @@ export default function AutomatePage() {
           onSaved={() => {
             setShowForm(false);
             setEditing(null);
-            void load({ quiet: true });
           }}
           onCancel={() => {
             setShowForm(false);

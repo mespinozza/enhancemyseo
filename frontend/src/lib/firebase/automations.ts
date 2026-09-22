@@ -13,11 +13,13 @@ import {
   doc,
   getDocs,
   limit as limitTo,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
   where,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './config';
 import {
@@ -29,12 +31,40 @@ import {
 } from '@/lib/automation/types';
 import { computeNextRun } from '@/lib/automation/schedule';
 
-export async function listAutomations(uid: string): Promise<Automation[]> {
-  const snapshot = await getDocs(
-    query(collection(db, AUTOMATIONS_COLLECTION), where('userId', '==', uid), orderBy('createdAt', 'desc'))
+function automationsQuery(uid: string) {
+  return query(
+    collection(db, AUTOMATIONS_COLLECTION),
+    where('userId', '==', uid),
+    orderBy('createdAt', 'desc')
   );
+}
+
+export async function listAutomations(uid: string): Promise<Automation[]> {
+  const snapshot = await getDocs(automationsQuery(uid));
 
   return snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as Automation);
+}
+
+/**
+ * Live view of a user's automations.
+ *
+ * Preferred over re-reading on a timer. A poll pays for every document on every tick
+ * whether or not anything changed, which is enough to exhaust a day's Firestore read
+ * quota from a single tab left open; a listener pays once up front and then only for
+ * documents that actually change.
+ */
+export function watchAutomations(
+  uid: string,
+  onChange: (automations: Automation[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    automationsQuery(uid),
+    (snapshot) => {
+      onChange(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as Automation));
+    },
+    onError
+  );
 }
 
 export async function createAutomation(uid: string, draft: AutomationDraft): Promise<string> {
@@ -83,15 +113,36 @@ export async function deleteAutomation(automationId: string): Promise<void> {
   await deleteDoc(doc(db, AUTOMATIONS_COLLECTION, automationId));
 }
 
-export async function listRuns(uid: string, count = 25): Promise<AutomationRun[]> {
-  const snapshot = await getDocs(
-    query(
-      collection(db, AUTOMATION_RUNS_COLLECTION),
-      where('userId', '==', uid),
-      orderBy('startedAt', 'desc'),
-      limitTo(count)
-    )
+function runsQuery(uid: string, count: number) {
+  return query(
+    collection(db, AUTOMATION_RUNS_COLLECTION),
+    where('userId', '==', uid),
+    orderBy('startedAt', 'desc'),
+    limitTo(count)
   );
+}
+
+export async function listRuns(uid: string, count = 25): Promise<AutomationRun[]> {
+  const snapshot = await getDocs(runsQuery(uid, count));
 
   return snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as AutomationRun);
+}
+
+/**
+ * Live view of recent runs. These are written by the server mid-generation, so this is
+ * also what makes progress appear without the user refreshing.
+ */
+export function watchRuns(
+  uid: string,
+  count: number,
+  onChange: (runs: AutomationRun[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    runsQuery(uid, count),
+    (snapshot) => {
+      onChange(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as AutomationRun));
+    },
+    onError
+  );
 }
