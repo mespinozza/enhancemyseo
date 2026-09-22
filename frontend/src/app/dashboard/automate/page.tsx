@@ -28,6 +28,12 @@ import { describeSchedule, monthKey } from '@/lib/automation/schedule';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
 
 const POLL_INTERVAL_MS = 20_000;
+/** While something is mid-generation the user is watching, so refresh sooner. */
+const ACTIVE_POLL_INTERVAL_MS = 5_000;
+
+function isActive(run: AutomationRun): boolean {
+  return run.status === 'running' || run.status === 'queued';
+}
 
 function formatWhen(value?: { toDate(): Date } | null): string {
   if (!value) return 'Never';
@@ -51,7 +57,19 @@ function StatusIcon({ status }: { status: AutomationRunStatus }) {
   if (status === 'succeeded') return <CheckCircle2 className="h-4 w-4 text-green-600" />;
   if (status === 'failed') return <XCircle className="h-4 w-4 text-red-600" />;
   if (status === 'skipped') return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+  if (status === 'running') return <Loader2 className="h-4 w-4 animate-spin text-blue-600" />;
   return <Clock className="h-4 w-4 text-gray-400" />;
+}
+
+function elapsedSince(value?: { toDate(): Date } | null): string {
+  if (!value) return '';
+  try {
+    const minutes = Math.floor((Date.now() - value.toDate().getTime()) / 60_000);
+    if (minutes < 1) return 'just started';
+    return `${minutes} min so far`;
+  } catch {
+    return '';
+  }
 }
 
 export default function AutomatePage() {
@@ -109,11 +127,16 @@ export default function AutomatePage() {
   }, []);
 
   // Runs are written by the server after the request returns, so the only way to see
-  // them appear is to re-read.
+  // them progress is to re-read.
+  const hasActiveRun = runs.some(isActive);
+
   useEffect(() => {
-    const timer = setInterval(() => void load({ quiet: true }), POLL_INTERVAL_MS);
+    const timer = setInterval(
+      () => void load({ quiet: true }),
+      hasActiveRun ? ACTIVE_POLL_INTERVAL_MS : POLL_INTERVAL_MS
+    );
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, hasActiveRun]);
 
   const handleToggle = async (automation: Automation) => {
     try {
@@ -156,7 +179,11 @@ export default function AutomatePage() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not start that run');
 
-      toast.success('Started. Articles take a few minutes, and history updates as they land.');
+      toast.success('Started. Articles take a few minutes, and progress shows under Recent runs.');
+
+      // Pull the freshly opened run record in rather than waiting for the next poll, so
+      // the in-progress row appears while the click still feels connected to it.
+      await load({ quiet: true });
     } catch (error) {
       console.error('Error starting run:', error);
       toast.error(error instanceof Error ? error.message : 'Could not start that run');
@@ -237,11 +264,15 @@ export default function AutomatePage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="space-y-4 lg:col-span-2">
               {automations.map((automation) => {
                 const brand = brandProfiles.find((profile) => profile.id === automation.brandId);
                 const used = usedThisMonth(automation);
                 const atCap = used >= automation.monthlyArticleCap;
+                const activeRun = runs.find(
+                  (run) => run.automationId === automation.id && isActive(run)
+                );
 
                 return (
                   <div
@@ -261,6 +292,12 @@ export default function AutomatePage() {
                           >
                             {automation.enabled ? 'On' : 'Paused'}
                           </span>
+                          {activeRun && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Writing now
+                            </span>
+                          )}
                           {automation.autoPushToShopify && (
                             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
                               Auto-push {automation.shopifyStatus}
@@ -291,18 +328,20 @@ export default function AutomatePage() {
                       </div>
 
                       <div className="flex shrink-0 items-center gap-2">
+                        {/* Stays disabled for the whole run, not just the request: the
+                            request returns in milliseconds while the work takes minutes. */}
                         <button
                           onClick={() => void handleRunNow(automation)}
-                          disabled={runningId === automation.id}
-                          title="Run once now"
-                          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          disabled={runningId === automation.id || Boolean(activeRun)}
+                          title={activeRun ? 'Already running' : 'Run once now'}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {runningId === automation.id ? (
+                          {runningId === automation.id || activeRun ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <Play className="h-4 w-4" />
                           )}
-                          Run now
+                          {activeRun ? 'Running' : 'Run now'}
                         </button>
 
                         <button
@@ -339,44 +378,81 @@ export default function AutomatePage() {
                   </div>
                 );
               })}
-            </div>
-          )}
+              </div>
 
-          {runs.length > 0 && (
-            <div className="mt-10">
-              <h2 className="mb-3 text-lg font-semibold text-gray-900">Recent runs</h2>
-              <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
-                {runs.map((run) => (
-                  <div key={run.id} className="flex items-start gap-3 p-4">
-                    <div className="mt-0.5">
-                      <StatusIcon status={run.status} />
-                    </div>
+              <div className="lg:col-span-1">
+                <div className="mb-3 flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Recent runs</h2>
+                  {hasActiveRun && (
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  )}
+                </div>
 
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-gray-900">
-                        <span className="font-medium">{run.automationName}</span>
-                        {run.keyword && <span className="text-gray-600"> — {run.keyword}</span>}
-                      </p>
-
-                      {run.error && <p className="mt-1 text-xs text-red-600">{run.error}</p>}
-                      {run.warning && <p className="mt-1 text-xs text-amber-700">{run.warning}</p>}
-
-                      <p className="mt-1 text-xs text-gray-500">
-                        {formatWhen(run.startedAt)}
-                        {run.pushedToShopify && ' · pushed to Shopify'}
-                      </p>
-                    </div>
-
-                    {run.blogId && (
-                      <Link
-                        href={`/dashboard/articles/${run.blogId}/edit`}
-                        className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        Open
-                      </Link>
-                    )}
+                {runs.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
+                    <p className="text-sm text-gray-500">
+                      No runs yet. Use Run now to try one without waiting for the schedule.
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
+                    {runs.map((run) => (
+                      <div
+                        key={run.id}
+                        className={`flex items-start gap-3 p-4 ${
+                          isActive(run) ? 'bg-blue-50/50' : ''
+                        }`}
+                      >
+                        <div className="mt-0.5">
+                          <StatusIcon status={run.status} />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-gray-900">
+                            <span className="font-medium">{run.automationName}</span>
+                            {run.keyword && (
+                              <span className="text-gray-600"> — {run.keyword}</span>
+                            )}
+                          </p>
+
+                          {isActive(run) ? (
+                            <p className="mt-1 text-xs font-medium text-blue-700">
+                              {run.status === 'queued'
+                                ? 'Queued, waiting to start'
+                                : run.keyword
+                                  ? 'Writing the article — this takes a few minutes'
+                                  : 'Picking a topic'}
+                            </p>
+                          ) : (
+                            <>
+                              {run.error && (
+                                <p className="mt-1 text-xs text-red-600">{run.error}</p>
+                              )}
+                              {run.warning && (
+                                <p className="mt-1 text-xs text-amber-700">{run.warning}</p>
+                              )}
+                            </>
+                          )}
+
+                          <p className="mt-1 text-xs text-gray-500">
+                            {formatWhen(run.startedAt)}
+                            {isActive(run) && ` · ${elapsedSince(run.startedAt)}`}
+                            {run.pushedToShopify && ' · pushed to Shopify'}
+                          </p>
+                        </div>
+
+                        {run.blogId && (
+                          <Link
+                            href={`/dashboard/articles/${run.blogId}/edit`}
+                            className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-700"
+                          >
+                            Open
+                          </Link>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

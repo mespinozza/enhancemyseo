@@ -80,7 +80,9 @@ export default function AutomationForm({
   const [monthlyArticleCap, setMonthlyArticleCap] = useState(
     existing?.monthlyArticleCap ?? DEFAULT_MONTHLY_ARTICLE_CAP
   );
-  const [contentType, setContentType] = useState(existing?.contentType || CONTENT_TYPE_OPTIONS[0]);
+  const [contentType, setContentType] = useState<string>(
+    existing?.contentType || CONTENT_TYPE_OPTIONS[0].value
+  );
   const [toneOfVoice, setToneOfVoice] = useState(existing?.toneOfVoice || '');
   const [instructions, setInstructions] = useState(existing?.instructions || '');
   const [autoPushToShopify, setAutoPushToShopify] = useState(existing?.autoPushToShopify || false);
@@ -640,10 +642,14 @@ export default function AutomationForm({
               className={inputClass}
             >
               {CONTENT_TYPE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
+              {/* An automation saved before this list changed would otherwise show blank. */}
+              {!CONTENT_TYPE_OPTIONS.some((option) => option.value === contentType) && (
+                <option value={contentType}>{contentType}</option>
+              )}
             </select>
           </div>
 

@@ -140,14 +140,22 @@ export type AutomationDraft = Omit<
   'id' | 'createdAt' | 'updatedAt' | 'claimedAt' | 'lastRunAt' | 'monthUsage' | 'nextRunAt'
 >;
 
+/**
+ * Must stay in step with the content type dropdown on the manual generator in
+ * `src/app/dashboard/articles/page.tsx`. The generator sends these slugs straight into the
+ * article prompt, so an automation offering labels of its own would frame articles
+ * differently from the same choice made by hand.
+ */
 export const CONTENT_TYPE_OPTIONS = [
-  'How-to Guide',
-  'Listicle',
-  'Product Comparison',
-  'Buying Guide',
-  'Troubleshooting Guide',
-  'Industry News',
-  'Case Study',
+  { value: 'default', label: 'Default Article' },
+  { value: 'informational', label: 'Informational' },
+  { value: 'product-reviews', label: 'Product Reviews' },
+  { value: 'listicle', label: 'Listicle' },
+  { value: 'history', label: 'History Of' },
+  { value: 'pros-cons', label: 'Pros and Cons' },
+  { value: 'comparisons', label: 'Comparisons' },
+  { value: 'how-to', label: "How To's" },
+  { value: 'versus', label: 'Versus (Brand A Vs. Brand B)' },
 ] as const;
 
 export const TONE_OPTIONS = [

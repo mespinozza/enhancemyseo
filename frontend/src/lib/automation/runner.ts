@@ -11,7 +11,12 @@
  * apply to it.
  */
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import {
+  getFirestore,
+  Timestamp,
+  type DocumentReference,
+  type Firestore,
+} from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import {
@@ -324,26 +329,49 @@ async function pushToShopify(
   }
 }
 
-async function writeRun(
+/**
+ * Creates the run document before the work starts, as `running`.
+ *
+ * Generation takes minutes, so a record written only on completion leaves the user with
+ * no evidence their click did anything — which invites them to press Run now again and
+ * queue duplicate work.
+ */
+async function openRun(
   db: Firestore,
   automation: Automation,
-  outcome: Omit<RunOutcome, 'automationId' | 'automationName'> & { pushedToShopify: boolean },
+  keyword: string,
   startedAt: Timestamp
-): Promise<void> {
-  await db.collection(AUTOMATION_RUNS_COLLECTION).add({
+): Promise<DocumentReference> {
+  return db.collection(AUTOMATION_RUNS_COLLECTION).add({
     userId: automation.userId,
     automationId: automation.id,
     automationName: automation.name,
-    status: outcome.status,
+    status: 'running' satisfies AutomationRunStatus,
     trigger: automation.trigger,
+    keyword,
+    triggerReason: '',
+    blogId: null,
+    articleTitle: null,
+    pushedToShopify: false,
+    error: null,
+    warning: null,
+    startedAt,
+    finishedAt: null,
+  });
+}
+
+async function closeRun(
+  ref: DocumentReference,
+  outcome: Omit<RunOutcome, 'automationId' | 'automationName'> & { pushedToShopify: boolean }
+): Promise<void> {
+  await ref.update({
+    status: outcome.status,
     keyword: outcome.keyword,
     triggerReason: outcome.triggerReason || '',
     blogId: outcome.blogId ?? null,
-    articleTitle: null,
     pushedToShopify: outcome.pushedToShopify,
     error: outcome.error ?? null,
     warning: outcome.warning ?? null,
-    startedAt,
     finishedAt: Timestamp.now(),
   });
 }
@@ -356,9 +384,13 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
   const db = adminDb();
   const outcomes: RunOutcome[] = [];
 
+  // Opened up front so the dashboard has something to show immediately. Each branch below
+  // closes it, and the article loop reuses it for the first article.
+  const startedAt = Timestamp.now();
+  let openRef = await openRun(db, automation, '', startedAt);
+
   const record = async (
-    partial: Omit<RunOutcome, 'automationId' | 'automationName'> & { pushedToShopify?: boolean },
-    startedAt: Timestamp
+    partial: Omit<RunOutcome, 'automationId' | 'automationName'> & { pushedToShopify?: boolean }
   ) => {
     const outcome: RunOutcome = {
       automationId: automation.id as string,
@@ -366,20 +398,16 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
       ...partial,
     };
     outcomes.push(outcome);
-    await writeRun(db, automation, { ...partial, pushedToShopify: partial.pushedToShopify ?? false }, startedAt);
+    await closeRun(openRef, { ...partial, pushedToShopify: partial.pushedToShopify ?? false });
   };
 
-  const startedAt = Timestamp.now();
   const allowance = remainingThisMonth(automation);
   if (allowance === 0) {
-    await record(
-      {
-        status: 'skipped',
-        keyword: '',
-        error: `This automation has reached its cap of ${automation.monthlyArticleCap} articles for the month.`,
-      },
-      startedAt
-    );
+    await record({
+      status: 'skipped',
+      keyword: '',
+      error: `This automation has reached its cap of ${automation.monthlyArticleCap} articles for the month.`,
+    });
     return outcomes;
   }
 
@@ -394,22 +422,20 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
   } catch (error) {
     // A SkipRun is a decision, not a fault: the automation is fine, there was just
     // nothing worth writing. Anything else is a genuine failure.
-    await record(
-      {
-        status: error instanceof SkipRun ? 'skipped' : 'failed',
-        keyword: '',
-        error: describeError(error),
-      },
-      startedAt
-    );
+    await record({
+      status: error instanceof SkipRun ? 'skipped' : 'failed',
+      keyword: '',
+      error: describeError(error),
+    });
     return outcomes;
   }
 
   if (choices.length === 0) {
-    await record(
-      { status: 'skipped', keyword: '', error: 'This automation has no topics to write about.' },
-      startedAt
-    );
+    await record({
+      status: 'skipped',
+      keyword: '',
+      error: 'This automation has no topics to write about.',
+    });
     return outcomes;
   }
 
@@ -419,12 +445,17 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
     brand = await loadBrand(db, automation);
     idToken = await mintIdToken(automation.userId);
   } catch (error) {
-    await record({ status: 'failed', keyword: '', error: describeError(error) }, startedAt);
+    await record({ status: 'failed', keyword: '', error: describeError(error) });
     return outcomes;
   }
 
-  for (const choice of choices) {
-    const articleStartedAt = Timestamp.now();
+  for (const [index, choice] of choices.entries()) {
+    // The first article reuses the record opened above; later ones get their own.
+    if (index > 0) {
+      openRef = await openRun(db, automation, choice.keyword, Timestamp.now());
+    } else {
+      await openRef.update({ keyword: choice.keyword, triggerReason: choice.reason || '' });
+    }
 
     try {
       const article = await generateArticle(db, automation, brand, choice.keyword, idToken);
@@ -455,28 +486,22 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
           .update({ topicCursor: choice.nextCursor });
       }
 
-      await record(
-        {
-          status: 'succeeded',
-          keyword: choice.keyword,
-          triggerReason: choice.reason,
-          blogId: article.blogId,
-          warning,
-          pushedToShopify: pushed,
-        },
-        articleStartedAt
-      );
+      await record({
+        status: 'succeeded',
+        keyword: choice.keyword,
+        triggerReason: choice.reason,
+        blogId: article.blogId,
+        warning,
+        pushedToShopify: pushed,
+      });
     } catch (error) {
       const isUsageLimit = error instanceof Error && error.name === 'UsageLimitError';
-      await record(
-        {
-          status: isUsageLimit ? 'skipped' : 'failed',
-          keyword: choice.keyword,
-          triggerReason: choice.reason,
-          error: describeError(error),
-        },
-        articleStartedAt
-      );
+      await record({
+        status: isUsageLimit ? 'skipped' : 'failed',
+        keyword: choice.keyword,
+        triggerReason: choice.reason,
+        error: describeError(error),
+      });
 
       // A tier limit will not clear within this run, so stop rather than burn attempts.
       if (isUsageLimit) break;
