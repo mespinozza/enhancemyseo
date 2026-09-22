@@ -349,7 +349,6 @@ function expandToCompleteElement(content: string, partialText: string): string {
   
   // Find the opening tag before this text
   let startIndex = index;
-  let depth = 0;
   let foundStart = false;
   
   // Walk backwards to find the containing <p>, <li>, <td>, or <div>
@@ -1196,9 +1195,7 @@ function parseKeywordByConnectors(keyword: string): ParsedKeyword {
   ];
   
   // Try to split the keyword by connectors
-  let segments: KeywordSegment[] = [];
-  let remainingText = keyword;
-  let position = 0;
+  const segments: KeywordSegment[] = [];
   
   // Find all connector positions
   interface ConnectorMatch {
@@ -5179,7 +5176,7 @@ function sanitizeMarkdownToHTML(html: string): string {
   // 5. Fix Markdown unordered lists (- item or * item at start of line)
   // Only if not already in a list context
   const listItemPattern = /(?:^|\n)\s*[-*]\s+([^\n]+)/g;
-  let listMatches = result.match(listItemPattern);
+  const listMatches = result.match(listItemPattern);
   if (listMatches && listMatches.length > 0 && !result.includes('<ul>') && !result.includes('<li>')) {
     // Convert to HTML list
     result = result.replace(/(?:(?:^|\n)\s*[-*]\s+([^\n]+))+/g, (match) => {
