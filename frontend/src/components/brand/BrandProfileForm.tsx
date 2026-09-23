@@ -3,6 +3,7 @@ import { Check, Copy, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import SearchConsoleSection from './SearchConsoleSection';
+import ShopifyConnectSection from './ShopifyConnectSection';
 
 interface BrandProfileFormProps {
   existingProfile?: BrandProfile;
@@ -304,32 +305,16 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
               onChange={handleChange}
               inputType="url"
               placeholder="https://your-store.myshopify.com"
-              hint="The only field this needs for stores reached through our Shopify app."
+              hint="The store's permanent myshopify.com address. Connect the store below once this is saved."
             />
 
             <CredentialField
               name="shopifyAccessToken"
-              label="Shopify Access Token (optional)"
+              label="Shopify Access Token (legacy)"
               value={formData.shopifyAccessToken}
               onChange={handleChange}
               secret
-              hint="Only for stores with an older custom app that issued a permanent shpat_ token. Leave it blank otherwise — access is requested per call."
-            />
-
-            <CredentialField
-              name="shopifyApiKey"
-              label="Shopify API Key (unused)"
-              value={formData.shopifyApiKey}
-              onChange={handleChange}
-              secret
-            />
-
-            <CredentialField
-              name="shopifyApiSecret"
-              label="Shopify API Secret (unused)"
-              value={formData.shopifyApiSecret}
-              onChange={handleChange}
-              secret
+              hint="Only for stores with an older custom app that issued a permanent shpat_ token. Shopify no longer issues these, and a connected store ignores this field."
             />
 
             <div>
@@ -353,6 +338,11 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
             </div>
           </div>
         </div>
+
+        <ShopifyConnectSection
+          brandId={existingProfile?.id}
+          storeUrl={formData.shopifyStoreUrl}
+        />
 
         <SearchConsoleSection brandId={existingProfile?.id} />
 

@@ -3,7 +3,9 @@ import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import {
   resolveShopifyCredentials,
+  shopifyApiError,
   shopifyCredentialResponse,
+  type ShopifyCredentials,
 } from '@/lib/shopify/credentials';
 
 // Initialize Firebase Admin
@@ -34,16 +36,15 @@ export async function POST(request: Request) {
     // Parse request body
     const body: ShopifyBlogsRequest = await request.json();
 
-    let shopDomain: string;
-    let shopifyAccessToken: string;
+    let credentials: ShopifyCredentials;
     try {
-      const credentials = await resolveShopifyCredentials(decodedToken.uid, body);
-      shopDomain = credentials.shopDomain;
-      shopifyAccessToken = credentials.accessToken;
+      credentials = await resolveShopifyCredentials(decodedToken.uid, body);
     } catch (error) {
       const { error: message, status } = shopifyCredentialResponse(error);
       return NextResponse.json({ error: message }, { status });
     }
+
+    const { shopDomain, accessToken: shopifyAccessToken } = credentials;
 
     // Fetch blogs from Shopify
     const blogsResponse = await fetch(`https://${shopDomain}/admin/api/2023-10/blogs.json`, {
@@ -56,11 +57,13 @@ export async function POST(request: Request) {
 
     if (!blogsResponse.ok) {
       const errorText = await blogsResponse.text();
-      console.error('Failed to fetch blogs:', errorText);
-      return NextResponse.json(
-        { error: 'Failed to access Shopify store. Please check your store URL and access token.' },
-        { status: 400 }
+      console.error('Failed to fetch blogs:', blogsResponse.status, errorText);
+      const { error: message, status } = shopifyApiError(
+        blogsResponse.status,
+        errorText,
+        credentials.source
       );
+      return NextResponse.json({ error: message }, { status });
     }
 
     const blogsData = await blogsResponse.json();

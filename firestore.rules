@@ -126,6 +126,13 @@ service cloud.firestore {
     match /gscConnections/{brandId} {
       allow read, list, create, update, delete: if false;
     }
+
+    // Shopify store access tokens. Same reasoning as above and the same `ownerUid` field
+    // naming: this token can read and write a merchant's entire catalogue and blog, and
+    // the browser never needs it — /api/shopify/status reports connection state instead.
+    match /shopifyConnections/{brandId} {
+      allow read, list, create, update, delete: if false;
+    }
     
     match /history/{document} {
       allow read, write, create, delete: if 

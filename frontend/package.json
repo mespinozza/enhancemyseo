@@ -8,7 +8,8 @@
     "start": "next start -p ${PORT:-3000}",
     "lint": "next lint",
     "automation:cron": "node scripts/automation-cron.mjs",
-    "verify:automation-schedule": "npx --yes tsx scripts/verify-automation-schedule.ts"
+    "verify:automation-schedule": "npx --yes tsx scripts/verify-automation-schedule.ts",
+    "verify:shopify-oauth": "npx --yes tsx scripts/verify-shopify-oauth.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",

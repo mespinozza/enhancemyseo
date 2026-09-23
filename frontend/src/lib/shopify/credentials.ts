@@ -18,6 +18,8 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota';
+import { getShopifyConnection } from './oauth';
+import { isShopifyAppConfigured, normalizeShopDomain } from './shop';
 
 const TOKEN_PATH = '/admin/oauth/access_token';
 
@@ -36,29 +38,14 @@ export interface ShopifyCredentials {
   /** Always a bare `*.myshopify.com` host, never a scheme or trailing slash. */
   shopDomain: string;
   accessToken: string;
-  /** 'stored' is a legacy permanent token; 'app' was minted just now. */
-  source: 'stored' | 'app';
+  /**
+   * 'oauth' is a token the merchant granted us, 'stored' a legacy permanent token from
+   * the brand profile, 'app' one minted just now from the app's own credentials.
+   */
+  source: 'oauth' | 'stored' | 'app';
 }
 
-export function isShopifyAppConfigured(): boolean {
-  return Boolean(process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET);
-}
-
-/**
- * Accepts whatever a user pasted — `https://shop.myshopify.com/`, `shop`, or the host on
- * its own — and returns the host Shopify's API expects.
- */
-export function normalizeShopDomain(storeUrl: string): string {
-  let domain = (storeUrl || '').trim();
-  if (!domain) return '';
-
-  if (domain.includes('://')) domain = domain.split('://')[1];
-  domain = domain.split('/')[0].trim();
-  while (domain.endsWith('/')) domain = domain.slice(0, -1);
-  if (domain && !domain.includes('.')) domain = `${domain}.myshopify.com`;
-
-  return domain.toLowerCase();
-}
+export { isShopifyAppConfigured, normalizeShopDomain } from './shop';
 
 interface CachedToken {
   token: string;
@@ -151,6 +138,19 @@ export async function shopifyCredentialsForBrand(
     throw new ShopifyCredentialError('That brand profile belongs to another account', 403);
   }
 
+  // A merchant-granted connection wins over everything else. It is the only credential
+  // the merchant explicitly approved, and preferring it means a stale token left in the
+  // profile's token field cannot shadow a working connection — which is exactly the trap
+  // a revoked legacy token creates, since Shopify rejects it on every call.
+  const connection = await getShopifyConnection(uid, brandId);
+  if (connection) {
+    return {
+      shopDomain: connection.shopDomain,
+      accessToken: connection.accessToken,
+      source: 'oauth',
+    };
+  }
+
   const shopDomain = normalizeShopDomain(brand.shopifyStoreUrl || '');
   if (!shopDomain) {
     throw new ShopifyCredentialError('This brand profile has no Shopify store URL saved');
@@ -163,7 +163,7 @@ export async function shopifyCredentialsForBrand(
 
   if (!isShopifyAppConfigured()) {
     throw new ShopifyCredentialError(
-      'This brand has no Shopify access token, and the deployment has no Shopify app credentials to mint one with.',
+      'This store is not connected yet. Open the brand profile and use Connect Shopify.',
       503
     );
   }
@@ -205,6 +205,44 @@ export async function resolveShopifyCredentials(
   }
 
   return { shopDomain, accessToken: await mintAppToken(shopDomain), source: 'app' };
+}
+
+/**
+ * What a route should say when Shopify itself refuses the call.
+ *
+ * The generic "check your store URL and access token" this replaces was actively
+ * misleading: it pointed at a field the user could not fix, and hid both the status code
+ * and Shopify's own explanation. A rejected legacy token is called out by name, because
+ * it is the one case with a clear remedy and no obvious symptom.
+ */
+export function shopifyApiError(
+  status: number,
+  detail: string,
+  source: ShopifyCredentials['source']
+): { error: string; status: number } {
+  const reason = detail.trim().slice(0, 300);
+
+  if (status === 401 || status === 403) {
+    if (source === 'stored') {
+      return {
+        error:
+          'Shopify rejected the access token saved on this brand profile. Tokens from ' +
+          'admin-created custom apps no longer work — clear that field and use Connect ' +
+          `Shopify instead. Shopify said: ${reason}`,
+        status: 502,
+      };
+    }
+
+    return {
+      error:
+        source === 'oauth'
+          ? `Shopify rejected this store connection (${status}). Reconnect the store to approve access again. Shopify said: ${reason}`
+          : `Shopify rejected the request (${status}): ${reason}`,
+      status: 502,
+    };
+  }
+
+  return { error: `Shopify returned ${status}: ${reason}`, status: 502 };
 }
 
 /** Turns a credential failure into the response a route should send. */
