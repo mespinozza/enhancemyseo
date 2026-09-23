@@ -1,13 +1,10 @@
 /**
- * Store domain handling and app configuration checks.
+ * Store domain handling.
  *
  * Separate from `credentials.ts` and `oauth.ts` because both of those need it, and
- * importing it from either would make them circular.
+ * importing it from either would make them circular. Deliberately free of environment
+ * reads and server imports, so the browser can use it too.
  */
-
-export function isShopifyAppConfigured(): boolean {
-  return Boolean(process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET);
-}
 
 /**
  * Accepts whatever a user pasted — `https://shop.myshopify.com/`, `shop`, or the host on

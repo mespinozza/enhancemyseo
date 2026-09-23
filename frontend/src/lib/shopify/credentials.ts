@@ -18,8 +18,8 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota';
-import { getShopifyConnection } from './oauth';
-import { isShopifyAppConfigured, normalizeShopDomain } from './shop';
+import { getShopifyConnection, isShopifyAppConfigured } from './oauth';
+import { normalizeShopDomain } from './shop';
 
 const TOKEN_PATH = '/admin/oauth/access_token';
 
@@ -45,7 +45,8 @@ export interface ShopifyCredentials {
   source: 'oauth' | 'stored' | 'app';
 }
 
-export { isShopifyAppConfigured, normalizeShopDomain } from './shop';
+export { isShopifyAppConfigured } from './oauth';
+export { normalizeShopDomain } from './shop';
 
 interface CachedToken {
   token: string;

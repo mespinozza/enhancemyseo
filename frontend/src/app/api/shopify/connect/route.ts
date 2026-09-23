@@ -9,8 +9,8 @@ import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
-import { buildInstallUrl, signState } from '@/lib/shopify/oauth';
-import { isShopifyAppConfigured, isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
+import { buildInstallUrl, isShopifyAppConfigured, signState } from '@/lib/shopify/oauth';
+import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
 
 initializeFirebaseAdmin();
 

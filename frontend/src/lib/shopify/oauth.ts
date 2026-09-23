@@ -64,6 +64,11 @@ function adminDb(): Firestore {
   return getFirestore();
 }
 
+/** Whether this deployment can run the flow at all. Server-side only: these are secrets. */
+export function isShopifyAppConfigured(): boolean {
+  return Boolean(process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET);
+}
+
 function clientSecret(): string {
   const secret = process.env.SHOPIFY_CLIENT_SECRET;
   if (!secret) {

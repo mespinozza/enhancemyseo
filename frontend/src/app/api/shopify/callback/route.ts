@@ -11,11 +11,12 @@ import { NextResponse } from 'next/server';
 import {
   exchangeCodeForToken,
   isCallbackFresh,
+  isShopifyAppConfigured,
   saveShopifyConnection,
   verifyCallbackSignature,
   verifyState,
 } from '@/lib/shopify/oauth';
-import { isShopifyAppConfigured, isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
+import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
 import { safeReturnTo } from '@/lib/oauth/state';
 
 export const runtime = 'nodejs';

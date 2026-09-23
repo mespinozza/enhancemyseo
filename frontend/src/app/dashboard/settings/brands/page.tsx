@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import BrandProfileForm from '@/components/brand/BrandProfileForm';
+import { normalizeShopDomain } from '@/lib/shopify/shop';
 import { toast } from 'react-hot-toast';
 
 export default function BrandsPage() {
@@ -13,7 +14,9 @@ export default function BrandsPage() {
   const [selectedProfile, setSelectedProfile] = useState<BrandProfile | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [installShop, setInstallShop] = useState<string | null>(null);
   const handledOAuthReturn = useRef(false);
+  const handledInstall = useRef(false);
 
   const loadBrandProfiles = useCallback(async () => {
     if (!user) return;
@@ -60,6 +63,29 @@ export default function BrandsPage() {
     window.history.replaceState({}, '', window.location.pathname);
   }, [isLoading, brandProfiles]);
 
+  // Arriving from the app's entry point in the Shopify admin. The store is known but the
+  // brand it belongs to is not, so open the profile that already carries this store URL
+  // and let the user connect it there; otherwise say which store is waiting to be picked.
+  useEffect(() => {
+    if (isLoading || handledInstall.current) return;
+
+    const shop = new URLSearchParams(window.location.search).get('shopifyInstall');
+    if (!shop) return;
+
+    handledInstall.current = true;
+    setInstallShop(shop);
+
+    const match = brandProfiles.find(
+      (profile) => normalizeShopDomain(profile.shopifyStoreUrl || '') === shop
+    );
+    if (match) {
+      setSelectedProfile(match);
+      setShowForm(true);
+    }
+
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [isLoading, brandProfiles]);
+
   const handleSave = async () => {
     await loadBrandProfiles();
     setShowForm(false);
@@ -99,6 +125,19 @@ export default function BrandsPage() {
           Back to Settings
         </Link>
       </div>
+
+      {installShop && (
+        <div className="mb-6 rounded-md border border-blue-200 bg-blue-50 p-4">
+          <p className="text-sm font-medium text-blue-900">
+            Shopify sent you here to connect {installShop}
+          </p>
+          <p className="mt-1 text-sm text-blue-800">
+            {selectedProfile
+              ? 'Use Connect Shopify in the Store connection section below to finish.'
+              : 'Open the brand profile for this store, or add one, then use Connect Shopify.'}
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Brand Profiles</h1>

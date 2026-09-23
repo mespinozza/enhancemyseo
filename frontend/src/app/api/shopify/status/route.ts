@@ -8,8 +8,8 @@ import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
-import { getShopifyConnection } from '@/lib/shopify/oauth';
-import { isShopifyAppConfigured, normalizeShopDomain } from '@/lib/shopify/shop';
+import { getShopifyConnection, isShopifyAppConfigured } from '@/lib/shopify/oauth';
+import { normalizeShopDomain } from '@/lib/shopify/shop';
 
 initializeFirebaseAdmin();
 
