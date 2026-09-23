@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import { isCallbackFresh, isShopifyAppConfigured, verifyCallbackSignature } from '@/lib/shopify/oauth';
 import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
+import { publicOrigin } from '@/lib/oauth/origin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,8 @@ export const dynamic = 'force-dynamic';
 const LANDING_PATH = '/dashboard/settings/brands';
 
 function landOn(request: Request, params: Record<string, string>) {
-  const target = new URL(LANDING_PATH, new URL(request.url).origin);
+  const origin = publicOrigin(request, process.env.SHOPIFY_OAUTH_REDIRECT_URI);
+  const target = new URL(LANDING_PATH, origin);
   for (const [key, value] of Object.entries(params)) {
     target.searchParams.set(key, value);
   }

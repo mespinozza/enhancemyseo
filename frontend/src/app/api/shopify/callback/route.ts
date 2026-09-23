@@ -18,13 +18,15 @@ import {
 } from '@/lib/shopify/oauth';
 import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
 import { safeReturnTo } from '@/lib/oauth/state';
+import { publicOrigin } from '@/lib/oauth/origin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function backTo(request: Request, params: Record<string, string>, returnTo?: string) {
   const path = safeReturnTo(returnTo) || '/dashboard/settings/brands';
-  const target = new URL(path, new URL(request.url).origin);
+  const origin = publicOrigin(request, process.env.SHOPIFY_OAUTH_REDIRECT_URI);
+  const target = new URL(path, origin);
   for (const [key, value] of Object.entries(params)) {
     target.searchParams.set(key, value);
   }

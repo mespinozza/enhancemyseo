@@ -25,6 +25,7 @@ import {
   verifyState,
 } from '../src/lib/shopify/oauth';
 import { safeReturnTo } from '../src/lib/oauth/state';
+import { publicOrigin } from '../src/lib/oauth/origin';
 
 let passed = 0;
 let failed = 0;
@@ -186,6 +187,55 @@ console.log('\nSigned state');
   check(
     'an expired state fails even when signed',
     verifyState(`${expiredBody}.${expiredSignature}`) === null
+  );
+}
+
+console.log('\nPublic origin');
+{
+  // What Railway actually delivers: TLS ends at the edge and the container sees a
+  // request for its own internal port. Redirecting to that origin sends the user to a
+  // host that only exists inside the container.
+  const proxied = new Request('http://localhost:8080/api/shopify/install', {
+    headers: { host: 'localhost:8080', 'x-forwarded-host': 'enhancemyseo.com', 'x-forwarded-proto': 'https' },
+  });
+
+  check(
+    'a proxied request resolves to the public host',
+    publicOrigin(proxied) === 'https://enhancemyseo.com',
+    'got ' + publicOrigin(proxied)
+  );
+
+  check(
+    'an explicit URL beats the headers',
+    publicOrigin(proxied, 'https://configured.example.com/api/shopify/callback') ===
+      'https://configured.example.com'
+  );
+
+  check(
+    'a malformed explicit URL falls back rather than throwing',
+    publicOrigin(proxied, 'not a url') === 'https://enhancemyseo.com'
+  );
+
+  const protoList = new Request('http://localhost:8080/api/shopify/install', {
+    headers: { 'x-forwarded-host': 'enhancemyseo.com', 'x-forwarded-proto': 'https, http' },
+  });
+  check(
+    'only the first forwarded protocol is used',
+    publicOrigin(protoList) === 'https://enhancemyseo.com',
+    'got ' + publicOrigin(protoList)
+  );
+
+  const local = new Request('http://localhost:3001/api/shopify/install', {
+    headers: { host: 'localhost:3001' },
+  });
+  check('a local request stays on http', publicOrigin(local) === 'http://localhost:3001');
+
+  const plainHost = new Request('http://internal/api/shopify/install', {
+    headers: { host: 'enhancemyseo.com' },
+  });
+  check(
+    'a bare host header is assumed https',
+    publicOrigin(plainHost) === 'https://enhancemyseo.com'
   );
 }
 
