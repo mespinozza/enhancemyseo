@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { CLAUDE_MODEL } from '@/lib/ai/models';
 import {
   buildBlockEditPrompt,
   buildSectionEditPrompt,
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       : buildBlockEditPrompt({ blockHtml, instruction, selectedText, brand });
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
+      model: CLAUDE_MODEL,
       max_tokens: isSection ? 8000 : 4000,
       messages: [{ role: 'user', content: prompt }],
     });

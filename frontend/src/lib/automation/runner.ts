@@ -265,11 +265,17 @@ async function generateArticle(
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
     // The blog placeholder is removed so a failed run leaves no empty article behind.
     await blogRef.delete().catch(() => undefined);
 
-    const reason = payload.error || `Generation failed with status ${response.status}`;
+    const summary = payload.error || `Generation failed with status ${response.status}`;
+    // The route reports a generic sentence and puts the cause in `detail`; the run record
+    // is the only place the user can see it, so keep both.
+    const reason = payload.detail ? `${summary}: ${payload.detail}` : summary;
     const error = new Error(reason);
     if (response.status === 429) {
       error.name = 'UsageLimitError';

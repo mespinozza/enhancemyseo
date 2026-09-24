@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { CLAUDE_MODEL } from '@/lib/ai/models';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -91,7 +92,7 @@ Example format: keyword one, keyword two, keyword three
 Generate related keywords now:`;
 
     const response = await anthropic.messages.create({
-              model: 'claude-sonnet-5',
+              model: CLAUDE_MODEL,
       max_tokens: 300,
       messages: [
         {

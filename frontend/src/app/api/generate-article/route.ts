@@ -6,6 +6,7 @@ import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import { resolveShopifyCredentials } from '@/lib/shopify/credentials';
+import { CLAUDE_MODEL } from '@/lib/ai/models';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -533,7 +534,7 @@ The replacement must read as a polished, standalone paragraph that could appear 
 
   try {
     const message = await anthropicClient.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: CLAUDE_MODEL,
       max_tokens: 2000,
       messages: [
         {
@@ -694,7 +695,7 @@ CRITICAL RULES:
 
   try {
     const message = await anthropicClient.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: CLAUDE_MODEL,
       max_tokens: 2000,
       messages: [
         {
@@ -1538,7 +1539,7 @@ Keyword: "${keyword}"
 Answer:`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_MODEL,
       max_tokens: 50,
       messages: [
         { role: 'user', content: fallbackPrompt }
@@ -1722,7 +1723,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
     `;
     
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_MODEL,
       max_tokens: 250,  // Increased for JSON response
       messages: [
         { role: 'user', content: extractionPrompt }
@@ -5366,7 +5367,7 @@ HTML to clean:
 ${cleaned}`;
 
       const response = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: CLAUDE_MODEL,
         max_tokens: 16000,
         messages: [{ role: "user", content: cleanupPrompt }]
       });
@@ -5539,7 +5540,7 @@ export async function POST(request: Request) {
       console.log('Calling Claude API for topic breakdown');
       const claudeRes = await retryWithBackoff(
         () => anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
+          model: CLAUDE_MODEL,
           max_tokens: 1024,
           messages: [
             { role: 'user', content: topicBreakdownPrompt }
@@ -6088,7 +6089,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       console.log('Calling Claude API for article generation');
     const message = await retryWithBackoff(
       () => anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: CLAUDE_MODEL,
         max_tokens: 8192,
       messages: [
         {
@@ -6186,6 +6187,9 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       return NextResponse.json(
         { 
           error: 'Failed to generate article content',
+          // Without this the caller records only the generic sentence above, which is
+          // what let a retired model name look like a content problem for two days.
+          detail: error instanceof Error ? error.message : String(error),
           shopifyIntegration: {
             status: integrationStatus,
             message: getShopifyStatusMessage(integrationStatus)

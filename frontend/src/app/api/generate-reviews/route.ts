@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { CLAUDE_MODEL } from '@/lib/ai/models';
 
 // Initialize Anthropic client
 let anthropic: Anthropic | null = null;
@@ -49,7 +50,7 @@ Return the data as a JSON array with this exact structure:
 Generate diverse, authentic-sounding testimonials now:`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
+      model: CLAUDE_MODEL,
       max_tokens: 2000,
       messages: [
         {

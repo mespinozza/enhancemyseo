@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
+import { CLAUDE_MODEL } from '@/lib/ai/models';
 
 // Initialize Firebase Admin if not already initialized
 initializeFirebaseAdmin();
@@ -113,7 +114,7 @@ export async function POST(request: Request) {
 
     // Generate keywords using Claude
     const message = await anthropic.messages.create({
-              model: "claude-sonnet-5",
+              model: CLAUDE_MODEL,
       max_tokens: 4000,
       messages: [
         {
