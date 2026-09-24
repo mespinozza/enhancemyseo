@@ -35,6 +35,7 @@ import {
   type KeywordChoice,
 } from './selection';
 import { coveredKeywords, forgetCoveredKeywords } from './covered';
+import { deriveKeyword } from './keyword';
 import { getConnection, isGscConfigured, topPageQueries, topQueries } from '@/lib/gsc/client';
 
 const FIREBASE_WEB_API_KEY =
@@ -388,6 +389,48 @@ async function closeRun(
 }
 
 /**
+ * Search Console already supplies real search terms, so deriving a keyword only applies
+ * to topic lists. Automations created before the setting existed are treated as on.
+ */
+function usesDerivedKeywords(automation: Automation): boolean {
+  return automation.trigger === 'topicList' && automation.deriveKeywords !== false;
+}
+
+/**
+ * The keyword to write about, and the sentence history shows for why.
+ *
+ * `written` is null when the automation writes its topics verbatim.
+ */
+async function resolveKeyword(
+  brand: BrandProfile,
+  choice: KeywordChoice,
+  written: Set<string> | null
+): Promise<{ keyword: string; reason: string }> {
+  if (!written) {
+    return { keyword: choice.keyword, reason: choice.reason || '' };
+  }
+
+  const derived = await deriveKeyword({
+    topic: choice.keyword,
+    brandName: brand.brandName,
+    businessType: brand.businessType,
+    exclusions: written,
+  });
+
+  if (!derived.derived) {
+    return {
+      keyword: derived.keyword || choice.keyword,
+      reason: `${choice.reason}. Wrote the topic as-is because ${derived.note}.`,
+    };
+  }
+
+  return {
+    keyword: derived.keyword,
+    reason: `${choice.reason}, rewritten for buyer intent from "${choice.keyword}".`,
+  };
+}
+
+/**
  * Runs one automation to completion, writing a run record per article attempted.
  * Never throws: every failure becomes a recorded run so the user can see what happened.
  */
@@ -460,16 +503,27 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
     return outcomes;
   }
 
+  // Copied rather than used in place: entries are added as this run writes them, and
+  // the set returned here is shared with the preview's cache.
+  const written = usesDerivedKeywords(automation)
+    ? new Set(await coveredKeywords(db, automation.userId, automation.brandId))
+    : null;
+
   for (const [index, choice] of choices.entries()) {
+    const chosen = await resolveKeyword(brand, choice, written);
+
     // The first article reuses the record opened above; later ones get their own.
     if (index > 0) {
-      openRef = await openRun(db, automation, choice.keyword, Timestamp.now());
+      openRef = await openRun(db, automation, chosen.keyword, Timestamp.now());
     } else {
-      await openRef.update({ keyword: choice.keyword, triggerReason: choice.reason || '' });
+      await openRef.update({ keyword: chosen.keyword, triggerReason: chosen.reason });
     }
 
+    // So the next article in this same run cannot land on the keyword just taken.
+    written?.add(chosen.keyword.toLowerCase());
+
     try {
-      const article = await generateArticle(db, automation, brand, choice.keyword, idToken);
+      const article = await generateArticle(db, automation, brand, chosen.keyword, idToken);
       await recordArticleAgainstCap(db, automation.id as string);
 
       let pushed = false;
@@ -499,8 +553,8 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
 
       await record({
         status: 'succeeded',
-        keyword: choice.keyword,
-        triggerReason: choice.reason,
+        keyword: chosen.keyword,
+        triggerReason: chosen.reason,
         blogId: article.blogId,
         warning,
         pushedToShopify: pushed,
@@ -509,8 +563,8 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
       const isUsageLimit = error instanceof Error && error.name === 'UsageLimitError';
       await record({
         status: isUsageLimit ? 'skipped' : 'failed',
-        keyword: choice.keyword,
-        triggerReason: choice.reason,
+        keyword: chosen.keyword,
+        triggerReason: chosen.reason,
         error: describeError(error),
       });
 

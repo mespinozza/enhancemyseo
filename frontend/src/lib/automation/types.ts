@@ -110,6 +110,13 @@ export interface Automation {
   /** Rotated in order for the `topicList` trigger. */
   topics: string[];
   topicCursor: number;
+  /**
+   * Ask the model for a buyer-intent keyword per topic instead of writing about the
+   * topic verbatim, so looping a short list does not rewrite the same articles. Only
+   * read for the `topicList` trigger. Absent on automations made before this existed,
+   * which are treated as on.
+   */
+  deriveKeywords?: boolean;
   /** Only read when trigger is 'gscTraffic'. */
   gsc?: AutomationGscConfig;
   schedule: AutomationSchedule;

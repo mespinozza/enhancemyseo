@@ -77,6 +77,8 @@ export default function AutomationForm({
   const [brandId, setBrandId] = useState(existing?.brandId || brandProfiles[0]?.id || '');
   const [trigger, setTrigger] = useState<AutomationTrigger>(existing?.trigger || 'topicList');
   const [topicsText, setTopicsText] = useState((existing?.topics || []).join('\n'));
+  // Automations saved before this setting existed have it on.
+  const [deriveKeywords, setDeriveKeywords] = useState(existing?.deriveKeywords !== false);
   const [gsc, setGsc] = useState<AutomationGscConfig>(existing?.gsc || DEFAULT_GSC_CONFIG);
   const [gscStatus, setGscStatus] = useState<GscStatus | null>(null);
   const [gscLoading, setGscLoading] = useState(false);
@@ -282,6 +284,7 @@ export default function AutomationForm({
       trigger,
       topics,
       topicCursor: existing?.topicCursor ?? 0,
+      deriveKeywords,
       // Defaulted rather than left undefined: Firestore rejects undefined fields, and an
       // automation saved before the page option existed ranks by query.
       ...(trigger === 'gscTraffic' ? { gsc: { ...gsc, dimension: gsc.dimension || 'query' } } : {}),
@@ -425,6 +428,26 @@ export default function AutomationForm({
             {topics.length > 0 &&
               `${topics.length} topic${topics.length === 1 ? '' : 's'} right now.`}
           </p>
+
+          <label className="mt-3 flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={deriveKeywords}
+              onChange={(event) => setDeriveKeywords(event.target.checked)}
+              className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-gray-900">
+                Turn each topic into a buyer-intent keyword
+              </span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                Writes to a search phrase built from the topic instead of the topic itself, and
+                avoids keywords this brand already has articles for — so repeating the list gives
+                you new articles rather than the same ones. Each run says which topic it came
+                from. Off means the topic is used word for word.
+              </span>
+            </span>
+          </label>
         </div>
       ) : (
         <div className="space-y-4">
