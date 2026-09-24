@@ -7,6 +7,7 @@ import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-uti
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import { resolveShopifyCredentials } from '@/lib/shopify/credentials';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { textFromMessage } from '@/lib/ai/text';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -544,7 +545,7 @@ The replacement must read as a polished, standalone paragraph that could appear 
       ]
     });
 
-    let rewrittenContent = message.content[0].type === 'text' ? message.content[0].text : '';
+    let rewrittenContent = textFromMessage(message);
     
     // Clean up the response
     rewrittenContent = rewrittenContent.trim();
@@ -705,7 +706,7 @@ CRITICAL RULES:
       ]
     });
 
-    const response = message.content[0].type === 'text' ? message.content[0].text : '';
+    const response = textFromMessage(message);
     
     // Parse the response
     const originalMatch = response.match(/<original>([\s\S]*?)<\/original>/);
@@ -1546,8 +1547,7 @@ Answer:`;
       ]
     });
     
-    const contentBlock = response.content[0];
-    const detectedVendor = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || 'NONE';
+    const detectedVendor = textFromMessage(response).trim() || 'NONE';
     console.log(`Claude fallback detected vendor: "${detectedVendor}"`);
     
     // Validate against available vendors (case-insensitive)
@@ -1730,8 +1730,7 @@ async function extractKeyTerms(text: string, keyword: string, availableVendors: 
       ]
     });
     
-    const contentBlock = response.content[0];
-    let responseText = (contentBlock.type === 'text' ? contentBlock.text : '').trim() || '';
+    let responseText = textFromMessage(response).trim();
     
     // 🆕 Parse JSON response to extract AI-detected primary product and components
     let aiDetectedProduct: string | null = null;
@@ -5372,8 +5371,14 @@ ${cleaned}`;
         messages: [{ role: "user", content: cleanupPrompt }]
       });
       
-      cleaned = response.content[0].text;
-      console.log('✅ AI cleanup completed');
+      const tidied = textFromMessage(response);
+      // Keeping the regex-cleaned version beats replacing a good article with nothing.
+      if (tidied.trim()) {
+        cleaned = tidied;
+        console.log('✅ AI cleanup completed');
+      } else {
+        console.warn('⚠️ AI cleanup returned nothing, keeping the regex-cleaned version');
+      }
     } catch (error) {
       console.error('❌ AI cleanup failed, using regex-cleaned version:', error);
       // Fall back to regex-cleaned version
@@ -5548,8 +5553,7 @@ export async function POST(request: Request) {
         }),
         'Topic Breakdown Generation'
       );
-      const contentBlock = claudeRes.content[0];
-      topicBreakdown = (contentBlock.type === 'text' ? contentBlock.text : '') || '';
+      topicBreakdown = textFromMessage(claudeRes);
       log('✅ Topic breakdown generated');
       console.log('Successfully generated topic breakdown');
     } catch (err) {
@@ -6102,7 +6106,14 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     );
 
       // Get the generated content from the response
-      let generatedContent = message.content[0].type === 'text' ? message.content[0].text : '';
+      let generatedContent = textFromMessage(message);
+      // An empty reply used to sail through as a 200 with a blank article, costing a run
+      // and a slot in the monthly cap while looking like a success. Fail loudly instead.
+      if (!generatedContent.trim()) {
+        throw new Error(
+          `Claude returned no article text (stop reason: ${message.stop_reason ?? 'unknown'})`
+        );
+      }
       log(`✅ Article generated (${generatedContent.length} chars)`);
       console.log('Successfully generated article content');
 
