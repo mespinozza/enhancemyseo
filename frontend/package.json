@@ -10,7 +10,8 @@
     "automation:cron": "node scripts/automation-cron.mjs",
     "verify:automation-schedule": "npx --yes tsx scripts/verify-automation-schedule.ts",
     "verify:shopify-oauth": "npx --yes tsx scripts/verify-shopify-oauth.ts",
-    "verify:keyword-derivation": "npx --yes tsx scripts/verify-keyword-derivation.ts"
+    "verify:keyword-derivation": "npx --yes tsx scripts/verify-keyword-derivation.ts",
+    "verify:home-demo": "npx --yes tsx scripts/verify-home-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",
