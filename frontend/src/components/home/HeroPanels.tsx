@@ -32,10 +32,10 @@ export default function HeroPanels() {
   const clicks = chartValueAt(state.chart);
 
   return (
-    <div ref={containerRef} className="space-y-4">
+    <div ref={containerRef} className="space-y-3">
       {/* The problem */}
-      <div className="rounded-xl bg-white p-6 shadow-lg transition-transform duration-200 hover:-translate-y-1">
-        <h3 className="mb-4 flex items-center text-lg font-semibold text-red-500">
+      <div className="rounded-xl bg-white p-5 shadow-lg transition-transform duration-200 hover:-translate-y-1">
+        <h3 className="mb-3 flex items-center text-lg font-semibold text-red-500">
           <XCircle className="mr-2 h-5 w-5 flex-shrink-0" />
           The problem with most SEO tools:
         </h3>
@@ -52,7 +52,7 @@ export default function HeroPanels() {
                   opacity: visible ? 1 : 0,
                   transform: visible ? 'none' : 'translateY(4px)',
                 }}
-                className="flex items-start gap-3 rounded-md px-2 py-1.5 text-gray-700 transition-[opacity,transform] duration-500 motion-reduce:transform-none"
+                className="flex items-start gap-3 rounded-md px-2 py-1 text-gray-700 transition-[opacity,transform] duration-500 motion-reduce:transform-none"
               >
                 <span
                   className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full transition-colors duration-300"
@@ -66,8 +66,8 @@ export default function HeroPanels() {
       </div>
 
       {/* The answer */}
-      <div className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1">
-        <h3 className="mb-4 flex items-center text-lg font-semibold">
+      <div className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 p-5 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1">
+        <h3 className="mb-3 flex items-center text-lg font-semibold">
           <Check className="mr-2 h-5 w-5 flex-shrink-0" />
           Our tool does this on auto-pilot:
         </h3>
@@ -82,7 +82,7 @@ export default function HeroPanels() {
                   opacity: visible ? 1 : 0,
                   transform: visible ? 'none' : 'translateY(4px)',
                 }}
-                className="flex items-start gap-3 rounded-md px-2 py-1.5 transition-[opacity,transform] duration-500 motion-reduce:transform-none"
+                className="flex items-start gap-3 rounded-md px-2 py-1 transition-[opacity,transform] duration-500 motion-reduce:transform-none"
               >
                 <span
                   className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-300"
@@ -101,8 +101,8 @@ export default function HeroPanels() {
       </div>
 
       {/* The result */}
-      <div className="rounded-xl bg-gray-900 p-6 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1">
-        <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="rounded-xl bg-gray-900 p-5 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1">
+        <div className="mb-3 flex items-start justify-between gap-4">
           <h3 className="flex items-center text-lg font-semibold">
             <TrendingUp className="mr-2 h-5 w-5 flex-shrink-0 text-green-400" />
             Organic results with our tools:
@@ -191,10 +191,12 @@ export default function HeroPanels() {
           ))}
         </svg>
 
-        <p className="mt-3 text-center text-lg font-semibold">
+        <p className="mt-2 text-center text-base font-semibold">
           Content Reaching <span className="text-blue-500">Page #1</span> Google Rankings
         </p>
       </div>
     </div>
   );
 }
+
+

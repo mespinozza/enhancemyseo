@@ -65,7 +65,7 @@ export default function Hero() {
           </div>
           
           {/* Right Column - the animated comparison */}
-          <div className="relative pt-4">
+          <div className="relative">
             <HeroPanels />
           </div>
         </div>
@@ -73,3 +73,4 @@ export default function Hero() {
     </section>
   );
 }
+

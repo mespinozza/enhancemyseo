@@ -86,8 +86,13 @@ export function heroRestState(): HeroState {
 
 /* ------------------------------------------------------------------ the chart ----- */
 
-export const CHART_WIDTH = 320;
-export const CHART_HEIGHT = 120;
+/**
+ * The plot is sized by its own proportions: the svg is given a width and takes its
+ * height from this ratio, so these numbers are what keep the third panel from pushing
+ * the column past the bottom of the screen. Wide and shallow on purpose.
+ */
+export const CHART_WIDTH = 440;
+export const CHART_HEIGHT = 70;
 
 /**
  * Monthly organic clicks. A plausible ramp rather than a straight diagonal: the old
@@ -181,3 +186,4 @@ export function chartValueAt(progress: number): number {
   const within = exact - index;
   return Math.round(values[index] + (values[index + 1] - values[index]) * within);
 }
+
