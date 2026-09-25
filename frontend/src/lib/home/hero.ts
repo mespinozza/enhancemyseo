@@ -95,18 +95,18 @@ export const CHART_WIDTH = 440;
 export const CHART_HEIGHT = 70;
 
 /**
- * Monthly organic clicks. A plausible ramp rather than a straight diagonal: the old
- * drawing was a single smooth curve to the corner, which reads as an illustration. Real
- * traffic climbs unevenly.
+ * Organic clicks generated, counted cumulatively so the line and the figure beside it
+ * are telling the same story. A plausible ramp rather than a straight diagonal: the old
+ * drawing was a single smooth curve to the corner, which reads as an illustration.
  */
 export const CHART_SERIES = [
-  { label: 'Apr', value: 140 },
-  { label: 'May', value: 210 },
-  { label: 'Jun', value: 330 },
-  { label: 'Jul', value: 480 },
-  { label: 'Aug', value: 760 },
-  { label: 'Sep', value: 1_040 },
-  { label: 'Oct', value: 1_420 },
+  { label: 'Apr', value: 38_200 },
+  { label: 'May', value: 71_600 },
+  { label: 'Jun', value: 121_900 },
+  { label: 'Jul', value: 193_400 },
+  { label: 'Aug', value: 287_500 },
+  { label: 'Sep', value: 401_800 },
+  { label: 'Oct', value: 528_400 },
 ];
 
 export interface ChartPoint {

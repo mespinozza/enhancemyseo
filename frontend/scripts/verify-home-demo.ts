@@ -282,6 +282,18 @@ console.log('\nHero chart');
   );
   check('out of range progress is clamped', pointAtProgress(2, points).x === last.x);
 
+  // The figure is the claim. Cumulative, so it can only ever climb, and it has to clear
+  // half a million or the panel is promising something the number does not show.
+  check(
+    'the total is counted cumulatively',
+    CHART_SERIES.every((entry, index) => index === 0 || CHART_SERIES[index - 1].value < entry.value)
+  );
+  check(
+    'the total clears half a million',
+    CHART_SERIES[CHART_SERIES.length - 1].value > 500_000,
+    CHART_SERIES[CHART_SERIES.length - 1].value.toLocaleString()
+  );
+
   check('the readout starts at the first month', chartValueAt(0) === CHART_SERIES[0].value);
   check(
     'the readout lands on the last',

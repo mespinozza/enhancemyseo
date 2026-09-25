@@ -112,7 +112,9 @@ export default function HeroPanels() {
             <div className="text-xl font-semibold tabular-nums text-green-400">
               {clicks.toLocaleString()}
             </div>
-            <div className="text-[11px] text-gray-400">clicks / month</div>
+            <div className="whitespace-nowrap text-[11px] text-gray-400">
+              clicks generated organically
+            </div>
           </div>
         </div>
 
@@ -122,7 +124,7 @@ export default function HeroPanels() {
           // both ends, because the viewBox keeps its own aspect ratio.
           className="w-full"
           role="img"
-          aria-label={`Organic clicks rising from ${CHART_SERIES[0].value} in ${CHART_SERIES[0].label} to ${CHART_SERIES[CHART_SERIES.length - 1].value} in ${CHART_SERIES[CHART_SERIES.length - 1].label}`}
+          aria-label={`Organic clicks generated, rising from ${CHART_SERIES[0].value.toLocaleString()} in ${CHART_SERIES[0].label} to ${CHART_SERIES[CHART_SERIES.length - 1].value.toLocaleString()} in ${CHART_SERIES[CHART_SERIES.length - 1].label}`}
         >
           <defs>
             <linearGradient id="hero-chart-fill" x1="0" y1="0" x2="0" y2="1">
