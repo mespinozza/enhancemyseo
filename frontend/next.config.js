@@ -24,7 +24,20 @@ const nextConfig = {
     // Will only be available on the server side
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  }
+  },
+  webpack: (config, { nextRuntime, webpack }) => {
+    // Next compiles instrumentation.ts for the edge runtime as well as node.
+    // register() returns early there, but a dev build does no dead-code
+    // elimination, so webpack still follows the import into firebase-admin and
+    // fails on its node-only dependencies. Production builds drop the branch and
+    // never hit this; dev would 500 on every page without it.
+    if (nextRuntime === 'edge') {
+      config.plugins.push(
+        new webpack.IgnorePlugin({ resourceRegExp: /automation\/scheduler$/ })
+      );
+    }
+    return config;
+  },
 };
 
 module.exports = nextConfig; 
