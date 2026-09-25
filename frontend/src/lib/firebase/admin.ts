@@ -40,6 +40,6 @@ export function initializeFirebaseAdmin(): App {
       privateKey: privateKey.replace(/\\n/g, '\n'),
     }),
     storageBucket:
-      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`,
+      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
   });
 }

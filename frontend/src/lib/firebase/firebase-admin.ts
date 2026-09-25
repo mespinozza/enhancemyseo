@@ -9,7 +9,7 @@ const getFirebaseConfig = () => {
       apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',  // You'll need to set this in .env.local
       authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "plzenhancemyseo.firebaseapp.com",
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "plzenhancemyseo",
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "plzenhancemyseo.appspot.com",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "plzenhancemyseo.firebasestorage.app",
       messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "548921523768",
       appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:548921523768:web:3aed909d4711e9ea5b0a86"
     };

@@ -6,7 +6,9 @@ const nextConfig = {
     NEXT_PUBLIC_FIREBASE_API_KEY: "AIzaSyC8SaduwnXf05zyvldhXeDL-MmQf4W8DTs",
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "plzenhancemyseo.firebaseapp.com",
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: "plzenhancemyseo",
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "plzenhancemyseo.appspot.com",
+    // Default buckets created after September 2024 are named PROJECT_ID.firebasestorage.app.
+    // This project has no .appspot.com bucket, so that legacy name never resolved.
+    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "plzenhancemyseo.firebasestorage.app",
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "132348098774",
     NEXT_PUBLIC_FIREBASE_APP_ID: "1:132348098774:web:7c4eccbd97708b72c77177",
   },
