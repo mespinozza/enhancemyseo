@@ -27,11 +27,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const form = await request.formData();
-    const file = form.get('file');
+    const entry = form.get('file');
 
-    if (!(file instanceof File)) {
+    // Checked by shape rather than `entry instanceof File`: the File constructor is
+    // not in scope in Next's bundled server runtime, so that comparison throws a
+    // ReferenceError instead of returning false.
+    if (!entry || typeof entry === 'string' || typeof entry.arrayBuffer !== 'function') {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
+
+    const file = entry as Blob & { name?: string };
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: 'Only JPEG, PNG, WebP and GIF images are allowed.' },
