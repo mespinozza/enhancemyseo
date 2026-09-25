@@ -333,22 +333,21 @@ export default function Pricing() {
 
         {/* Statistics Showcase Section */}
         <div className="mb-12 bg-gray-900 rounded-3xl shadow-xl p-12 text-white overflow-hidden relative">
-          {/* Add fade effect to border */}
-          <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white via-transparent to-transparent opacity-5"></div>
-          
-          <div className="absolute top-0 left-0 w-full h-32 overflow-hidden">
-            <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-3/4">
-              <svg viewBox="0 0 1000 100" className="text-blue-500/10">
-                <path
-                  d="M 0 50 C 250 0, 750 100, 1000 50 L 1000 0 L 0 0"
-                  fill="currentColor"
-                />
-              </svg>
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-full h-full">
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-blue-400/20 blur-xl"></div>
-              </div>
-            </div>
-          </div>
+          {/* One wash of radial gradients rather than a stack of blurred rectangles
+              clipped by a fixed-height band. Radials end in full transparency, so there
+              are no edges to seam against the card the way the old blurred bar's sides
+              and clipped bottom did. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: [
+                'radial-gradient(110% 75% at 50% -15%, rgba(96, 165, 250, 0.30), rgba(96, 165, 250, 0) 70%)',
+                'radial-gradient(80% 65% at 88% 115%, rgba(37, 99, 235, 0.20), rgba(37, 99, 235, 0) 70%)',
+                'linear-gradient(to bottom, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 45%)',
+              ].join(', '),
+            }}
+          />
 
           <div className="relative z-10 max-w-7xl mx-auto text-center">
             <div className="inline-flex items-center px-4 py-2 bg-gray-800/50 rounded-full backdrop-blur-sm mb-8">
@@ -361,7 +360,12 @@ export default function Pricing() {
               <br />
               <span className="relative inline-block mt-2">
                 <span className="relative z-10">on page #1</span>
-                <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-blue-400 rounded-lg opacity-50 blur"></div>
+                {/* A wide soft glow, not a blurred slab: an 8px blur on a rounded
+                    rectangle still read as a box sitting behind the words. */}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -inset-x-6 -inset-y-1 rounded-full bg-blue-500/50 blur-lg"
+                />
               </span>
             </h2>
 
