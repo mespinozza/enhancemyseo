@@ -19,11 +19,12 @@ import {
   DEMO_CARDS,
   LOOP_MS,
   restStates,
+  REST_FRAME,
   typeOut,
   type DemoIcon,
 } from '@/lib/home/demo';
 import LiveCard from './LiveCard';
-import { useDemoClock } from './useDemoClock';
+import { useSectionClock } from './useSectionClock';
 
 const ICONS: Record<DemoIcon, LucideIcon> = {
   article: FileText,
@@ -43,7 +44,7 @@ const WORD_MS = 3_000;
 export default function Features() {
   const router = useRouter();
   const { user } = useAuth();
-  const { containerRef, elapsed, animated } = useDemoClock();
+  const { containerRef, elapsed, animated } = useSectionClock(REST_FRAME);
 
   // Derived, never stored: one clock is the only thing that advances.
   const states = animated ? cardStatesAt(elapsed) : restStates();
@@ -97,7 +98,6 @@ export default function Features() {
                 index={index}
                 icon={ICONS[card.icon]}
                 title={card.title}
-                href={card.href}
                 bullets={card.bullets}
                 featured={card.featured}
                 done={state.done}

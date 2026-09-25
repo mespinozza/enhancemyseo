@@ -5,6 +5,30 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 
+/**
+ * Connecting a store is OAuth now, for Shopify and for Search Console. The guide this
+ * replaced walked through creating a custom app in the Shopify admin and copying an API
+ * key, secret, access token and store URL across by hand — none of which we ask for any
+ * more, and Shopify no longer issues those tokens to new apps.
+ */
+const CONNECT_STEPS = [
+  {
+    title: 'Add your brand',
+    body: 'Create a brand profile and paste in your store address.',
+    note: 'Use the permanent my-store.myshopify.com address, not a custom domain.',
+  },
+  {
+    title: 'Connect Shopify',
+    body: 'Press Connect Shopify and approve the permissions in your store. That is the whole setup.',
+    note: 'Products, collections and your blog become available straight away.',
+  },
+  {
+    title: 'Add Search Console',
+    body: 'Optional. Connect it to pull the keywords you already rank for into your automations.',
+    note: 'Sign in with the Google account that owns the property.',
+  },
+];
+
 // Quick Feature Request Form Component
 function FeatureRequestForm() {
   const { user } = useAuth();
@@ -343,132 +367,47 @@ export default function DashboardHome() {
         </div>
       </div>
 
-      {/* Shopify Connection Guide */}
+      {/* Connection guide. Shopify and Search Console are both OAuth now, so this is
+          three short steps rather than the old walkthrough for creating a custom app
+          and copying four credentials by hand. */}
       <div className="mt-12">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">How to Connect your Shopify Store</h2>
-          <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-            💡 Save these details in your Brand Profile settings
-          </div>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold text-gray-900">Connect your store</h2>
+          <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm text-green-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            No API keys to copy
+          </span>
         </div>
-        
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6">
-          {/* Simplified Steps Grid */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            {/* Step 1 */}
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-300 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="w-8 h-8 bg-blue-300 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">1</div>
-                <h3 className="font-semibold text-gray-900">Access Apps</h3>
-              </div>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div>📂 Shopify Admin → <strong>Apps</strong></div>
-                <div>➡️ <strong>&quot;App and sales channel settings&quot;</strong></div>
-              </div>
-            </div>
 
-            {/* Step 2 */}
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-400 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">2</div>
-                <h3 className="font-semibold text-gray-900">Create App</h3>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {CONNECT_STEPS.map((step, index) => (
+            <div
+              key={step.title}
+              className="relative rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+                  {index + 1}
+                </span>
+                <h3 className="font-semibold text-gray-900">{step.title}</h3>
               </div>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div>🛠️ <strong>&quot;Develop apps for your store&quot;</strong></div>
-                <div>📝 Name: &quot;EnhanceMySEO Connector&quot;</div>
-              </div>
+              <p className="mt-3 text-sm leading-relaxed text-gray-600">{step.body}</p>
+              {step.note && <p className="mt-2 text-xs text-gray-500">{step.note}</p>}
             </div>
+          ))}
+        </div>
 
-            {/* Step 3 */}
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-500 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">3</div>
-                <h3 className="font-semibold text-gray-900">Set Scopes</h3>
-              </div>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div>🔐 <strong>&quot;Configure Admin API scopes&quot;</strong></div>
-                <div className="text-blue-600 font-medium">✨ Select ALL scopes for full functionality</div>
-                <div className="text-xs text-gray-500">This ensures all tools work to their fullest potential</div>
-              </div>
-            </div>
-
-            {/* Step 4 */}
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-600 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">4</div>
-                <h3 className="font-semibold text-gray-900">Install App</h3>
-              </div>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div>🚀 Go to <strong>&quot;Install app&quot;</strong> tab</div>
-                <div className="text-red-600 font-medium">⚠️ Copy Access Token immediately!</div>
-              </div>
-            </div>
-
-            {/* Step 5 */}
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-700 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="w-8 h-8 bg-blue-700 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">5</div>
-                <h3 className="font-semibold text-gray-900">Get Credentials</h3>
-              </div>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div>🔑 <strong>&quot;API credentials&quot;</strong> tab</div>
-                <div>✅ API Key, Secret Key, Store URL</div>
-              </div>
-            </div>
-
-            {/* Step 6 */}
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-800 shadow-sm">
-              <div className="flex items-center mb-2">
-                <div className="w-8 h-8 bg-blue-800 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">6</div>
-                <h3 className="font-semibold text-gray-900">Save to Profile</h3>
-              </div>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div>💾 Add to Brand Profile settings</div>
-                <div>🎯 Start optimizing your store!</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Credentials Checklist */}
-          <div className="bg-white rounded-lg p-4 border border-gray-200 mb-4">
-            <h3 className="font-semibold text-gray-900 mb-3 flex items-center">
-              <span className="text-blue-600 mr-2">📋</span>
-              Credentials Checklist
-            </h3>
-            <div className="grid md:grid-cols-2 gap-3 text-sm">
-              <div className="flex items-center p-2 bg-blue-50 rounded">
-                <span className="text-blue-600 mr-2">✅</span>
-                <span>Shopify API Key</span>
-              </div>
-              <div className="flex items-center p-2 bg-blue-50 rounded">
-                <span className="text-blue-600 mr-2">✅</span>
-                <span>API Secret Key</span>
-              </div>
-              <div className="flex items-center p-2 bg-blue-50 rounded">
-                <span className="text-blue-600 mr-2">✅</span>
-                <span>Access Token</span>
-              </div>
-              <div className="flex items-center p-2 bg-blue-50 rounded">
-                <span className="text-blue-600 mr-2">✅</span>
-                <span>Store URL</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Call to Action */}
-          <div className="text-center">
-            <div className="flex items-center justify-center space-x-4">
-              <Link 
-                href="/dashboard/settings/brands" 
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
-              >
-                Go to Brand Profile Settings
-              </Link>
-              <div className="text-xs text-gray-500">
-                Save your credentials to get started
-              </div>
-            </div>
-          </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Link
+            href="/dashboard/settings/brands"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          >
+            Open brand profiles
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <p className="text-sm text-gray-500">
+            Already connected? Nothing to do here.
+          </p>
         </div>
       </div>
 

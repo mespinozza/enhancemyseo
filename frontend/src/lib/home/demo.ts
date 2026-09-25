@@ -35,8 +35,6 @@ export interface DemoCard {
   id: string;
   title: string;
   icon: DemoIcon;
-  /** Where this lives in the app, so the card can link to the real thing. */
-  href: string;
   bullets: DemoBullet[];
   /** Shown before the script touches this card, and again after the loop resets. */
   idleStatus: string;
@@ -48,16 +46,18 @@ export interface DemoCard {
 }
 
 /**
- * Only shipped features. Each maps to a route that exists today: /dashboard/articles,
- * /dashboard/automate, the gsc/* and shopify/* endpoints, /dashboard/keywords,
+ * Only shipped features. Each maps to something that runs today: /dashboard/automate,
+ * /dashboard/articles, the gsc/* and shopify/* endpoints, /dashboard/keywords,
  * /dashboard/products and /collections, /dashboard/settings/brands, and the block editor.
+ *
+ * Nothing here is aspirational. A card for work in progress reads as a promise, and the
+ * section this replaced lost its credibility exactly that way.
  */
 export const DEMO_CARDS: DemoCard[] = [
   {
     id: 'schedule',
     title: 'Scheduled automations',
     icon: 'schedule',
-    href: '/dashboard/automate',
     featured: true,
     bullets: [
       { id: 'cadence', label: 'Daily or weekly, at the hour you pick' },
@@ -71,13 +71,11 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'article',
     title: 'Article generation',
     icon: 'article',
-    href: '/dashboard/articles',
     featured: true,
     bullets: [
       { id: 'draft', label: 'Long-form drafts built around your products' },
       { id: 'factcheck', label: 'Fact-checked before anything publishes' },
       { id: 'links', label: 'Internal links checked for dead ends' },
-      { id: 'thumb', label: 'Thumbnail images generated to match' },
     ],
     idleStatus: 'Ready to write',
   },
@@ -85,7 +83,6 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'keywords',
     title: 'Keywords',
     icon: 'keywords',
-    href: '/dashboard/keywords',
     bullets: [
       { id: 'generate', label: 'Generate keywords for a brand' },
       { id: 'suggest', label: 'Suggestions drawn from your catalog' },
@@ -97,7 +94,6 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'traffic',
     title: 'Search Console',
     icon: 'traffic',
-    href: '/dashboard/settings/brands',
     bullets: [
       { id: 'connect', label: 'Connect your property in one click' },
       { id: 'rank', label: 'Rank by clicks or impressions' },
@@ -110,7 +106,6 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'shopify',
     title: 'Shopify publishing',
     icon: 'shopify',
-    href: '/dashboard/settings/brands',
     bullets: [
       { id: 'oauth', label: 'Connect your store with one click' },
       { id: 'blog', label: 'Choose which blog receives posts' },
@@ -123,7 +118,6 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'catalog',
     title: 'Products & collections',
     icon: 'catalog',
-    href: '/dashboard/products',
     bullets: [
       { id: 'optimize', label: 'Rewrite product descriptions' },
       { id: 'collections', label: 'Optimize collection pages' },
@@ -135,7 +129,6 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'brand',
     title: 'Brand profiles',
     icon: 'brand',
-    href: '/dashboard/settings/brands',
     featured: true,
     bullets: [
       { id: 'tone', label: 'Tone of voice per brand' },
@@ -148,7 +141,6 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'editor',
     title: 'Article editor',
     icon: 'editor',
-    href: '/dashboard/articles',
     featured: true,
     bullets: [
       { id: 'blocks', label: 'Edit block by block' },

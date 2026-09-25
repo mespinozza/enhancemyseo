@@ -1,246 +1,108 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Star, CheckCircle, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
-
-interface Review {
-  id: number;
-  firstName: string;
-  lastName: string;
-  rating: number;
-  text: string;
-  storeType: string;
-  revenueRange: string;
-}
-
-// Fallback reviews in case API fails
-const fallbackReviews: Review[] = [
-  {
-    id: 1,
-    firstName: "Sarah",
-    lastName: "Thompson",
-    rating: 5,
-    text: "This AI tool has completely transformed how I create content for my store. The keyword research is spot-on and the articles are engaging and SEO-optimized. It's like having a full content team at my fingertips!",
-    storeType: "Fashion & Accessories",
-    revenueRange: "6-figure"
-  },
-  {
-    id: 2,
-    firstName: "Michael",
-    lastName: "Chen",
-    rating: 4.5,
-    text: "The automated content generation has saved me countless hours. The articles are well-researched and perfectly aligned with my brand voice. My organic traffic has increased by 150% since I started using this tool.",
-    storeType: "Health & Wellness",
-    revenueRange: "5-figure"
-  },
-  {
-    id: 3,
-    firstName: "David",
-    lastName: "Wilson",
-    rating: 4.8,
-    text: "Finally, a content solution that understands e-commerce! The articles are engaging, informative, and drive real results. My conversion rate has improved significantly since implementing the content strategy.",
-    storeType: "Electronics",
-    revenueRange: "6-figure"
-  },
-  {
-    id: 4,
-    firstName: "Emma",
-    lastName: "Rodriguez",
-    rating: 4.9,
-    text: "The AI-generated content has helped me scale my store's organic reach tremendously. The articles are not just SEO-friendly but also genuinely helpful to my customers. This tool pays for itself many times over!",
-    storeType: "Beauty & Cosmetics",
-    revenueRange: "5-figure"
-  },
-  {
-    id: 5,
-    firstName: "James",
-    lastName: "Anderson",
-    rating: 5,
-    text: "I was skeptical about AI-generated content at first, but this tool exceeded all my expectations. The keyword research is incredibly accurate, and the content quality is outstanding. A game-changer for my business!",
-    storeType: "Home & Garden",
-    revenueRange: "6-figure"
-  }
-];
+import { useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  REVIEW_MS,
+  REVIEWS,
+  reviewIndexAt,
+  reviewProgressAt,
+} from '@/lib/home/reviews';
+import ReviewCard from './ReviewCard';
+import { useSectionClock } from './useSectionClock';
 
 export default function Reviews() {
-  const [reviews, setReviews] = useState<Review[]>(fallbackReviews);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  // Where the rotation last restarted. Pressing next or picking a dot moves the
+  // baseline to now, which hands the reader a full slide rather than the remainder of
+  // the one they interrupted.
+  const [from, setFrom] = useState({ at: 0, index: 0 });
+  const [held, setHeld] = useState(false);
 
-  const showNext = useCallback(() => {
-    setCurrentIndex((prevIndex) => {
-      const newIndex = (prevIndex + 1) % reviews.length;
-      if (newIndex === 0) {
-        // Reset the refresh timestamp when cycling back to start
-        // setLastRefresh(Date.now()); // This line is removed
-      }
-      return newIndex;
-    });
-  }, [reviews.length]);
+  const { containerRef, elapsed, animated } = useSectionClock(0, { paused: held });
 
-  const showPrevious = () => {
-    if (!isAnimating) {
-      setIsAnimating(true);
-      setCurrentIndex((prev) => (prev === 0 ? reviews.length - 1 : prev - 1));
-      setTimeout(() => setIsAnimating(false), 500);
-    }
-  };
+  const since = animated ? elapsed - from.at : 0;
+  const index = reviewIndexAt(since, from.index, REVIEWS.length);
+  // No special case for hovering: the clock itself is held, so the bar simply stops.
+  const progress = animated ? reviewProgressAt(since) : 0;
 
-  const fetchNewReviews = async () => {
-    try {
-      setIsRefreshing(true);
-      const response = await fetch('/api/generate-reviews');
-      
-      if (response.ok) {
-        const data = await response.json();
-        setReviews(data.reviews);
-        // setLastRefresh(new Date().getTime()); // This line is removed
-        console.log('✅ Fresh reviews loaded!');
-      } else {
-        console.warn('Failed to fetch new reviews, using existing ones');
-      }
-    } catch (error) {
-      console.error('Error fetching reviews:', error);
-      // Keep existing reviews on error
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  // Fetch fresh reviews on component mount
-  useEffect(() => {
-    fetchNewReviews();
-  }, []);
-
-  // Refresh reviews every 5 minutes
-  useEffect(() => {
-    const refreshInterval = setInterval(() => {
-      fetchNewReviews();
-    }, 5 * 60 * 1000); // 5 minutes
-
-    return () => clearInterval(refreshInterval);
-  }, []);
-
-  // Auto-scroll through reviews
-  useEffect(() => {
-    const timer = setInterval(() => {
-      showNext();
-    }, 5000);
-
-    return () => clearInterval(timer);
-  }, [showNext]);
-
-  const renderStars = (rating: number) => {
-    return Array.from({ length: 5 }).map((_, index) => (
-      <Star
-        key={index}
-        className={`w-5 h-5 ${
-          index < Math.floor(rating)
-            ? 'text-yellow-400 fill-yellow-400'
-            : index < rating
-            ? 'text-yellow-400 fill-yellow-400 opacity-50'
-            : 'text-gray-300'
-        }`}
-      />
-    ));
-  };
-
-  const getBlurredLastName = (lastName: string) => {
-    return lastName.charAt(0) + '•'.repeat(lastName.length - 1);
+  const goTo = (next: number) => {
+    const count = REVIEWS.length;
+    setFrom({ at: elapsed, index: ((next % count) + count) % count });
   };
 
   return (
     <section className="py-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <div className="flex items-center justify-center mb-3">
-            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">
-              Trusted by Successful Store Owners
-            </h2>
-            {isRefreshing && (
-              <RefreshCw className="w-6 h-6 text-blue-600 animate-spin ml-3" />
-            )}
-          </div>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto mb-10 max-w-2xl text-center">
+          <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">
+            Trusted by Successful Store Owners
+          </h2>
+          <p className="mt-3 text-lg text-gray-600">
             See how our AI-powered content solution is helping e-commerce businesses grow
-          </p>
-          <p className="text-sm text-gray-400 mt-2">
-            Latest reviews
           </p>
         </div>
 
-        <div className="relative pb-12">
-          <div className="overflow-hidden">
-            <div
-              className={`flex transition-transform duration-500 ease-in-out`}
-              style={{
-                transform: `translateX(-${currentIndex * 100}%)`,
-              }}
-            >
-              {reviews.map((review) => (
-                <div
-                  key={review.id}
-                  className="w-full flex-shrink-0 px-4"
-                >
-                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 mx-auto max-w-3xl min-h-[280px]">
-                    <div className="flex items-center mb-6">
-                      <div className="flex-shrink-0">
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 flex items-center justify-center text-white text-2xl font-bold">
-                          {review.firstName.charAt(0)}
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {review.firstName} {getBlurredLastName(review.lastName)}
-                        </h3>
-                        <div className="flex items-center mt-1">
-                          <div className="flex mr-2">
-                            {renderStars(review.rating)}
-                          </div>
-                          <span className="text-gray-600">({review.rating})</span>
-                        </div>
-                        <div className="flex items-center mt-1 text-sm text-gray-600">
-                          <CheckCircle className="w-4 h-4 text-blue-600 mr-1" />
-                          <span>Verified {review.revenueRange} Shopify store owner</span>
-                          <span className="mx-2">•</span>
-                          <span>{review.storeType}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-gray-600 text-lg leading-relaxed italic mb-4">&quot;{review.text}&quot;</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+        <div
+          ref={containerRef}
+          className="mx-auto max-w-3xl"
+          onMouseEnter={() => setHeld(true)}
+          onMouseLeave={() => setHeld(false)}
+          onFocusCapture={() => setHeld(true)}
+          onBlurCapture={() => setHeld(false)}
+        >
+          {/* A grid of one cell: every slide stacks in it, so the stage is as tall as
+              the longest quote and nothing is cut off when a shorter one is showing. */}
+          <div className="grid">
+            {REVIEWS.map((review, position) => (
+              <ReviewCard key={review.id} review={review} current={position === index} />
+            ))}
           </div>
 
-          <button
-            onClick={showPrevious}
-            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-6 bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            <ChevronLeft className="w-6 h-6 text-gray-600" />
-          </button>
-          <button
-            onClick={showNext}
-            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-6 bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            <ChevronRight className="w-6 h-6 text-gray-600" />
-          </button>
+          <div className="mt-6 flex items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={() => goTo(index - 1)}
+              aria-label="Previous review"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
 
-          <div className="flex justify-center mt-12 space-x-2">
-            {reviews.map((_, index) => (
-              <button
-                key={index}
-                onClick={() => setCurrentIndex(index)}
-                className={`w-2.5 h-2.5 rounded-full transition-colors duration-200 ${
-                  index === currentIndex ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              />
-            ))}
+            <div className="flex items-center gap-2">
+              {REVIEWS.map((review, position) => {
+                const active = position === index;
+                return (
+                  <button
+                    key={review.id}
+                    type="button"
+                    onClick={() => goTo(position)}
+                    aria-label={`Review ${position + 1} of ${REVIEWS.length}`}
+                    aria-current={active}
+                    className={`h-1.5 overflow-hidden rounded-full transition-all duration-300 ${
+                      active ? 'w-8 bg-gray-200' : 'w-1.5 bg-gray-300 hover:bg-gray-400'
+                    }`}
+                  >
+                    {/* The active dot doubles as the countdown to the next slide. */}
+                    <span
+                      className="block h-full rounded-full bg-blue-600"
+                      style={{ width: active ? `${Math.round(progress * 100)}%` : '0%' }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => goTo(index + 1)}
+              aria-label="Next review"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </div>
     </section>
   );
-} 
+}

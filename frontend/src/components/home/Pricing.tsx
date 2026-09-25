@@ -105,7 +105,7 @@ export default function Pricing() {
   };
 
   return (
-    <section id="pricing" className="py-12">
+    <section id="pricing" className="scroll-mt-24 py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Pricing Header */}
         <div className="text-center mb-12">
@@ -239,8 +239,9 @@ export default function Pricing() {
           </div>
         </div>
 
-        {/* Feature Showcase Section */}
-        <div id="features" className="mb-12 bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl p-12">
+        {/* Feature Showcase Section. No id="features" here: that anchor belongs to the
+            section above, and a duplicate would be the one the browser jumps to. */}
+        <div className="mb-12 bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl p-12">
           <div className="max-w-7xl mx-auto">
             {/* Header */}
             <div className="mb-16 text-center">

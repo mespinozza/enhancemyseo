@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { Check } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { DemoBullet } from '@/lib/home/demo';
@@ -8,7 +7,6 @@ import type { DemoBullet } from '@/lib/home/demo';
 export interface LiveCardProps {
   icon: LucideIcon;
   title: string;
-  href: string;
   bullets: DemoBullet[];
   /** Bullet ids finished so far in this pass of the demo. */
   done: string[];
@@ -29,7 +27,6 @@ export interface LiveCardProps {
 export default function LiveCard({
   icon: Icon,
   title,
-  href,
   bullets,
   done,
   active,
@@ -38,8 +35,10 @@ export default function LiveCard({
   index,
 }: LiveCardProps) {
   return (
-    <Link
-      href={href}
+    // A plain anchor rather than a router link: every card sends the reader to pricing,
+    // and the global `scroll-behavior: smooth` makes that work before hydration.
+    <a
+      href="#pricing"
       style={{ animationDelay: `${index * 70}ms` }}
       className={`group home-card flex flex-col rounded-2xl border bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
         active ? 'border-blue-300 shadow-blue-100' : 'border-gray-200'
@@ -110,6 +109,6 @@ export default function LiveCard({
           {status}
         </span>
       </div>
-    </Link>
+    </a>
   );
 }

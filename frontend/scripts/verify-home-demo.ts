@@ -21,6 +21,14 @@ import {
   restStates,
   typeOut,
 } from '../src/lib/home/demo';
+import {
+  maskSurname,
+  REVIEW_MS,
+  REVIEWS,
+  reviewIndexAt,
+  reviewProgressAt,
+  starFills,
+} from '../src/lib/home/reviews';
 
 let passed = 0;
 let failed = 0;
@@ -65,9 +73,6 @@ console.log('\nScript integrity');
 
   const duplicateIds = DEMO_CARDS.length !== new Set(DEMO_CARDS.map((c) => c.id)).size;
   check('card ids are unique', !duplicateIds);
-
-  const linked = DEMO_CARDS.every((card) => card.href.startsWith('/dashboard'));
-  check('every card links into the app', linked);
 
   // Featured tiles are double-width, so the widths must divide evenly into the
   // four-column grid or the last row trails off half empty.
@@ -162,6 +167,46 @@ console.log('\nTypewriter');
   );
   // A line still typing when the next step lands would never be read in full.
   check('the longest status can finish inside a second', longest * 24 <= 1_600, `${longest} chars`);
+}
+
+console.log('\nReview rotation');
+{
+  const count = REVIEWS.length;
+
+  check('the rotation starts on the first review', reviewIndexAt(0, 0, count) === 0);
+  check('it holds a slide for its full run', reviewIndexAt(REVIEW_MS - 1, 0, count) === 0);
+  check('it advances on the boundary', reviewIndexAt(REVIEW_MS, 0, count) === 1);
+
+  // The carousel used to land on a slide that no longer existed after a refetch.
+  check(
+    'it wraps instead of running off the end',
+    reviewIndexAt(REVIEW_MS * count, 0, count) === 0
+  );
+  check(
+    'every offset lands in range',
+    Array.from({ length: count * 3 }, (_, i) => reviewIndexAt(i * REVIEW_MS, 2, count)).every(
+      (index) => index >= 0 && index < count
+    )
+  );
+  check('a negative baseline resolves', reviewIndexAt(-5_000, 3, count) === 3);
+  check('an empty set cannot divide by zero', reviewIndexAt(1_000, 0, 0) === 0);
+
+  // Pressing next must hand over a whole slide, not the tail of the interrupted one.
+  check('a manual pick starts its slide from zero', reviewProgressAt(0) === 0);
+  check('progress runs to just under one', reviewProgressAt(REVIEW_MS - 1) < 1);
+  check('progress resets on the boundary', reviewProgressAt(REVIEW_MS) === 0);
+
+  const ids = new Set(REVIEWS.map((review) => review.id));
+  check('review ids are unique', ids.size === count);
+  check('every review has a quote', REVIEWS.every((review) => review.text.trim().length > 40));
+  check(
+    'ratings are within range',
+    REVIEWS.every((review) => review.rating > 0 && review.rating <= 5)
+  );
+  check('surnames are masked to an initial', maskSurname('Thompson') === 'T•••••••');
+  check('an empty surname does not crash', maskSurname('') === '');
+  check('a five star rating lights five', starFills(5).every((fill) => fill === 'full'));
+  check('a half rating lights a half', starFills(4.5)[4] === 'half');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
