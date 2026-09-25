@@ -64,7 +64,7 @@ export default function Features() {
         <div className="mb-8 max-w-2xl">
           <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-600 motion-reduce:animate-none" />
-            Everything below is live today
+            Built and running today
           </span>
 
           <h2 className="mt-4 text-3xl font-bold text-gray-900 sm:text-4xl">
@@ -100,6 +100,7 @@ export default function Features() {
                 title={card.title}
                 bullets={card.bullets}
                 featured={card.featured}
+                locked={card.locked}
                 done={state.done}
                 active={state.active}
                 // Without motion the line is shown whole rather than mid-keystroke.

@@ -1,6 +1,6 @@
 'use client';
 
-import { Check } from 'lucide-react';
+import { Check, Lock } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { DemoBullet } from '@/lib/home/demo';
 
@@ -13,6 +13,8 @@ export interface LiveCardProps {
   active: boolean;
   status: string;
   featured?: boolean;
+  /** Shows a lock in place of the indicator. The card still links through to pricing. */
+  locked?: boolean;
   /** Staggers the entrance so the grid assembles rather than appearing at once. */
   index: number;
 }
@@ -32,23 +34,32 @@ export default function LiveCard({
   active,
   status,
   featured = false,
+  locked = false,
   index,
 }: LiveCardProps) {
+  // A locked tool should not also be pulsing away as though it were running.
+  const live = active && !locked;
   return (
     // A plain anchor rather than a router link: every card sends the reader to pricing,
     // and the global `scroll-behavior: smooth` makes that work before hydration.
     <a
       href="#pricing"
       style={{ animationDelay: `${index * 70}ms` }}
-      className={`group home-card flex flex-col rounded-2xl border bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
-        active ? 'border-blue-300 shadow-blue-100' : 'border-gray-200'
-      } ${featured ? 'sm:col-span-2' : ''}`}
+      className={`group home-card flex flex-col rounded-2xl border p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
+        locked ? 'border-gray-200 bg-gray-50/70' : 'bg-white'
+      } ${live ? 'border-blue-300 shadow-blue-100' : 'border-gray-200'} ${
+        featured ? 'sm:col-span-2' : ''
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span
             className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-300 ${
-              active ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'
+              locked
+                ? 'bg-gray-200 text-gray-500'
+                : live
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-blue-50 text-blue-600'
             }`}
           >
             <Icon className="h-5 w-5" />
@@ -56,19 +67,25 @@ export default function LiveCard({
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
         </div>
 
-        {/* A state indicator, not a control: the page is a demo, so it must not invite a click. */}
-        <span
-          aria-hidden="true"
-          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-300 ${
-            active ? 'bg-blue-600' : 'bg-gray-200'
-          }`}
-        >
+        {locked ? (
+          // Icon only up here. A chip with a label beside it pushes longer titles onto
+          // a second line and the row of cards stops lining up.
+          <Lock className="h-4 w-4 flex-shrink-0 text-gray-400" aria-hidden="true" />
+        ) : (
+          // A state indicator, not a control: this is a demo, so it must not invite a click.
           <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-300 ${
-              active ? 'translate-x-4' : 'translate-x-0.5'
+            aria-hidden="true"
+            className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-300 ${
+              live ? 'bg-blue-600' : 'bg-gray-200'
             }`}
-          />
-        </span>
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-300 ${
+                live ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </span>
+        )}
       </div>
 
       <ul className={`mt-4 flex-1 space-y-2 ${featured ? 'sm:columns-2 sm:space-y-0' : ''}`}>
@@ -97,17 +114,23 @@ export default function LiveCard({
       {/* Fixed height and truncation: a status line that grows would reflow the whole
           grid every few hundred milliseconds. */}
       <div className="mt-4 flex h-5 items-center gap-2 border-t border-gray-100 pt-3 text-xs">
-        <span
-          className={`h-1.5 w-1.5 flex-shrink-0 rounded-full motion-reduce:animate-none ${
-            active ? 'animate-pulse bg-green-500' : 'bg-gray-300'
-          }`}
-        />
-        <span
-          aria-hidden="true"
-          className={`truncate ${active ? 'text-gray-700' : 'text-gray-400'}`}
-        >
-          {status}
-        </span>
+        {locked ? (
+          <span className="font-medium text-gray-500">Available on higher plans</span>
+        ) : (
+          <>
+            <span
+              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full motion-reduce:animate-none ${
+                live ? 'animate-pulse bg-green-500' : 'bg-gray-300'
+              }`}
+            />
+            <span
+              aria-hidden="true"
+              className={`truncate ${live ? 'text-gray-700' : 'text-gray-400'}`}
+            >
+              {status}
+            </span>
+          </>
+        )}
       </div>
     </a>
   );

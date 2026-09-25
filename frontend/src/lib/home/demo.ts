@@ -43,6 +43,12 @@ export interface DemoCard {
    * grid ends square instead of trailing off with a half-empty row.
    */
   featured?: boolean;
+  /**
+   * Behind a plan the reader does not have yet. Only for tools the app really blocks —
+   * the page is worth nothing if the locks are decorative. Today that means the two
+   * pages that turn a non-admin away: /dashboard/keywords and /dashboard/products.
+   */
+  locked?: boolean;
 }
 
 /**
@@ -83,6 +89,7 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'keywords',
     title: 'Keywords',
     icon: 'keywords',
+    locked: true,
     bullets: [
       { id: 'generate', label: 'Generate keywords for a brand' },
       { id: 'suggest', label: 'Suggestions drawn from your catalog' },
@@ -118,6 +125,7 @@ export const DEMO_CARDS: DemoCard[] = [
     id: 'catalog',
     title: 'Products & collections',
     icon: 'catalog',
+    locked: true,
     bullets: [
       { id: 'optimize', label: 'Rewrite product descriptions' },
       { id: 'collections', label: 'Optimize collection pages' },

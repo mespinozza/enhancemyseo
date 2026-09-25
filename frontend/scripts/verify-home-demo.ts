@@ -74,6 +74,23 @@ console.log('\nScript integrity');
   const duplicateIds = DEMO_CARDS.length !== new Set(DEMO_CARDS.map((c) => c.id)).size;
   check('card ids are unique', !duplicateIds);
 
+  // A lock is a claim about access, so it has to track what the app really blocks:
+  // /dashboard/keywords and /dashboard/products turn a non-admin away, everything else
+  // in the grid is reachable. Pinned so neither a stray lock nor a silent unlock ships.
+  const locked = DEMO_CARDS.filter((card) => card.locked)
+    .map((card) => card.id)
+    .sort();
+  check(
+    'only the admin-gated tools are locked',
+    JSON.stringify(locked) === JSON.stringify(['catalog', 'keywords']),
+    locked.join(', ') || 'none'
+  );
+  check(
+    'the tools the story runs on stay open',
+    !DEMO_CARDS.find((card) => card.id === 'schedule')?.locked &&
+      !DEMO_CARDS.find((card) => card.id === 'article')?.locked
+  );
+
   // Featured tiles are double-width, so the widths must divide evenly into the
   // four-column grid or the last row trails off half empty.
   const columns = DEMO_CARDS.reduce((total, card) => total + (card.featured ? 2 : 1), 0);
