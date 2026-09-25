@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { blogOperations } from '@/lib/firebase/firestore';
+import { listPublishedCaseStudies } from '@/lib/results/server';
 
 export async function GET() {
   try {
     // Get all published blog posts
     const publishedBlogs = await blogOperations.getAllPublished();
+
+    // Case studies are read through the Admin SDK, unlike blogs. A Firestore hiccup
+    // there should cost us the case study URLs, not the entire sitemap.
+    let caseStudies: Awaited<ReturnType<typeof listPublishedCaseStudies>> = [];
+    try {
+      caseStudies = await listPublishedCaseStudies();
+    } catch (error) {
+      console.error('Sitemap: could not load case studies:', error);
+    }
     
     // Get current date in ISO format
     const currentDate = new Date().toISOString();
@@ -28,6 +38,13 @@ export async function GET() {
     <loc>${baseUrl}/blog</loc>
     <lastmod>${currentDate}</lastmod>
     <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  
+  <url>
+    <loc>${baseUrl}/results</loc>
+    <lastmod>${currentDate}</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   
@@ -85,6 +102,15 @@ export async function GET() {
     })()}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
+  </url>`).join('')}
+  
+  <!-- Case studies -->
+  ${caseStudies.map(study => `
+  <url>
+    <loc>${baseUrl}/results/${study.slug}</loc>
+    <lastmod>${study.updatedAt}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>`).join('')}
 </urlset>`;
 

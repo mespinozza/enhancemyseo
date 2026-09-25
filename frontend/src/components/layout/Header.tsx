@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, FileText, LogOut, Menu, Settings, X } from 'lucide-react';
+import { BarChart3, ChevronDown, FileText, LogOut, Menu, Settings, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -81,6 +81,7 @@ export default function Header() {
   const isAdmin = subscription_status === 'admin';
   const onServices = pathname.startsWith('/services');
   const onBlog = pathname.startsWith('/blog');
+  const onResults = pathname.startsWith('/results');
 
   const navLink = (active: boolean) =>
     `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -149,6 +150,10 @@ export default function Header() {
               )}
             </div>
 
+            <Link href="/results" className={navLink(onResults)}>
+              Results
+            </Link>
+
             <Link href="/blog" className={navLink(onBlog)}>
               Blog
             </Link>
@@ -210,13 +215,22 @@ export default function Header() {
                       </Link>
 
                       {isAdmin && (
-                        <Link
-                          href="/blogs"
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                        >
-                          <FileText className="h-4 w-4 text-gray-400" />
-                          Admin blogs
-                        </Link>
+                        <>
+                          <Link
+                            href="/blogs"
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            <FileText className="h-4 w-4 text-gray-400" />
+                            Admin blogs
+                          </Link>
+                          <Link
+                            href="/admin/results"
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            <BarChart3 className="h-4 w-4 text-gray-400" />
+                            Admin case studies
+                          </Link>
+                        </>
                       )}
 
                       <button
@@ -261,6 +275,13 @@ export default function Header() {
             ))}
 
             <Link
+              href="/results"
+              className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Results
+            </Link>
+
+            <Link
               href="/blog"
               className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
@@ -276,12 +297,20 @@ export default function Header() {
                   Brand profiles
                 </Link>
                 {isAdmin && (
-                  <Link
-                    href="/blogs"
-                    className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    Admin blogs
-                  </Link>
+                  <>
+                    <Link
+                      href="/blogs"
+                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Admin blogs
+                    </Link>
+                    <Link
+                      href="/admin/results"
+                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Admin case studies
+                    </Link>
+                  </>
                 )}
                 <button
                   type="button"

@@ -134,6 +134,26 @@ service cloud.firestore {
       allow read, list, create, update, delete: if false;
     }
     
+    // Published case studies are public marketing content, read by the server-rendered
+    // /results pages. Every write goes through /api/results/*, which verifies an admin
+    // ID token with the Admin SDK, so clients get none. The owner field is named
+    // `ownerUid` rather than `userId` so the generic owner rule at the top of this file
+    // cannot hand the author client-side write access behind the server's back.
+    match /caseStudies/{document} {
+      allow read: if resource.data.published == true;
+      allow write, create, update, delete: if false;
+    }
+    
+    // Results submitted by customers, pending review. No client access at all: a
+    // submission carries contact details and unverified numbers, and moderation needs to
+    // read everyone's rather than just the caller's own, which an owner-scoped rule
+    // cannot express. Submissions are created by /api/results/submit and moderated
+    // through /api/results/submissions, both of which check the caller server-side.
+    // `ownerUid` again keeps the generic owner rule from matching.
+    match /resultSubmissions/{document} {
+      allow read, list, create, update, delete: if false;
+    }
+    
     match /history/{document} {
       allow read, write, create, delete: if 
         request.auth != null && 

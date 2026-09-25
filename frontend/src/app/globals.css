@@ -113,3 +113,105 @@ body {
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+
+/*
+ * Typography for admin-authored case study HTML. Tailwind's `prose` classes are used
+ * elsewhere in the app but do nothing, because @tailwindcss/typography is not among the
+ * plugins in tailwind.config.ts — so headings come out of Preflight at body size with no
+ * margins. These rules are scoped to .case-study-body rather than fixing it globally,
+ * which would silently restyle every existing blog post.
+ */
+.case-study-body {
+  color: #374151;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+
+.case-study-body > *:first-child {
+  margin-top: 0;
+}
+
+.case-study-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.case-study-body h2 {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.case-study-body h3 {
+  margin: 1.75rem 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.case-study-body p {
+  margin: 0 0 1.25rem;
+}
+
+.case-study-body ul,
+.case-study-body ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.5rem;
+}
+
+.case-study-body ul {
+  list-style: disc;
+}
+
+.case-study-body ol {
+  list-style: decimal;
+}
+
+.case-study-body li {
+  margin-bottom: 0.5rem;
+}
+
+.case-study-body a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.case-study-body strong {
+  font-weight: 600;
+  color: #111827;
+}
+
+.case-study-body blockquote {
+  margin: 0 0 1.25rem;
+  border-left: 3px solid #bfdbfe;
+  padding-left: 1rem;
+  color: #4b5563;
+  font-style: italic;
+}
+
+.case-study-body img {
+  margin: 1.5rem 0;
+  border-radius: 0.5rem;
+  max-width: 100%;
+  height: auto;
+}
+
+.case-study-body table {
+  width: 100%;
+  margin: 0 0 1.25rem;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.case-study-body th,
+.case-study-body td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.case-study-body th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #111827;
+}
