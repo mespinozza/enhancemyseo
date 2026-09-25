@@ -21,7 +21,7 @@ import {
   type GeneratedArticle,
 } from '../src/lib/automation/runner';
 import type { Automation } from '../src/lib/automation/types';
-import type { BrandProfile } from '../src/types/brand';
+import type { BrandProfile } from '../src/lib/firebase/firestore';
 
 const DEFAULT_CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
@@ -199,6 +199,7 @@ async function checkPublish(db: Firestore) {
       typeof after.metaDescription === 'string' && after.metaDescription.length > 0
     );
     check('sets the author, which view counting depends on', after.authorId === adminUid);
+    check('marks it as a company blog post', after.isSiteBlogPost === true);
     check('leaves any existing view count alone', after.viewCount === before.viewCount);
     check('leaves the body untouched', after.content === before.content);
 
@@ -215,6 +216,20 @@ async function checkPublish(db: Firestore) {
     // Nothing else may share the slug, since /blog/[slug] resolves on it alone.
     const bySlug = await db.collection('blogs').where('slug', '==', after.slug).get();
     check('holds the slug on its own', bySlug.size === 1, `${bySlug.size} documents`);
+
+    // The CMS at /blogs runs this query. It has to pick the new post up, and it has to
+    // leave the thousand-odd generated articles in the same collection alone.
+    const cms = await db
+      .collection('blogs')
+      .where('userId', '==', adminUid)
+      .where('isSiteBlogPost', '==', true)
+      .get();
+    check('the blog CMS lists it', cms.docs.some((doc) => doc.id === target.id));
+    check(
+      'the blog CMS lists nothing but blog posts',
+      cms.docs.every((doc) => typeof doc.data().slug === 'string' && doc.data().slug.length > 0),
+      `${cms.size} of ${(await db.collection('blogs').count().get()).data().count} documents`
+    );
 
     await checkRenders(String(after.slug), String(after.title));
 
@@ -238,6 +253,7 @@ async function checkPublish(db: Firestore) {
     for (const field of [
       'slug',
       'published',
+      'isSiteBlogPost',
       'publishDate',
       'metaDescription',
       'authorId',

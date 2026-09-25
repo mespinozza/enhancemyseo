@@ -129,6 +129,9 @@ export default function BlogEditorPage() {
         content: formData.content,
         metaDescription: formData.metaDescription,
         published: publish,
+        // Marks this as a company blog post rather than a generated article. Both live
+        // in the `blogs` collection, and this is what the CMS listing filters on.
+        isSiteBlogPost: true,
         authorId: user.uid,
         authorName: user.displayName || user.email || 'Admin',
         viewCount: 0,

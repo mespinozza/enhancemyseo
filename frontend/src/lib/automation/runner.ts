@@ -425,6 +425,9 @@ export async function publishToSiteBlog(
     .update({
       slug,
       published: live,
+      // Promotes the generated article to a company blog post, which is what the CMS
+      // at /blogs lists. Without it the post would be public but invisible to editing.
+      isSiteBlogPost: true,
       publishDate: Timestamp.now(),
       metaDescription: toMetaDescription(article.content),
       // The post page only counts a view when authorId is set, and the blog CMS at

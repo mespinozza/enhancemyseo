@@ -116,6 +116,11 @@ export interface BlogPost extends BaseDocument {
   featuredImage?: string;
   published: boolean;
   publishDate?: Date;
+  /**
+   * Separates company blog posts from the generated articles that share this
+   * collection. The CMS listing filters on it; anything without it is an article.
+   */
+  isSiteBlogPost?: boolean;
   authorId: string; // Admin who created it
   authorName: string; // Display name of author
   tags?: string[]; // For categorization
@@ -453,21 +458,45 @@ export const blogOperations = {
   },
 
   // Get all blog posts (with optional published filter) - for blog management
+  /**
+   * Company blog posts for the CMS at /blogs.
+   *
+   * The `blogs` collection also holds every article the dashboard and the automations
+   * generate, which outnumber the blog posts by better than fifty to one, so the
+   * isSiteBlogPost filter is what keeps the CMS showing the blog rather than the whole
+   * article history. The blog editor and the automation publish path both set it.
+   *
+   * Sorting happens here rather than in the query: adding an orderBy to an equality
+   * filter would need a composite index, and there are only a couple of dozen posts.
+   */
   getAllBlogPosts: async (uid: string, publishedOnly: boolean = false): Promise<BlogPost[]> => {
     try {
-      // CHANGE: Query the root 'blogs' collection and filter by 'userId'
       const blogsRef = collection(db, 'blogs');
-      let q = query(blogsRef, where('userId', '==', uid), orderBy('createdAt', 'desc'));
-      
+      const constraints = [
+        where('userId', '==', uid),
+        where('isSiteBlogPost', '==', true),
+      ];
       if (publishedOnly) {
-        q = query(blogsRef, where('userId', '==', uid), where('published', '==', true), orderBy('publishDate', 'desc'));
+        constraints.push(where('published', '==', true));
       }
-      
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+
+      const snapshot = await getDocs(query(blogsRef, ...constraints));
+      const posts = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as BlogPost));
+
+      const when = (post: BlogPost) => {
+        const value = (publishedOnly ? post.publishDate : post.createdAt) as
+          | { toMillis?: () => number }
+          | Date
+          | undefined;
+        if (!value) return 0;
+        if (value instanceof Date) return value.getTime();
+        return typeof value.toMillis === 'function' ? value.toMillis() : 0;
+      };
+
+      return posts.sort((a, b) => when(b) - when(a));
     } catch (error) {
       console.error('Error getting blog posts:', error);
       return [];
