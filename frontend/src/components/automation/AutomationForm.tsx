@@ -70,7 +70,8 @@ export default function AutomationForm({
   onSaved,
   onCancel,
 }: AutomationFormProps) {
-  const { user } = useAuth();
+  const { user, subscription_status } = useAuth();
+  const isAdmin = subscription_status === 'admin';
   const [isSaving, setIsSaving] = useState(false);
 
   const [name, setName] = useState(existing?.name || '');
@@ -109,6 +110,12 @@ export default function AutomationForm({
   const [shopifyBlogId, setShopifyBlogId] = useState(existing?.shopifyBlogId || '');
   const [shopifyBlogs, setShopifyBlogs] = useState<ShopifyBlogOption[]>([]);
   const [loadingBlogs, setLoadingBlogs] = useState(false);
+  const [publishToSiteBlog, setPublishToSiteBlog] = useState(
+    existing?.publishToSiteBlog || false
+  );
+  const [siteBlogStatus, setSiteBlogStatus] = useState<'draft' | 'published'>(
+    existing?.siteBlogStatus || 'draft'
+  );
 
   const selectedBrand = useMemo(
     () => brandProfiles.find((profile) => profile.id === brandId),
@@ -303,6 +310,10 @@ export default function AutomationForm({
       autoPushToShopify,
       shopifyBlogId: shopifyBlogId || '',
       shopifyStatus,
+      // Sent as false rather than omitted for non-admins, so an account that loses
+      // admin cannot leave a stale true behind on a saved automation.
+      publishToSiteBlog: isAdmin ? publishToSiteBlog : false,
+      siteBlogStatus,
     };
 
     setIsSaving(true);
@@ -941,7 +952,11 @@ export default function AutomationForm({
       </div>
 
       <div className="border-t border-gray-200 pt-4">
-        <h3 className="mb-3 text-sm font-semibold text-gray-900">Shopify</h3>
+        <h3 className="mb-1 text-sm font-semibold text-gray-900">Where to publish</h3>
+        <p className="mb-3 text-xs text-gray-500">
+          Every article is saved to your articles list either way. These decide where else
+          it goes. Articles the fact-checker flags are held back from all of them.
+        </p>
 
         <label className="flex items-start gap-3">
           <input
@@ -955,7 +970,7 @@ export default function AutomationForm({
             <span className="font-medium text-gray-900">Push articles to Shopify automatically</span>
             <span className="mt-0.5 block text-xs text-gray-500">
               {brandHasShopify
-                ? 'Nobody reviews the article before it lands in your store. Articles the fact-checker flags are held back regardless of this setting.'
+                ? 'Nobody reviews the article before it lands in your store.'
                 : 'Add Shopify credentials to this brand profile to enable this.'}
             </span>
           </span>
@@ -1013,6 +1028,63 @@ export default function AutomationForm({
               </div>
             )}
           </div>
+        )}
+
+        {/* Our own marketing blog. Hidden entirely from customers, and the runner
+            re-checks the account server-side before it publishes anything. */}
+        {isAdmin && (
+          <>
+            <label className="mt-4 flex items-start gap-3 border-t border-gray-100 pt-4">
+              <input
+                type="checkbox"
+                checked={publishToSiteBlog}
+                onChange={(event) => setPublishToSiteBlog(event.target.checked)}
+                className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm">
+                <span className="font-medium text-gray-900">
+                  Publish to the EnhanceMySEO blog
+                </span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Adds the article to enhancemyseo.com/blog with a slug and meta
+                  description. Administrators only.
+                </span>
+              </span>
+            </label>
+
+            {publishToSiteBlog && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="automation-site-blog-status" className={labelClass}>
+                    Publish as
+                  </label>
+                  <select
+                    id="automation-site-blog-status"
+                    value={siteBlogStatus}
+                    onChange={(event) =>
+                      setSiteBlogStatus(event.target.value as 'draft' | 'published')
+                    }
+                    className={inputClass}
+                  >
+                    <option value="draft">Draft, for you to review first</option>
+                    <option value="published">Published, live immediately</option>
+                  </select>
+                </div>
+
+                {siteBlogStatus === 'published' && (
+                  <div className="sm:col-span-2">
+                    <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <p>
+                        Articles will appear on enhancemyseo.com/blog without anyone reading
+                        them first.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

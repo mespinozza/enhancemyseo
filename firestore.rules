@@ -1,13 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // General rule for all collections
+    // General rule for all collections.
+    //
+    // `blogs` is excluded because rules are a union: without this, the owner-only test
+    // below would grant writes that the stricter publishing rule in the blogs block is
+    // there to refuse. Anything excluded here needs its own match block.
     match /{collection}/{document} {
       allow read, write, create, delete: if 
+        collection != 'blogs' &&
         request.auth != null && 
         request.auth.uid == resource.data.userId;
       
       allow create: if 
+        collection != 'blogs' &&
         request.auth != null && 
         request.auth.uid == request.resource.data.userId;
     }
@@ -64,6 +70,20 @@ service cloud.firestore {
                                       request.auth.uid == resource.data.userId;
     }
     
+    // The marketing blog at /blog lists every document in `blogs` where published is
+    // true, whoever wrote it, and every customer's generated articles live in that same
+    // collection. Owning a document therefore cannot be enough to publish one: that
+    // would let any account put an article on our front-of-site blog. Flipping the flag
+    // is an administrator's action.
+    //
+    // The automation runner publishes through the Admin SDK, which bypasses rules, so
+    // this does not constrain it.
+    function isAdmin() {
+      return request.auth != null &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.subscription_status == 'admin';
+    }
+
     match /blogs/{document} {
       // Public read access to published blogs, for crawlers and blog readers. This also
       // covers the public listing query, which filters on published == true.
@@ -72,10 +92,20 @@ service cloud.firestore {
       // Owners read their own blogs whether published or not.
       allow read: if request.auth != null && 
                   request.auth.uid == resource.data.userId;
-                  
-      allow write, create, delete: if 
-        request.auth != null && 
-        request.auth.uid == resource.data.userId;
+
+      // Owners write their own articles, but only an admin may leave one published.
+      // Most articles have no `published` field at all, and reading a missing field
+      // aborts the rule, so the default has to be spelled out.
+      allow create: if request.auth != null &&
+                       request.auth.uid == request.resource.data.userId &&
+                       (request.resource.data.get('published', false) != true || isAdmin());
+
+      allow update: if request.auth != null &&
+                       request.auth.uid == resource.data.userId &&
+                       (request.resource.data.get('published', false) != true || isAdmin());
+
+      allow delete: if request.auth != null && 
+                       request.auth.uid == resource.data.userId;
     }
     
     // Article editor revision snapshots. Subcollections do NOT inherit the /blogs rule

@@ -132,6 +132,16 @@ export interface Automation {
   shopifyBlogId?: string;
   /** Draft by default even when auto-push is on. */
   shopifyStatus: 'draft' | 'published';
+  /**
+   * Publish to the EnhanceMySEO blog at /blog rather than a customer's store.
+   *
+   * Administrators only. The runner re-checks that server-side rather than trusting
+   * this flag, because automation documents are written straight from the browser and
+   * anyone can set a boolean on their own.
+   */
+  publishToSiteBlog?: boolean;
+  /** Draft by default, same as Shopify: a draft is reviewable, a live post is not. */
+  siteBlogStatus?: 'draft' | 'published';
   claimedAt?: TimestampLike | null;
   lastRunAt?: TimestampLike | null;
   nextRunAt: TimestampLike;
@@ -153,6 +163,9 @@ export interface AutomationRun {
   blogId?: string | null;
   articleTitle?: string | null;
   pushedToShopify: boolean;
+  /** Set when the article was published to the EnhanceMySEO blog, with its public path. */
+  publishedToSiteBlog?: boolean;
+  siteBlogPath?: string | null;
   error?: string | null;
   /** Set when a run succeeded but something needs a human look, e.g. fact-check flags. */
   warning?: string | null;

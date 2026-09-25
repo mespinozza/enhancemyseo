@@ -451,6 +451,17 @@ export default function AutomatePage() {
                             {formatWhen(run.startedAt)}
                             {isActive(run) && ` · ${elapsedSince(run.startedAt)}`}
                             {run.pushedToShopify && ' · pushed to Shopify'}
+                            {run.publishedToSiteBlog && (
+                              <>
+                                {' · '}
+                                <Link
+                                  href={run.siteBlogPath || '/blog'}
+                                  className="text-blue-600 hover:text-blue-700"
+                                >
+                                  on the blog
+                                </Link>
+                              </>
+                            )}
                           </p>
                         </div>
 

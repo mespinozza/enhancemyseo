@@ -51,6 +51,8 @@ export interface RunOutcome {
   /** Why this topic was picked, so history explains itself. */
   triggerReason?: string;
   blogId?: string | null;
+  /** Public path on the EnhanceMySEO blog, when the article was published there. */
+  siteBlogPath?: string | null;
   error?: string | null;
   warning?: string | null;
 }
@@ -201,7 +203,7 @@ async function loadBrand(db: Firestore, automation: Automation): Promise<BrandPr
   return brand;
 }
 
-interface GeneratedArticle {
+export interface GeneratedArticle {
   blogId: string;
   title: string;
   content: string;
@@ -341,6 +343,100 @@ async function pushToShopify(
   }
 }
 
+/* --------------------------------------------------- the EnhanceMySEO blog ----- */
+
+/**
+ * Automation documents are written straight from the browser, so the flag on the
+ * config proves nothing: anyone can set a boolean on a document they own. The public
+ * blog lists every published article regardless of author, which makes publishing to
+ * it an administrator's action, checked here against the account rather than the
+ * config.
+ */
+async function ownerIsAdmin(db: Firestore, userId: string): Promise<boolean> {
+  const snap = await db.collection('users').doc(userId).get();
+  return snap.exists && snap.data()?.subscription_status === 'admin';
+}
+
+/** Title to URL slug, matching what the blog editor produces by hand. */
+export function toSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 80)
+    .replace(/-$/, '');
+}
+
+/** A slug nothing else is using, since /blog/[slug] resolves by this field alone. */
+async function uniqueSlug(db: Firestore, title: string, blogId: string): Promise<string> {
+  const base = toSlug(title) || `post-${blogId.slice(0, 8)}`;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
+    const clash = await db.collection('blogs').where('slug', '==', candidate).limit(1).get();
+    if (clash.empty || clash.docs[0].id === blogId) return candidate;
+  }
+
+  // Ten near-identical titles is implausible, but a suffix is better than a collision.
+  return `${base}-${blogId.slice(0, 6)}`;
+}
+
+/** First readable sentence or two of the article, for the meta description. */
+export function toMetaDescription(html: string): string {
+  const text = html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (text.length <= 155) return text;
+  const cut = text.slice(0, 155);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 100 ? cut.slice(0, lastSpace) : cut).trim()}…`;
+}
+
+/**
+ * Publishes a generated article onto the EnhanceMySEO blog.
+ *
+ * Unlike the Shopify path there is nothing to push: the article already lives in the
+ * `blogs` collection, and /blog reads from that same place. This fills in the fields
+ * the public pages need and that the generator does not set.
+ */
+export async function publishToSiteBlog(
+  db: Firestore,
+  automation: Automation,
+  brand: BrandProfile,
+  article: GeneratedArticle
+): Promise<string> {
+  if (!(await ownerIsAdmin(db, automation.userId))) {
+    throw new Error('Publishing to the EnhanceMySEO blog is only available to administrators');
+  }
+
+  const slug = await uniqueSlug(db, article.title, article.blogId);
+  const live = automation.siteBlogStatus === 'published';
+
+  await db
+    .collection('blogs')
+    .doc(article.blogId)
+    .update({
+      slug,
+      published: live,
+      publishDate: Timestamp.now(),
+      metaDescription: toMetaDescription(article.content),
+      authorName: brand.brandName || 'EnhanceMySEO',
+      showDate: true,
+      showAuthor: false,
+      showViews: false,
+      updatedAt: Timestamp.now(),
+    });
+
+  return `/blog/${slug}`;
+}
+
 /**
  * Creates the run document before the work starts, as `running`.
  *
@@ -365,6 +461,8 @@ async function openRun(
     blogId: null,
     articleTitle: null,
     pushedToShopify: false,
+    publishedToSiteBlog: false,
+    siteBlogPath: null,
     error: null,
     warning: null,
     startedAt,
@@ -374,7 +472,10 @@ async function openRun(
 
 async function closeRun(
   ref: DocumentReference,
-  outcome: Omit<RunOutcome, 'automationId' | 'automationName'> & { pushedToShopify: boolean }
+  outcome: Omit<RunOutcome, 'automationId' | 'automationName'> & {
+    pushedToShopify: boolean;
+    publishedToSiteBlog?: boolean;
+  }
 ): Promise<void> {
   await ref.update({
     status: outcome.status,
@@ -382,6 +483,8 @@ async function closeRun(
     triggerReason: outcome.triggerReason || '',
     blogId: outcome.blogId ?? null,
     pushedToShopify: outcome.pushedToShopify,
+    publishedToSiteBlog: outcome.publishedToSiteBlog ?? false,
+    siteBlogPath: outcome.siteBlogPath ?? null,
     error: outcome.error ?? null,
     warning: outcome.warning ?? null,
     finishedAt: Timestamp.now(),
@@ -444,7 +547,10 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
   let openRef = await openRun(db, automation, '', startedAt);
 
   const record = async (
-    partial: Omit<RunOutcome, 'automationId' | 'automationName'> & { pushedToShopify?: boolean }
+    partial: Omit<RunOutcome, 'automationId' | 'automationName'> & {
+      pushedToShopify?: boolean;
+      publishedToSiteBlog?: boolean;
+    }
   ) => {
     const outcome: RunOutcome = {
       automationId: automation.id as string,
@@ -527,20 +633,34 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
       await recordArticleAgainstCap(db, automation.id as string);
 
       let pushed = false;
+      let sitePath: string | null = null;
       let warning: string | null = null;
 
       if (article.hasGenerationIssues) {
         // The fact-check loop flagged something. Publishing that unreviewed is worse
-        // than leaving it in the dashboard, so auto-push is withheld for this article.
-        warning = automation.autoPushToShopify
-          ? 'Fact-check flagged this article, so it was not pushed to Shopify. Review it first.'
-          : 'Fact-check flagged this article. Review it before publishing.';
-      } else if (automation.autoPushToShopify) {
-        try {
-          await pushToShopify(automation, brand, article, idToken);
-          pushed = true;
-        } catch (error) {
-          warning = `Article saved but the Shopify push failed: ${describeError(error)}`;
+        // than leaving it in the dashboard, so every destination is withheld for this
+        // article regardless of what the automation asked for.
+        warning =
+          automation.autoPushToShopify || automation.publishToSiteBlog
+            ? 'Fact-check flagged this article, so it was not published. Review it first.'
+            : 'Fact-check flagged this article. Review it before publishing.';
+      } else {
+        if (automation.autoPushToShopify) {
+          try {
+            await pushToShopify(automation, brand, article, idToken);
+            pushed = true;
+          } catch (error) {
+            warning = `Article saved but the Shopify push failed: ${describeError(error)}`;
+          }
+        }
+
+        if (automation.publishToSiteBlog) {
+          try {
+            sitePath = await publishToSiteBlog(db, automation, brand, article);
+          } catch (error) {
+            const reason = `Article saved but publishing to the blog failed: ${describeError(error)}`;
+            warning = warning ? `${warning} ${reason}` : reason;
+          }
         }
       }
 
@@ -558,6 +678,8 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
         blogId: article.blogId,
         warning,
         pushedToShopify: pushed,
+        publishedToSiteBlog: sitePath !== null,
+        siteBlogPath: sitePath,
       });
     } catch (error) {
       const isUsageLimit = error instanceof Error && error.name === 'UsageLimitError';
