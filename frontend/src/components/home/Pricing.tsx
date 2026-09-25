@@ -332,7 +332,7 @@ export default function Pricing() {
         </div>
 
         {/* Statistics Showcase Section */}
-        <div className="mb-12 bg-gray-900 rounded-3xl shadow-xl p-12 text-white overflow-hidden relative">
+        <div className="mb-12 bg-gray-900 rounded-3xl shadow-xl p-6 sm:p-12 text-white overflow-hidden relative">
           {/* One wash of radial gradients rather than a stack of blurred rectangles
               clipped by a fixed-height band. Radials end in full transparency, so there
               are no edges to seam against the card the way the old blurred bar's sides
@@ -355,11 +355,13 @@ export default function Pricing() {
                               <span className="text-sm text-gray-300">Generate Growth</span>
             </div>
 
-            <h2 className="text-5xl font-bold mb-4">
+            {/* Sized down on small screens so the glowing phrase still lands on one
+                line. Wrapped across two, the glow behind it swells into a blob. */}
+            <h2 className="text-3xl sm:text-5xl font-bold mb-4">
               Thousands of articles
               <br />
               <span className="relative inline-block mt-2">
-                <span className="relative z-10">on page #1</span>
+                <span className="relative z-10">ranked page #1</span>
                 {/* A wide soft glow, not a blurred slab: an 8px blur on a rounded
                     rectangle still read as a box sitting behind the words. */}
                 <span
