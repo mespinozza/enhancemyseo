@@ -294,7 +294,14 @@ console.log('\nHero chart');
     CHART_SERIES[CHART_SERIES.length - 1].value.toLocaleString()
   );
 
-  check('the readout starts at the first month', chartValueAt(0) === CHART_SERIES[0].value);
+  // Every loop replays this counter, so it has to begin at zero rather than jumping
+  // back to a five-figure number and counting on from there.
+  check('the readout starts at zero', chartValueAt(0) === 0);
+  check('the series is anchored at zero', CHART_SERIES[0].value === 0);
+  check(
+    'the readout is back at zero when the loop restarts',
+    chartValueAt(heroStateAt(HERO_LOOP_MS).chart) === 0 && heroStateAt(HERO_LOOP_MS).chart === 0
+  );
   check(
     'the readout lands on the last',
     chartValueAt(1) === CHART_SERIES[CHART_SERIES.length - 1].value

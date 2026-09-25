@@ -100,6 +100,10 @@ export const CHART_HEIGHT = 70;
  * drawing was a single smooth curve to the corner, which reads as an illustration.
  */
 export const CHART_SERIES = [
+  // A cumulative count starts from nothing, so the series is anchored at zero. Without
+  // it the readout opened on the first month's figure and every loop restarted by
+  // snapping backwards to 38,200 rather than counting up from scratch.
+  { label: 'Mar', value: 0 },
   { label: 'Apr', value: 38_200 },
   { label: 'May', value: 71_600 },
   { label: 'Jun', value: 121_900 },
