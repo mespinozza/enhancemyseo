@@ -3,7 +3,8 @@
 import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import WordCarousel from './WordCarousel';
-import { ArrowRight, XCircle, CheckCircle, TrendingUp } from 'lucide-react';
+import HeroPanels from './HeroPanels';
+import { ArrowRight } from 'lucide-react';
 
 export default function Hero() {
   const { user } = useAuth();
@@ -63,110 +64,12 @@ export default function Hero() {
             </div>
           </div>
           
-          {/* Right Column - Feature Comparison */}
+          {/* Right Column - the animated comparison */}
           <div className="relative pt-4">
-            <div className="space-y-4">
-              {/* Problems Card */}
-              <div className="bg-white rounded-xl shadow-lg p-6 transform hover:-translate-y-1 transition-transform duration-200">
-                <h3 className="text-lg font-semibold text-red-500 mb-4 flex items-center">
-                  <XCircle className="w-5 h-5 mr-2 flex-shrink-0" />
-                  The problem with most SEO tools:
-                </h3>
-                <ul className="space-y-3 ml-7">
-                  <li className="text-gray-700 list-disc">Manual content optimization that takes hours</li>
-                  <li className="text-gray-700 list-disc">Complex keyword research process</li>
-                  <li className="text-gray-700 list-disc">No automated content generation</li>
-                </ul>
-              </div>
-
-              {/* Solution Card */}
-              <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-xl shadow-lg p-6 text-white transform hover:-translate-y-1 transition-transform duration-200">
-                <h3 className="text-lg font-semibold mb-4 flex items-center">
-                  <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0" />
-                  Our tool does this on auto-pilot:
-                </h3>
-                <ul className="space-y-3 ml-7">
-                  <li className="list-disc">AI-powered content optimization in minutes</li>
-                  <li className="list-disc">Intelligent product and store integration</li>
-                  <li className="list-disc">Automated SEO-friendly content generation</li>
-                </ul>
-              </div>
-
-              {/* Results Card */}
-              <div className="bg-gray-900 rounded-xl shadow-lg p-6 text-white transform hover:-translate-y-1 transition-transform duration-200">
-                <h3 className="text-lg font-semibold mb-4 flex items-center">
-                  <TrendingUp className="w-5 h-5 mr-2 flex-shrink-0 text-green-400" />
-                  Organic results with our tools:
-                </h3>
-                <div className="flex flex-col items-center">
-                  {/* Line Chart */}
-                  <div className="relative w-full h-32 mb-4">
-                    {/* Y-axis */}
-                    <div className="absolute left-0 h-full w-px bg-gray-700" />
-                    {/* X-axis */}
-                    <div className="absolute bottom-0 w-full h-px bg-gray-700" />
-                    {/* Line Chart Path */}
-                    <div className="absolute inset-0">
-                      <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 320 128">
-                        <path
-                          d="M0,128 C40,100 60,110 100,80 C140,60 160,40 200,20 C240,10 260,5 320,0"
-                          fill="none"
-                          stroke="#3b82f6"
-                          strokeWidth="2"
-                          className="path-animation"
-                        />
-                        {/* Start Point */}
-                        <circle 
-                          cx="0" 
-                          cy="128" 
-                          r="4" 
-                          fill="#ef4444"
-                          stroke="#fff"
-                          strokeWidth="1" 
-                        />
-                        {/* End Point with Arrow */}
-                        <circle 
-                          cx="320" 
-                          cy="0" 
-                          r="4" 
-                          fill="#4ade80"
-                          stroke="#fff"
-                          strokeWidth="1" 
-                        />
-                        <path
-                          d="M320,0 L326,-6 L332,0 L326,6 Z"
-                          fill="#4ade80"
-                          className="transform rotate-[-45deg]"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                  {/* Text Below Chart */}
-                  <div className="text-center">
-                    <div className="text-lg font-semibold text-white">
-                      Content Reaching <span className="text-blue-500">Page #1</span> Google Rankings
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <HeroPanels />
           </div>
         </div>
       </div>
-
-      <style jsx>{`
-        .path-animation {
-          stroke-dasharray: 1000;
-          stroke-dashoffset: 1000;
-          animation: draw 2s ease forwards;
-        }
-
-        @keyframes draw {
-          to {
-            stroke-dashoffset: 0;
-          }
-        }
-      `}</style>
     </section>
   );
-} 
+}

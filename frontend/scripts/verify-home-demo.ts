@@ -22,6 +22,21 @@ import {
   typeOut,
 } from '../src/lib/home/demo';
 import {
+  CHART_HEIGHT,
+  CHART_SERIES,
+  CHART_WIDTH,
+  chartLength,
+  chartPoints,
+  chartValueAt,
+  FLASH_MS,
+  HERO_LOOP_MS,
+  heroRestState,
+  heroStateAt,
+  pointAtProgress,
+  PROBLEMS,
+  SOLUTIONS,
+} from '../src/lib/home/hero';
+import {
   maskSurname,
   REVIEW_MS,
   REVIEWS,
@@ -184,6 +199,100 @@ console.log('\nTypewriter');
   );
   // A line still typing when the next step lands would never be read in full.
   check('the longest status can finish inside a second', longest * 24 <= 1_600, `${longest} chars`);
+}
+
+console.log('\nHero argument');
+{
+  const start = heroStateAt(0);
+  check(
+    'the argument starts unspoken',
+    start.problems.every((point) => !point.visible) &&
+      start.solutions.every((point) => !point.visible)
+  );
+  check('the chart has not been drawn', start.chart === 0);
+
+  // Points must land one at a time, or the stagger is pointless.
+  const midProblems = heroStateAt(1_200).problems.filter((point) => point.visible).length;
+  check('problems arrive in sequence', midProblems > 0 && midProblems < PROBLEMS.length, `${midProblems} shown`);
+  check(
+    'the answers wait for the problems',
+    heroStateAt(1_200).solutions.every((point) => !point.visible)
+  );
+
+  // The flash is the thing being asked for: lit on arrival, faded shortly after.
+  const onArrival = heroStateAt(400).problems[0].flash;
+  const later = heroStateAt(400 + FLASH_MS + 10).problems[0].flash;
+  check('a point flashes as it lands', onArrival > 0.9, `${onArrival.toFixed(2)}`);
+  check('the flash fades out', later === 0);
+  check(
+    'the flash eases rather than blinking',
+    heroStateAt(400 + FLASH_MS / 2).problems[0].flash > 0.4 &&
+      heroStateAt(400 + FLASH_MS / 2).problems[0].flash < 0.6
+  );
+  check('answers flash too', heroStateAt(2_800).solutions[0].flash > 0.9);
+
+  check('the chart finishes inside the loop', heroStateAt(HERO_LOOP_MS - 1).chart === 1);
+  check('everything is said by the end', heroStateAt(HERO_LOOP_MS - 1).problems.every((p) => p.visible));
+
+  const loopedA = JSON.stringify(heroStateAt(3_000));
+  const loopedB = JSON.stringify(heroStateAt(3_000 + HERO_LOOP_MS));
+  check('the loop repeats exactly', loopedA === loopedB);
+  check('a negative clock resolves', heroStateAt(-500).problems.length === PROBLEMS.length);
+
+  const rest = heroRestState();
+  check(
+    'the still frame shows the whole argument',
+    rest.chart === 1 &&
+      rest.problems.every((point) => point.visible && point.flash === 0) &&
+      rest.solutions.every((point) => point.visible && point.flash === 0)
+  );
+  check('both columns are matched', PROBLEMS.length === SOLUTIONS.length);
+}
+
+console.log('\nHero chart');
+{
+  const points = chartPoints();
+  check('every month is plotted', points.length === CHART_SERIES.length);
+  check(
+    'the line stays inside the viewBox',
+    points.every((point) => point.x >= 0 && point.x <= CHART_WIDTH && point.y >= 0 && point.y <= CHART_HEIGHT)
+  );
+  check(
+    'months run left to right',
+    points.every((point, index) => index === 0 || points[index - 1].x < point.x)
+  );
+  // y is inverted in SVG, so a rising series must descend.
+  check(
+    'a rising series draws upward',
+    points.every((point, index) => index === 0 || points[index - 1].y > point.y)
+  );
+  check('the line has length to draw', chartLength(points) > CHART_WIDTH);
+
+  const head = pointAtProgress(0, points);
+  check('the head starts on the first month', head.x === points[0].x && head.y === points[0].y);
+  const tail = pointAtProgress(1, points);
+  const last = points[points.length - 1];
+  check('the head ends on the last', Math.abs(tail.x - last.x) < 0.001 && Math.abs(tail.y - last.y) < 0.001);
+  check(
+    'the head never leaves the line',
+    [0.1, 0.35, 0.5, 0.77, 0.99].every((progress) => {
+      const at = pointAtProgress(progress, points);
+      return at.x >= 0 && at.x <= CHART_WIDTH && at.y >= 0 && at.y <= CHART_HEIGHT;
+    })
+  );
+  check('out of range progress is clamped', pointAtProgress(2, points).x === last.x);
+
+  check('the readout starts at the first month', chartValueAt(0) === CHART_SERIES[0].value);
+  check(
+    'the readout lands on the last',
+    chartValueAt(1) === CHART_SERIES[CHART_SERIES.length - 1].value
+  );
+  check(
+    'the readout only climbs',
+    Array.from({ length: 20 }, (_, i) => chartValueAt(i / 19)).every(
+      (value, index, all) => index === 0 || value >= all[index - 1]
+    )
+  );
 }
 
 console.log('\nReview rotation');
