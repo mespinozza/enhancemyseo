@@ -18,6 +18,12 @@ export interface CaseStudyMetrics {
   keywordsOnPageOne: number | null;
 }
 
+/**
+ * How many screenshots one case study can carry. The editor enforces it too, so the
+ * server never has to silently drop images an admin thought it had saved.
+ */
+export const MAX_CASE_STUDY_SCREENSHOTS = 12;
+
 export interface CaseStudyScreenshot {
   url: string;
   caption: string;

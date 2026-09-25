@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { ImagePlus, Loader2, Send, Trophy, X } from 'lucide-react';
@@ -51,37 +52,61 @@ function Field({
 const inputClass =
   'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500';
 
+// Matches the cap the /api/results/submit route enforces server-side.
+const MAX_SCREENSHOTS = 6;
+
 export default function SubmitResultsBanner() {
   const { user, loading } = useAuth();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [screenshots, setScreenshots] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [sending, setSending] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   const set = (key: keyof FormState, value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (!file || !user) return;
+    if (files.length === 0 || !user) return;
+
+    const room = MAX_SCREENSHOTS - screenshots.length;
+    if (room <= 0) {
+      toast.error(`You can attach up to ${MAX_SCREENSHOTS} images.`);
+      return;
+    }
+    if (files.length > room) {
+      toast.error(`Only the first ${room} will be added — the limit is ${MAX_SCREENSHOTS}.`);
+    }
 
     setUploading(true);
+    const added: string[] = [];
     try {
-      const data = new FormData();
-      data.append('file', file);
-      const response = await fetch('/api/results/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
-        body: data,
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Upload failed');
-      setScreenshots((current) => [...current, result.url]);
+      const token = await user.getIdToken();
+      for (const [index, file] of files.slice(0, room).entries()) {
+        setProgress({ done: index, total: Math.min(files.length, room) });
+        const data = new FormData();
+        data.append('file', file);
+        const response = await fetch('/api/results/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: data,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Upload failed');
+        added.push(result.url);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
+      // Whatever succeeded before the failure is still worth keeping.
+      if (added.length > 0) setScreenshots((current) => [...current, ...added]);
+      setProgress(null);
       setUploading(false);
     }
   };
@@ -187,13 +212,19 @@ export default function SubmitResultsBanner() {
         </div>
       </section>
 
-      {open && user && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="submit-results-title"
-        >
+      {/* Portalled to the body. The site header is fixed with a backdrop blur, and a
+          dialog left inside the page content renders beneath it however high its
+          z-index goes. */}
+      {open &&
+        user &&
+        mounted &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="submit-results-title"
+          >
           <div className="my-8 w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <h3 id="submit-results-title" className="text-lg font-semibold text-gray-900">
@@ -295,22 +326,26 @@ export default function SubmitResultsBanner() {
               </fieldset>
 
               <Field
-                label="Screenshots"
-                hint="A Search Console performance graph makes your submission far more likely to be published."
+                label={`Screenshots${screenshots.length > 0 ? ` (${screenshots.length} of ${MAX_SCREENSHOTS})` : ''}`}
+                hint={`A Search Console performance graph makes your submission far more likely to be published. You can attach up to ${MAX_SCREENSHOTS}, and pick several at once.`}
               >
                 <div className="flex flex-wrap items-center gap-3">
-                  {screenshots.map((url) => (
-                    <div key={url} className="relative">
+                  {screenshots.map((url, index) => (
+                    // Keyed by position as well as URL: the same image added twice would
+                    // otherwise collide, and removing one copy would drop both.
+                    <div key={`${url}-${index}`} className="relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={url}
-                        alt="Uploaded screenshot"
+                        alt={`Uploaded screenshot ${index + 1}`}
                         className="h-20 w-28 rounded-md border border-gray-200 object-cover"
                       />
                       <button
                         type="button"
                         onClick={() =>
-                          setScreenshots((current) => current.filter((item) => item !== url))
+                          setScreenshots((current) =>
+                            current.filter((_, position) => position !== index)
+                          )
                         }
                         className="absolute -right-2 -top-2 rounded-full bg-gray-900 p-1 text-white"
                         aria-label="Remove screenshot"
@@ -320,23 +355,29 @@ export default function SubmitResultsBanner() {
                     </div>
                   ))}
 
-                  <label className="flex h-20 w-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-gray-300 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600">
-                    {uploading ? (
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <>
-                        <ImagePlus className="h-5 w-5" />
-                        Add image
-                      </>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      className="hidden"
-                      onChange={handleUpload}
-                      disabled={uploading}
-                    />
-                  </label>
+                  {screenshots.length < MAX_SCREENSHOTS && (
+                    <label className="flex h-20 w-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-gray-300 text-center text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600">
+                      {uploading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          {progress && `${progress.done + 1} of ${progress.total}`}
+                        </>
+                      ) : (
+                        <>
+                          <ImagePlus className="h-5 w-5" />
+                          Add images
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={handleUpload}
+                        disabled={uploading}
+                      />
+                    </label>
+                  )}
                 </div>
               </Field>
 
@@ -368,9 +409,10 @@ export default function SubmitResultsBanner() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

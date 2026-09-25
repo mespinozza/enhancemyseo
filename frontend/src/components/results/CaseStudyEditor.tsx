@@ -4,11 +4,21 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { ArrowLeft, ExternalLink, ImagePlus, Loader2, Save, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  ImagePlus,
+  Loader2,
+  Save,
+  X,
+} from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import {
   CaseStudy,
   CaseStudyScreenshot,
+  MAX_CASE_STUDY_SCREENSHOTS,
   engagementLabel,
   isActiveClient,
   slugify,
@@ -112,17 +122,37 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
   const [logoUrl, setLogoUrl] = useState(existing?.logoUrl ?? '');
   const [pastedUrl, setPastedUrl] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
   const [saving, setSaving] = useState(false);
 
   const addPastedUrl = () => {
-    const url = pastedUrl.trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url) && !url.startsWith('/')) {
+    // Splitting on whitespace and commas means a whole list can be pasted in one go.
+    const candidates = pastedUrl
+      .split(/[\s,]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const valid = candidates.filter((url) => /^https?:\/\//i.test(url) || url.startsWith('/'));
+    if (valid.length === 0) {
       toast.error('That does not look like an image URL.');
       return;
     }
-    setScreenshots((current) => [...current, { url, caption: '' }]);
+
+    const accepted = valid.slice(0, MAX_CASE_STUDY_SCREENSHOTS - screenshots.length);
+    if (accepted.length === 0) {
+      toast.error(`A case study holds up to ${MAX_CASE_STUDY_SCREENSHOTS} screenshots.`);
+      return;
+    }
+
+    setScreenshots((current) => [...current, ...accepted.map((url) => ({ url, caption: '' }))]);
     setPastedUrl('');
+
+    const skipped = candidates.length - accepted.length;
+    if (skipped > 0) {
+      toast.error(`Skipped ${skipped} ${skipped === 1 ? 'entry' : 'entries'}.`);
+    }
   };
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -157,27 +187,64 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
     });
     const result = await response.json();
     if (!response.ok) {
-      // The upload route explains setup problems in a `setup` field; an admin is the
-      // person who can act on it, so show it rather than swallowing it.
-      throw new Error(result.setup ? `${result.error} ${result.setup}` : result.error || 'Upload failed');
+      // The upload route explains setup problems in a `setup` field and unexpected ones
+      // in `detail`; an admin is the person who can act on either, so show them rather
+      // than swallowing them.
+      const extra = result.setup || result.detail;
+      throw new Error(extra ? `${result.error} ${extra}` : result.error || 'Upload failed');
     }
     return result.url as string;
   };
 
   const handleScreenshotUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (!file) return;
+    if (files.length === 0) return;
+
+    const room = MAX_CASE_STUDY_SCREENSHOTS - screenshots.length;
+    if (files.length > room) {
+      toast.error(
+        `Only ${room} more will fit — a case study holds up to ${MAX_CASE_STUDY_SCREENSHOTS} screenshots.`
+      );
+      files.length = Math.max(room, 0);
+      if (files.length === 0) return;
+    }
 
     setUploading(true);
+    // Sequentially rather than in parallel: a dozen 8MB images at once is a good way to
+    // get rate limited, and it lets the count below mean something.
+    const added: CaseStudyScreenshot[] = [];
     try {
-      const url = await upload(file);
-      if (url) setScreenshots((current) => [...current, { url, caption: '' }]);
+      for (const [index, file] of files.entries()) {
+        setUploadProgress({ done: index, total: files.length });
+        const url = await upload(file);
+        if (url) added.push({ url, caption: '' });
+      }
+      if (added.length > 0) {
+        setScreenshots((current) => [...current, ...added]);
+        toast.success(
+          added.length === 1 ? 'Screenshot added' : `${added.length} screenshots added`
+        );
+      }
     } catch (error) {
+      // Keep whatever made it through; losing four successful uploads because the
+      // fifth failed would be worse than a partial result.
+      if (added.length > 0) setScreenshots((current) => [...current, ...added]);
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
+      setUploadProgress(null);
       setUploading(false);
     }
+  };
+
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    setScreenshots((current) => {
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
   };
 
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,24 +440,50 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
               </div>
             </Panel>
 
-            <Panel title="Screenshots">
+            <Panel
+              title={`Screenshots${screenshots.length > 0 ? ` (${screenshots.length})` : ''}`}
+            >
               <p className="text-sm text-gray-600">
-                Search Console graphs are what make this page credible. The first image is used
-                as the card thumbnail.
+                Search Console graphs are what make this page credible. Add as many as you like
+                — the first one is the card thumbnail, and the rest appear in the gallery on the
+                case study page.
               </p>
 
               <div className="space-y-4">
                 {screenshots.map((shot, index) => (
                   <div
-                    key={shot.url}
+                    key={`${shot.url}-${index}`}
                     className="flex gap-4 rounded-lg border border-gray-200 p-3"
                   >
+                    <div className="flex flex-shrink-0 flex-col items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => move(index, -1)}
+                        disabled={index === 0}
+                        className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                        aria-label="Move earlier"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </button>
+                      <span className="text-xs tabular-nums text-gray-400">{index + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => move(index, 1)}
+                        disabled={index === screenshots.length - 1}
+                        className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                        aria-label="Move later"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                    </div>
+
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={shot.url}
                       alt=""
-                      className="h-20 w-32 flex-shrink-0 rounded object-cover"
+                      className="h-20 w-32 flex-shrink-0 rounded border border-gray-100 object-cover"
                     />
+
                     <div className="flex-1">
                       <input
                         className={inputClass}
@@ -410,6 +503,7 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
                         <span className="mt-1 block text-xs text-blue-600">Card thumbnail</span>
                       )}
                     </div>
+
                     <button
                       type="button"
                       onClick={() =>
@@ -426,30 +520,46 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
                 ))}
               </div>
 
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-6 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600">
-                {uploading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <ImagePlus className="h-5 w-5" />
-                )}
-                Add a screenshot
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  className="hidden"
-                  onChange={handleScreenshotUpload}
-                  disabled={uploading}
-                />
-              </label>
+              {screenshots.length < MAX_CASE_STUDY_SCREENSHOTS ? (
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-6 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600">
+                  {uploading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-5 w-5" />
+                  )}
+                  {uploadProgress
+                    ? `Uploading ${uploadProgress.done + 1} of ${uploadProgress.total}…`
+                    : 'Add screenshots — you can pick several at once'}
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleScreenshotUpload}
+                    disabled={uploading}
+                  />
+                </label>
+              ) : (
+                <p className="rounded-lg border border-dashed border-gray-300 py-4 text-center text-sm text-gray-500">
+                  That is all {MAX_CASE_STUDY_SCREENSHOTS} screenshots. Remove one to add
+                  another.
+                </p>
+              )}
 
               {/* Works whether or not Firebase Storage is switched on, and lets you
-                  reuse an image that already lives somewhere else. */}
+                  reuse images that already live somewhere else. */}
               <div className="flex gap-2">
                 <input
                   className={inputClass}
                   value={pastedUrl}
                   onChange={(event) => setPastedUrl(event.target.value)}
-                  placeholder="…or paste an image URL"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      addPastedUrl();
+                    }
+                  }}
+                  placeholder="…or paste image URLs, separated by spaces or commas"
                 />
                 <button
                   type="button"

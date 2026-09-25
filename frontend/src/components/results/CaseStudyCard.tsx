@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, CalendarRange, Eye, MousePointerClick } from 'lucide-react';
+import { ArrowRight, CalendarRange, Eye, Images, MousePointerClick } from 'lucide-react';
 import { CaseStudy, engagementLabel, growthPercent, isActiveClient } from '@/lib/results/types';
 import ActiveClientBadge from './ActiveClientBadge';
 import VerifiedBadge from './VerifiedBadge';
@@ -53,6 +53,12 @@ export default function CaseStudyCard({ study }: { study: CaseStudy }) {
             loading="lazy"
             className="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105 motion-reduce:transform-none"
           />
+          {study.screenshots.length > 1 && (
+            <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
+              <Images className="h-3.5 w-3.5" />
+              {study.screenshots.length}
+            </span>
+          )}
         </div>
       )}
 

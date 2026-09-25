@@ -1,4 +1,10 @@
-import { CaseStudyMetrics, CaseStudyScreenshot, MONTH_PATTERN, slugify } from './types';
+import {
+  CaseStudyMetrics,
+  CaseStudyScreenshot,
+  MAX_CASE_STUDY_SCREENSHOTS,
+  MONTH_PATTERN,
+  slugify,
+} from './types';
 
 /**
  * Shapes an untrusted request body into exactly the fields a case study document may
@@ -32,7 +38,7 @@ export function parseMetrics(raw: unknown): CaseStudyMetrics {
 function parseScreenshots(raw: unknown): CaseStudyScreenshot[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .slice(0, 12)
+    .slice(0, MAX_CASE_STUDY_SCREENSHOTS)
     .map((entry) => {
       const record = (entry ?? {}) as Record<string, unknown>;
       return { url: str(record.url, 1_000), caption: str(record.caption, 200) };

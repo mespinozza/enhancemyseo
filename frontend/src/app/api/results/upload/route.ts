@@ -67,21 +67,35 @@ export async function POST(request: NextRequest) {
 
     // Firebase Storage is opt-in per project, and until someone enables it the bucket
     // genuinely does not exist. That is a setup task, not a bug, so say so rather than
-    // leaving an admin staring at "failed to upload".
+    // leaving an admin staring at "failed to upload". Two different messages show up:
+    // the bucket is missing, or the SDK was initialised without a bucket name at all,
+    // which is what a dev server started before this route existed will report.
     const message = error instanceof Error ? error.message : '';
-    if (message.includes('bucket does not exist') || message.includes('notFound')) {
+    const isSetupProblem =
+      message.includes('bucket does not exist') ||
+      message.includes('notFound') ||
+      message.includes('Bucket name not specified') ||
+      message.includes('storageBucket');
+
+    if (isSetupProblem) {
       return NextResponse.json(
         {
           error: 'Image uploads are not set up yet.',
           setup:
             'Enable Storage for this Firebase project (Firebase console → Build → Storage → ' +
             'Get started), then set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET to the bucket name it ' +
-            'gives you. In the meantime you can paste an image URL instead of uploading.',
+            'gives you and restart the server. In the meantime you can paste image URLs ' +
+            'instead of uploading.',
         },
         { status: 503 }
       );
     }
 
-    return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 });
+    // Pass the underlying reason along: only signed-in users reach this route, and
+    // "Failed to upload image" on its own is impossible to act on.
+    return NextResponse.json(
+      { error: 'Failed to upload image', detail: message.slice(0, 300) },
+      { status: 500 }
+    );
   }
 }
