@@ -134,3 +134,5 @@ next-env.d.ts
 # Firebase
 **/firebase-adminsdk*.json
 firebase-debug.log 
+
+frontend/verify-shots/
