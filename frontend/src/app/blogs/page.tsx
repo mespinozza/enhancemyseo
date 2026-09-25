@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useRouter } from 'next/navigation';
 import { blogOperations, BlogPost } from '@/lib/firebase/firestore';
+import { formatDate } from '@/lib/blog/publish-date';
 import { Plus, Edit, Trash2, Eye, Calendar, Users, FileText, Globe, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -244,10 +245,10 @@ export default function BlogsPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center">
                           <Calendar className="w-4 h-4 mr-1" />
-                          {blog.published && blog.publishDate 
-                            ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString()
-                            : blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'
-                          }
+                          {formatDate(
+                            blog.published && blog.publishDate ? blog.publishDate : blog.createdAt,
+                            { year: 'numeric', month: 'numeric', day: 'numeric' }
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

@@ -89,7 +89,7 @@ function connect(): Firestore {
  * browser, so the server HTML contains only a loading state. Fetching it would prove
  * nothing; the page has to actually run. Skipped when nothing is serving.
  */
-async function checkRenders(slug: string, title: string) {
+async function checkRenders(db: Firestore, blogId: string, slug: string, title: string) {
   const origin = process.env.VERIFY_ORIGIN || 'http://localhost:3001';
 
   try {
@@ -128,6 +128,35 @@ async function checkRenders(slug: string, title: string) {
     const text = await page.evaluate(() => document.body.innerText);
     check('the post page shows the title', text.includes(title));
     check('the post page is not a 404', !text.includes('could not be found'));
+
+    // publishDate arrives as a Firestore Timestamp, which `new Date()` turns into an
+    // Invalid Date rather than throwing, so this stayed broken in plain sight.
+    //
+    // Backdating first is what makes this meaningful: the article was published
+    // seconds ago, and the old code fell back to the current date, so today's date
+    // would pass whether the bug was fixed or not.
+    // showDate is turned on here only to exercise the visible path: posts on this blog
+    // are configured to hide the byline, but the editor can turn it back on per post.
+    const backdated = new Date('2020-05-17T12:00:00Z');
+    await db.collection('blogs').doc(blogId).update({ publishDate: backdated, showDate: true });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.waitForFunction('!document.body.innerText.includes("Loading...")', {
+      timeout: 45_000,
+    });
+
+    const dated = await page.evaluate(() => document.body.innerText);
+    check('the post page shows a real date', !dated.includes('Invalid Date'));
+    check('the post page shows the date it was published', dated.includes('May 17, 2020'));
+
+    const published = await page.evaluate(() => {
+      const script = document.querySelector('script[type="application/ld+json"]');
+      return script ? JSON.parse(script.textContent || '{}').datePublished : null;
+    });
+    check(
+      'the structured data carries the publish date, not today',
+      typeof published === 'string' && published.startsWith('2020-05-17'),
+      String(published)
+    );
   } finally {
     await browser.close();
   }
@@ -231,7 +260,7 @@ async function checkPublish(db: Firestore) {
       `${cms.size} of ${(await db.collection('blogs').count().get()).data().count} documents`
     );
 
-    await checkRenders(String(after.slug), String(after.title));
+    await checkRenders(db, target.id, String(after.slug), String(after.title));
 
     console.log('\nthe admin check');
     const stranger = { ...automation, userId: 'no-such-account' } as unknown as Automation;

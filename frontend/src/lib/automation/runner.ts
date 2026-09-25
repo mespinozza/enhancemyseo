@@ -437,7 +437,10 @@ export async function publishToSiteBlog(
       // ever republished.
       authorId: automation.userId,
       authorName: brand.brandName || 'EnhanceMySEO',
-      showDate: true,
+      // Matching how every existing post on the blog is configured. The date still
+      // reaches search engines through the article structured data either way; this
+      // only controls the byline shown to readers, and is editable per post.
+      showDate: false,
       showAuthor: false,
       showViews: false,
       updatedAt: Timestamp.now(),

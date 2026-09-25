@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, notFound } from 'next/navigation';
 import { blogOperations, BlogPost } from '@/lib/firebase/firestore';
+import { formatDate, toDate } from '@/lib/blog/publish-date';
 import { Calendar, User, Eye, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import Head from 'next/head';
@@ -102,14 +103,7 @@ export default function BlogPostPage() {
                   <div className="flex items-center">
                     <Calendar className="w-4 h-4 mr-1" />
                     <span>
-                      {blog.publishDate 
-                        ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          })
-                        : 'Draft'
-                      }
+                      {formatDate(blog.publishDate, undefined, 'Draft')}
                     </span>
                   </div>
                 )}
@@ -176,14 +170,7 @@ export default function BlogPostPage() {
             <div className="flex items-center justify-between">
               {blog.showDate !== false && (
                 <div className="text-sm text-gray-500">
-                  Published on {blog.publishDate 
-                    ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      })
-                    : 'Unknown'
-                  }
+                  Published on {formatDate(blog.publishDate)}
                 </div>
               )}
               
@@ -219,40 +206,15 @@ export default function BlogPostPage() {
                   "url": `${window.location.origin}/logo.png`
                 }
               },
-              "datePublished": (() => {
-                try {
-                  if (blog.publishDate) {
-                    if (blog.publishDate instanceof Date) {
-                      return isNaN(blog.publishDate.getTime()) ? new Date().toISOString() : blog.publishDate.toISOString();
-                    }
-                    const dateObj = new Date(blog.publishDate);
-                    return isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
-                  }
-                  return new Date().toISOString();
-                } catch {
-                  return new Date().toISOString();
-                }
-              })(),
-              "dateModified": (() => {
-                try {
-                  if (blog.updatedAt?.toDate) {
-                    const updatedDate = blog.updatedAt.toDate();
-                    if (updatedDate && !isNaN(updatedDate.getTime())) {
-                      return updatedDate.toISOString();
-                    }
-                  }
-                  if (blog.publishDate) {
-                    if (blog.publishDate instanceof Date) {
-                      return isNaN(blog.publishDate.getTime()) ? new Date().toISOString() : blog.publishDate.toISOString();
-                    }
-                    const dateObj = new Date(blog.publishDate);
-                    return isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
-                  }
-                  return new Date().toISOString();
-                } catch {
-                  return new Date().toISOString();
-                }
-              })(),
+              // Falling back to the current date here was telling search engines that
+              // every post was published today, which is exactly the signal a blog
+              // does not want to send. The dates are real now, so use them.
+              "datePublished": (toDate(blog.publishDate) ?? new Date()).toISOString(),
+              "dateModified": (
+                toDate(blog.updatedAt) ??
+                toDate(blog.publishDate) ??
+                new Date()
+              ).toISOString(),
               "mainEntityOfPage": {
                 "@type": "WebPage",
                 "@id": `${window.location.origin}/blog/${blog.slug}`

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { blogOperations, BlogPost } from '@/lib/firebase/firestore';
+import { formatDate } from '@/lib/blog/publish-date';
 import { Search, Calendar, User, Eye, ArrowRight, FileText } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -374,14 +375,11 @@ function BlogContent() {
                           <div className="flex items-center">
                             <Calendar className="w-4 h-4 mr-1" />
                             <span>
-                              {blog.publishDate 
-                                ? (blog.publishDate instanceof Date ? blog.publishDate : new Date(blog.publishDate)).toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    year: 'numeric'
-                                  })
-                                : 'Draft'
-                              }
+                              {formatDate(
+                                blog.publishDate,
+                                { month: 'short', day: 'numeric', year: 'numeric' },
+                                'Draft'
+                              )}
                             </span>
                           </div>
                         )}
