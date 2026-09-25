@@ -5,16 +5,19 @@ import {
   ArrowLeft,
   ArrowRight,
   Calendar,
+  CalendarRange,
   Eye,
   ExternalLink,
   FileText,
   MousePointerClick,
   Search,
 } from 'lucide-react';
+import ActiveClientBadge from '@/components/results/ActiveClientBadge';
 import MetricStat from '@/components/results/MetricStat';
 import ScreenshotGallery from '@/components/results/ScreenshotGallery';
 import VerifiedBadge from '@/components/results/VerifiedBadge';
 import { getCaseStudyBySlug } from '@/lib/results/server';
+import { engagementLabel, isActiveClient } from '@/lib/results/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +60,8 @@ export default async function CaseStudyPage({ params }: Props) {
 
   const { metrics } = study;
   const published = study.publishedAt ? new Date(study.publishedAt) : null;
+  const engagement = engagementLabel(study);
+  const active = isActiveClient(study);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -86,6 +91,7 @@ export default async function CaseStudyPage({ params }: Props) {
                 {study.industry}
               </span>
             )}
+            {active && <ActiveClientBadge tone="dark" />}
             {study.verified && <VerifiedBadge tone="dark" />}
           </div>
 
@@ -93,6 +99,12 @@ export default async function CaseStudyPage({ params }: Props) {
           <p className="mt-5 max-w-3xl text-lg text-gray-300">{study.summary}</p>
 
           <div className="mt-6 flex flex-wrap items-center gap-5 text-sm text-gray-400">
+            {engagement && (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarRange className="h-4 w-4" />
+                Working together {engagement}
+              </span>
+            )}
             {metrics.periodLabel && (
               <span className="inline-flex items-center gap-1.5">
                 <Calendar className="h-4 w-4" />

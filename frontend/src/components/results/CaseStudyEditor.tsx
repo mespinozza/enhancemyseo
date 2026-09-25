@@ -6,7 +6,13 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { ArrowLeft, ExternalLink, ImagePlus, Loader2, Save, X } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { CaseStudy, CaseStudyScreenshot, slugify } from '@/lib/results/types';
+import {
+  CaseStudy,
+  CaseStudyScreenshot,
+  engagementLabel,
+  isActiveClient,
+  slugify,
+} from '@/lib/results/types';
 
 interface EditorProps {
   /** Omitted when creating; the existing document when editing. */
@@ -21,6 +27,8 @@ interface FormState {
   industry: string;
   summary: string;
   body: string;
+  startDate: string;
+  endDate: string;
   quote: string;
   quoteAuthor: string;
   quoteRole: string;
@@ -46,6 +54,8 @@ function initialState(existing?: CaseStudy): FormState {
     industry: existing?.industry ?? '',
     summary: existing?.summary ?? '',
     body: existing?.body ?? '',
+    startDate: existing?.startDate ?? '',
+    endDate: existing?.endDate ?? '',
     quote: existing?.quote ?? '',
     quoteAuthor: existing?.quoteAuthor ?? '',
     quoteRole: existing?.quoteRole ?? '',
@@ -117,6 +127,14 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+
+  // Echo back exactly what the public page will say, so "Present" and the active
+  // marker are not a surprise after publishing.
+  const engagementPreview = engagementLabel({
+    startDate: form.startDate,
+    endDate: form.endDate,
+  });
+  const isActive = isActiveClient({ startDate: form.startDate, endDate: form.endDate });
 
   // Only auto-fill the slug for new case studies. Rewriting it on an existing one would
   // silently break every link already pointing at the published page.
@@ -192,6 +210,8 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
         logoUrl,
         summary: form.summary,
         body: form.body,
+        startDate: form.startDate,
+        endDate: form.endDate,
         quote: form.quote,
         quoteAuthor: form.quoteAuthor,
         quoteRole: form.quoteRole,
@@ -469,6 +489,32 @@ export default function CaseStudyEditor({ existing }: EditorProps) {
                   placeholder="Home & garden"
                 />
               </Field>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Working since">
+                  <input
+                    className={inputClass}
+                    type="month"
+                    value={form.startDate}
+                    onChange={(event) => set('startDate', event.target.value)}
+                  />
+                </Field>
+                <Field label="Until">
+                  <input
+                    className={inputClass}
+                    type="month"
+                    value={form.endDate}
+                    min={form.startDate || undefined}
+                    onChange={(event) => set('endDate', event.target.value)}
+                  />
+                </Field>
+              </div>
+              <p className="text-xs text-gray-500">
+                {engagementPreview
+                  ? `Shown as “${engagementPreview}”.`
+                  : 'Add a start date to show how long you have worked together.'}
+                {isActive && ' They will be marked as an active client.'}
+              </p>
               <Field label="Logo">
                 <div className="flex items-center gap-3">
                   {logoUrl && (

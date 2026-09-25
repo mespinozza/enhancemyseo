@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { ArrowRight, Eye, MousePointerClick } from 'lucide-react';
-import { CaseStudy, growthPercent } from '@/lib/results/types';
+import { ArrowRight, CalendarRange, Eye, MousePointerClick } from 'lucide-react';
+import { CaseStudy, engagementLabel, growthPercent, isActiveClient } from '@/lib/results/types';
+import ActiveClientBadge from './ActiveClientBadge';
 import VerifiedBadge from './VerifiedBadge';
 
 function Delta({
@@ -35,6 +36,8 @@ function Delta({
 
 export default function CaseStudyCard({ study }: { study: CaseStudy }) {
   const cover = study.screenshots[0];
+  const engagement = engagementLabel(study);
+  const active = isActiveClient(study);
 
   return (
     <Link
@@ -61,12 +64,21 @@ export default function CaseStudyCard({ study }: { study: CaseStudy }) {
               {study.industry}
             </span>
           )}
+          {active && <ActiveClientBadge />}
           {study.verified && <VerifiedBadge />}
         </div>
 
         <h3 className="text-lg font-bold leading-snug text-gray-900 group-hover:text-blue-600">
           {study.title}
         </h3>
+
+        {engagement && (
+          <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-gray-500">
+            <CalendarRange className="h-3.5 w-3.5" />
+            {engagement}
+          </p>
+        )}
+
         <p className="mt-2 line-clamp-3 text-sm text-gray-600">{study.summary}</p>
 
         <div className="mt-5 grid grid-cols-2 gap-4 border-t border-gray-100 pt-5">

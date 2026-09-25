@@ -7,6 +7,7 @@ import {
   CaseStudyMetrics,
   CaseStudyScreenshot,
   EMPTY_METRICS,
+  MONTH_PATTERN,
   ResultSubmission,
   SubmissionStatus,
 } from './types';
@@ -78,6 +79,8 @@ function toCaseStudy(id: string, data: Record<string, unknown>): CaseStudy {
     logoUrl: text('logoUrl'),
     summary: text('summary'),
     body: text('body'),
+    startDate: MONTH_PATTERN.test(text('startDate')) ? text('startDate') : '',
+    endDate: MONTH_PATTERN.test(text('endDate')) ? text('endDate') : '',
     quote: text('quote'),
     quoteAuthor: text('quoteAuthor'),
     quoteRole: text('quoteRole'),

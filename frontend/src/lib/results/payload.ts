@@ -1,4 +1,4 @@
-import { CaseStudyMetrics, CaseStudyScreenshot, slugify } from './types';
+import { CaseStudyMetrics, CaseStudyScreenshot, MONTH_PATTERN, slugify } from './types';
 
 /**
  * Shapes an untrusted request body into exactly the fields a case study document may
@@ -54,10 +54,25 @@ export function parseCaseStudyBody(raw: unknown): ParsedCaseStudy {
   const summary = str(body.summary, 400);
   const slug = slugify(str(body.slug, 160) || title);
 
+  // Anything that is not a well-formed 'YYYY-MM' is dropped rather than stored, so the
+  // display helpers never have to guess at a half-typed date.
+  const month = (value: unknown) => {
+    const text = str(value, 7);
+    return MONTH_PATTERN.test(text) ? text : '';
+  };
+  const startDate = month(body.startDate);
+  const endDate = month(body.endDate);
+
   if (!title) errors.push('A title is required.');
   if (!storeName) errors.push('A store name is required.');
   if (!summary) errors.push('A short summary is required.');
   if (!slug) errors.push('A URL slug is required.');
+  if (endDate && !startDate) {
+    errors.push('An end date needs a start date to go with it.');
+  }
+  if (startDate && endDate && endDate < startDate) {
+    errors.push('The end date comes before the start date.');
+  }
 
   return {
     errors,
@@ -70,6 +85,8 @@ export function parseCaseStudyBody(raw: unknown): ParsedCaseStudy {
       logoUrl: str(body.logoUrl, 1_000),
       summary,
       body: typeof body.body === 'string' ? body.body.slice(0, 50_000) : '',
+      startDate,
+      endDate,
       quote: str(body.quote, 600),
       quoteAuthor: str(body.quoteAuthor, 120),
       quoteRole: str(body.quoteRole, 120),

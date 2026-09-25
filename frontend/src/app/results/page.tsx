@@ -27,16 +27,19 @@ function Headline({
   icon,
   value,
   label,
+  note,
 }: {
   icon: React.ReactNode;
   value: string;
   label: string;
+  note?: string;
 }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-5 text-center">
       <div className="mb-2 flex justify-center text-blue-300">{icon}</div>
       <div className="text-3xl font-bold tabular-nums text-white">{value}</div>
       <div className="mt-1 text-sm text-gray-400">{label}</div>
+      {note && <div className="mt-1 text-xs text-blue-300">{note}</div>}
     </div>
   );
 }
@@ -104,6 +107,7 @@ export default async function ResultsPage() {
                 icon={<Store className="h-5 w-5" />}
                 value={totals.stores.toLocaleString()}
                 label={totals.stores === 1 ? 'Store' : 'Stores'}
+                note={totals.active > 0 ? `${totals.active} still active` : undefined}
               />
             </div>
           )}

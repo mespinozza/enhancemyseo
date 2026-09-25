@@ -35,6 +35,13 @@ export interface CaseStudy {
   summary: string;
   /** Long-form HTML, admin authored, rendered with dangerouslySetInnerHTML. */
   body: string;
+  /**
+   * When the engagement started and ended, as 'YYYY-MM'. Month precision on purpose:
+   * a day would imply a contract date we do not actually track. An empty endDate means
+   * the work is ongoing, which is what makes a store an active client.
+   */
+  startDate: string;
+  endDate: string;
   quote: string;
   quoteAuthor: string;
   quoteRole: string;
@@ -76,6 +83,38 @@ export const EMPTY_METRICS: CaseStudyMetrics = {
   keywordsOnPageOne: null,
 };
 
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+export const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/**
+ * Formats 'YYYY-MM' without going through Date, which would shift the month across a
+ * timezone boundary and render January as the previous December.
+ */
+export function formatMonth(value: string): string {
+  if (!MONTH_PATTERN.test(value)) return '';
+  const [year, month] = value.split('-');
+  return `${MONTHS[Number(month) - 1]} ${year}`;
+}
+
+/** A store we are still working with: it has a start date and no end date. */
+export function isActiveClient(study: Pick<CaseStudy, 'startDate' | 'endDate'>): boolean {
+  return MONTH_PATTERN.test(study.startDate) && !MONTH_PATTERN.test(study.endDate);
+}
+
+/** "Apr 2025 – Present", or null when no start date has been recorded. */
+export function engagementLabel(
+  study: Pick<CaseStudy, 'startDate' | 'endDate'>
+): string | null {
+  const start = formatMonth(study.startDate);
+  if (!start) return null;
+  const end = formatMonth(study.endDate);
+  return `${start} – ${end || 'Present'}`;
+}
+
 export function slugify(value: string): string {
   return value
     .toLowerCase()
@@ -110,7 +149,8 @@ export function aggregateTotals(studies: CaseStudy[]) {
       impressions: totals.impressions + (study.metrics.impressionsAfter ?? 0),
       articles: totals.articles + (study.metrics.articlesPublished ?? 0),
       stores: totals.stores + 1,
+      active: totals.active + (isActiveClient(study) ? 1 : 0),
     }),
-    { clicks: 0, impressions: 0, articles: 0, stores: 0 }
+    { clicks: 0, impressions: 0, articles: 0, stores: 0, active: 0 }
   );
 }

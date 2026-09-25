@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import AdminGate from '@/components/results/AdminGate';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { CaseStudy } from '@/lib/results/types';
+import { CaseStudy, engagementLabel, isActiveClient } from '@/lib/results/types';
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
@@ -130,7 +130,7 @@ function ManageCaseStudies() {
           <Stat label="Total" value={studies.length} />
           <Stat label="Published" value={published.length} />
           <Stat label="Drafts" value={studies.length - published.length} />
-          <Stat label="Verified" value={studies.filter((study) => study.verified).length} />
+          <Stat label="Active clients" value={studies.filter(isActiveClient).length} />
         </div>
 
         {loading ? (
@@ -188,6 +188,7 @@ function ManageCaseStudies() {
                       </div>
                       <div className="text-sm text-gray-500">
                         {study.storeName} · /results/{study.slug}
+                        {engagementLabel(study) && ` · ${engagementLabel(study)}`}
                       </div>
                     </td>
                     <td className="px-6 py-4">
