@@ -13,7 +13,8 @@
     "verify:keyword-derivation": "npx --yes tsx scripts/verify-keyword-derivation.ts",
     "verify:home-demo": "npx --yes tsx scripts/verify-home-demo.ts",
     "verify:site-blog": "npx --yes tsx scripts/verify-site-blog-publish.ts",
-    "backfill:site-blog-flag": "npx --yes tsx scripts/backfill-site-blog-flag.ts"
+    "backfill:site-blog-flag": "npx --yes tsx scripts/backfill-site-blog-flag.ts",
+    "verify:blog-rules": "npx --yes tsx scripts/verify-blog-rules.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",
