@@ -427,6 +427,12 @@ export async function publishToSiteBlog(
       published: live,
       publishDate: Timestamp.now(),
       metaDescription: toMetaDescription(article.content),
+      // The post page only counts a view when authorId is set, and the blog CMS at
+      // /blogs expects it, so an automated post has to carry the same fields a
+      // hand-written one does. viewCount is deliberately left alone: every reader of
+      // it defaults to 0, and writing a 0 here would reset the count if an article is
+      // ever republished.
+      authorId: automation.userId,
       authorName: brand.brandName || 'EnhanceMySEO',
       showDate: true,
       showAuthor: false,

@@ -198,6 +198,8 @@ async function checkPublish(db: Firestore) {
       'sets a meta description',
       typeof after.metaDescription === 'string' && after.metaDescription.length > 0
     );
+    check('sets the author, which view counting depends on', after.authorId === adminUid);
+    check('leaves any existing view count alone', after.viewCount === before.viewCount);
     check('leaves the body untouched', after.content === before.content);
 
     // The listing query is `published == true`, so this is what decides whether the
@@ -238,6 +240,7 @@ async function checkPublish(db: Firestore) {
       'published',
       'publishDate',
       'metaDescription',
+      'authorId',
       'authorName',
       'showDate',
       'showAuthor',
