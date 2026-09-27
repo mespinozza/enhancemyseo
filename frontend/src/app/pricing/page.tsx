@@ -19,6 +19,7 @@ import {
   Star,
   ChevronDown,
   ArrowRight,
+  Mail,
 } from 'lucide-react';
 import Reviews from '@/components/home/Reviews';
 
@@ -128,13 +129,14 @@ const FAQS = [
   {
     q: 'Do you offer refunds?',
     a: "If you're not happy in your first 7 days, reach out and we'll make it right. Our goal is for the tool to pay for itself many times over.",
+    cta: { label: 'Email Us', href: 'mailto:enhancemyseoplz@gmail.com' },
   },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 
-function FaqItem({ q, a }: { q: string; a: string }) {
+function FaqItem({ q, a, cta }: { q: string; a: string; cta?: { label: string; href: string } }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="border-b border-gray-200 last:border-0">
@@ -145,7 +147,20 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         {q}
         <ChevronDown className={`ml-4 h-4 w-4 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && <p className="pb-5 text-sm text-gray-600 leading-relaxed">{a}</p>}
+      {open && (
+        <div className="pb-5">
+          <p className="text-sm text-gray-600 leading-relaxed mb-3">{a}</p>
+          {cta && (
+            <a
+              href={cta.href}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              <Mail className="w-4 h-4" />
+              {cta.label}
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -379,7 +394,7 @@ export default function PricingPage() {
           <h2 className="text-2xl font-bold text-gray-900 text-center mb-10">Common questions</h2>
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-6">
             {FAQS.map((faq) => (
-              <FaqItem key={faq.q} q={faq.q} a={faq.a} />
+              <FaqItem key={faq.q} q={faq.q} a={faq.a} cta={faq.cta} />
             ))}
           </div>
         </div>
