@@ -20,7 +20,7 @@ import {
   ChevronDown,
   ArrowRight,
 } from 'lucide-react';
-import { REVIEWS, maskSurname, starFills } from '@/lib/home/reviews';
+import Reviews from '@/components/home/Reviews';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,34 +133,6 @@ const FAQS = [
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StarRow({ rating }: { rating: number }) {
-  const fills = starFills(rating);
-  return (
-    <div className="flex gap-0.5">
-      {fills.map((fill, i) => (
-        <svg key={i} className="w-4 h-4" viewBox="0 0 20 20">
-          {fill === 'full' && (
-            <polygon points="10,1 12.9,7 19.5,7.6 14.5,12 16.2,18.5 10,15 3.8,18.5 5.5,12 0.5,7.6 7.1,7" fill="#FBBF24" />
-          )}
-          {fill === 'half' && (
-            <>
-              <defs>
-                <linearGradient id={`half-${i}`}>
-                  <stop offset="50%" stopColor="#FBBF24" />
-                  <stop offset="50%" stopColor="#E5E7EB" />
-                </linearGradient>
-              </defs>
-              <polygon points="10,1 12.9,7 19.5,7.6 14.5,12 16.2,18.5 10,15 3.8,18.5 5.5,12 0.5,7.6 7.1,7" fill={`url(#half-${i})`} />
-            </>
-          )}
-          {fill === 'empty' && (
-            <polygon points="10,1 12.9,7 19.5,7.6 14.5,12 16.2,18.5 10,15 3.8,18.5 5.5,12 0.5,7.6 7.1,7" fill="#E5E7EB" />
-          )}
-        </svg>
-      ))}
-    </div>
-  );
-}
 
 function FaqItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
@@ -399,28 +371,7 @@ export default function PricingPage() {
       </section>
 
       {/* ── Testimonials ── */}
-      <section className="py-16 px-4 max-w-6xl mx-auto">
-        <h2 className="text-2xl font-bold text-gray-900 text-center mb-10">
-          Trusted by brands already ranking on page one
-        </h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {REVIEWS.slice(0, 3).map((review) => (
-            <div key={review.id} className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-              <StarRow rating={review.rating} />
-              <p className="mt-3 text-sm text-gray-600 leading-relaxed">&ldquo;{review.text}&rdquo;</p>
-              <div className="mt-4 flex items-center gap-2">
-                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600">
-                  {review.firstName[0]}
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-gray-800">{review.firstName} {maskSurname(review.lastName)}</p>
-                  <p className="text-xs text-gray-400">{review.storeType}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <Reviews />
 
       {/* ── FAQ ── */}
       <section className="bg-gray-50 py-16 px-4">
