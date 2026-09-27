@@ -115,7 +115,7 @@ const FAQS = [
   },
   {
     q: 'Is the content actually good quality?',
-    a: 'Our tool is powered by Claude (Anthropic) and researches your own website before writing, so every article is tailored to your brand and products — not generic filler.',
+    a: "Yes — and we've engineered it to be. Our pipeline combines Anthropic's Claude for long-form writing, Perplexity AI for real-time fact research, and ChatGPT for additional cross-referencing, so every article is grounded in accurate, up-to-date information with proper attribution. Before writing a single word, the tool researches your own website to understand your brand, products, and tone — meaning the output is tailored content, not generic filler. The result consistently passes AI-detection tools and human review alike, giving you articles that are trustworthy to readers and authoritative to search engines.",
   },
   {
     q: 'Does it work with any Shopify store?',
