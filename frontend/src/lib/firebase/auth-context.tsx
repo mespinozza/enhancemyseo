@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
+  sendEmailVerification,
   signOut, 
   onAuthStateChanged,
   User as FirebaseUser,
@@ -177,7 +178,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Register with email and password
   const register = async (email: string, password: string) => {
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      // Send verification email immediately after signup
+      await sendEmailVerification(credential.user);
     } catch (error) {
       console.error('Registration error:', error);
       throw error;

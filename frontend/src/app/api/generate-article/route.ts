@@ -16,7 +16,36 @@ import chromium from '@sparticuz/chromium';
 console.log('--- generate-article route loaded by Next.js server ---');
 
 // ============================================================================
-// CONCURRENT REQUEST TRACKING & RATE LIMITING
+// IP-BASED RATE LIMITING
+// Prevents one machine from creating many free accounts to bypass quotas.
+// Tracks generation attempts per IP in a sliding 1-hour window.
+// ============================================================================
+const ipGenerationLog = new Map<string, number[]>(); // ip -> timestamps[]
+const IP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const IP_MAX_PER_WINDOW = 10; // max generations per IP per hour across all accounts
+
+function checkIpRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const windowStart = now - IP_WINDOW_MS;
+  const log = (ipGenerationLog.get(ip) || []).filter(t => t > windowStart);
+  if (log.length >= IP_MAX_PER_WINDOW) return false;
+  log.push(now);
+  ipGenerationLog.set(ip, log);
+  return true;
+}
+
+// Periodically clean up old IP entries to avoid memory growth
+setInterval(() => {
+  const cutoff = Date.now() - IP_WINDOW_MS;
+  for (const [ip, timestamps] of ipGenerationLog) {
+    const fresh = timestamps.filter(t => t > cutoff);
+    if (fresh.length === 0) ipGenerationLog.delete(ip);
+    else ipGenerationLog.set(ip, fresh);
+  }
+}, 15 * 60 * 1000); // clean every 15 min
+
+// ============================================================================
+// CONCURRENT REQUEST TRACKING
 // ============================================================================
 const activeGenerations = new Map<string, number>(); // userId -> count
 const MAX_CONCURRENT_GENERATIONS = 3; // Max simultaneous generations per user
@@ -5426,7 +5455,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get the user's ID token from the Authorization header
+    // ── IP rate limit ──────────────────────────────────────────────────────────
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'unknown';
+
+    if (ip !== 'unknown' && !checkIpRateLimit(ip)) {
+      console.warn(`IP rate limit exceeded: ${ip}`);
+      return NextResponse.json(
+        { error: 'Too many requests from this network. Please try again later.' },
+        { status: 429 }
+      );
+    }
+
+    // ── Auth ───────────────────────────────────────────────────────────────────
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       console.error('Missing or invalid Authorization header');
@@ -5437,7 +5480,6 @@ export async function POST(request: Request) {
     let verifiedUser;
     
     try {
-      // Verify the ID token
       verifiedUser = await getAuth().verifyIdToken(idToken);
       if (!verifiedUser.uid) {
         throw new Error('Invalid token');
@@ -5446,6 +5488,17 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error('Error verifying token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // ── Email verification gate ────────────────────────────────────────────────
+    // Prevents throwaway accounts from abusing the free tier.
+    // Google sign-ins are pre-verified; only password accounts need this check.
+    if (!verifiedUser.email_verified) {
+      console.warn(`Unverified email blocked generation: ${verifiedUser.uid}`);
+      return NextResponse.json(
+        { error: 'Please verify your email address before generating articles. Check your inbox for a verification link.' },
+        { status: 403 }
+      );
     }
 
     // CRITICAL: Server-side usage verification

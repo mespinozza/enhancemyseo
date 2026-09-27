@@ -13,8 +13,12 @@ import {
   Search,
   ChevronDown,
   Star,
-  GripVertical
+  GripVertical,
+  MailWarning,
+  X,
 } from 'lucide-react';
+import { auth } from '@/lib/firebase/config';
+import { sendEmailVerification } from 'firebase/auth';
 import { blogOperations, Blog, generatedProductOperations, GeneratedProduct, historyOperations, HistoryItem } from '@/lib/firebase/firestore';
 import { getFilteredNavigationGroups, type NavigationItem } from '@/config/navigation';
 import {
@@ -66,6 +70,9 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [emailVerified, setEmailVerified] = useState<boolean>(true);
+  const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(false);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [isLoadingRecents, setIsLoadingRecents] = useState(true);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -94,6 +101,30 @@ export default function DashboardLayout({
     didInitGroupsRef.current = true;
     setCollapsedGroups(navigationGroups.map((group) => group.label));
   }, [navigationGroups]);
+
+  // Poll email verification status so the banner disappears automatically
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const check = () => {
+      auth.currentUser?.reload().then(() => {
+        setEmailVerified(auth.currentUser?.emailVerified ?? true);
+      });
+    };
+    check();
+    const interval = setInterval(check, 10_000); // re-check every 10 s
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const handleResendVerification = async () => {
+    if (!auth.currentUser || resendCooldown) return;
+    try {
+      await sendEmailVerification(auth.currentUser);
+      setResendCooldown(true);
+      setTimeout(() => setResendCooldown(false), 60_000); // 60-second cooldown
+    } catch {
+      // silent — toast not critical here
+    }
+  };
 
   const toggleGroup = (label: string) => {
     setCollapsedGroups((prev) =>
@@ -597,6 +628,29 @@ export default function DashboardLayout({
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50">
+          {/* ── Email verification banner ───────────────────────────────── */}
+          {!emailVerified && !verifyBannerDismissed && (
+            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+              <MailWarning className="w-5 h-5 shrink-0 text-amber-500" />
+              <span className="flex-1">
+                <strong>Verify your email</strong> to unlock article generation. Check your inbox for a link from us.
+              </span>
+              <button
+                onClick={handleResendVerification}
+                disabled={resendCooldown}
+                className="shrink-0 px-3 py-1 rounded-md bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {resendCooldown ? 'Sent! Check inbox' : 'Resend link'}
+              </button>
+              <button
+                onClick={() => setVerifyBannerDismissed(true)}
+                className="shrink-0 text-amber-400 hover:text-amber-600"
+                aria-label="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {children}
         </main>
       </div>
