@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BarChart3, FileText, MousePointerClick, Store } from 'lucide-react';
 import CaseStudyCard from '@/components/results/CaseStudyCard';
+import ComingSoonCard from '@/components/results/ComingSoonCard';
 import SubmitResultsBanner from '@/components/results/SubmitResultsBanner';
 import { listPublishedCaseStudies } from '@/lib/results/server';
 import { aggregateTotals, formatCompact } from '@/lib/results/types';
@@ -138,6 +139,8 @@ export default async function ResultsPage() {
             {studies.map((study) => (
               <CaseStudyCard key={study.id} study={study} />
             ))}
+            <ComingSoonCard industry="Home & Garden" />
+            <ComingSoonCard industry="Beauty & Cosmetics" />
           </div>
         )}
 
