@@ -178,6 +178,17 @@ export default function PricingPage() {
       return;
     }
 
+    // ── InitiateCheckout pixel event ──────────────────────────────────────
+    // Fires before redirect so Meta can attribute the checkout start.
+    try {
+      (window as Window & { fbq?: (...args: unknown[]) => void }).fbq?.('track', 'InitiateCheckout', {
+        value: isAnnual ? plan.annualTotal : plan.monthlyPrice,
+        currency: 'USD',
+        content_name: `${plan.name} ${isAnnual ? 'Annual' : 'Monthly'}`,
+        num_items: 1,
+      });
+    } catch { /* pixel not loaded yet — safe to ignore */ }
+
     if (!user) {
       const priceId = getPriceId(plan.key, isAnnual) ?? '';
       const params = new URLSearchParams({ intent: 'purchase', priceId, tierName: plan.name, isAnnual: String(isAnnual) });

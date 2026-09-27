@@ -69,8 +69,22 @@ export default function Pricing() {
   ];
 
   const handlePricingClick = async (tier: PricingTier) => {
+    if (tier.price === "0") {
+      router.push(user ? '/dashboard' : '/login');
+      return;
+    }
+
+    // ── InitiateCheckout pixel event ──────────────────────────────────────
+    try {
+      (window as Window & { fbq?: (...args: unknown[]) => void }).fbq?.('track', 'InitiateCheckout', {
+        value: Number(tier.price),
+        currency: 'USD',
+        content_name: `${tier.name} ${isAnnual ? 'Annual' : 'Monthly'}`,
+        num_items: 1,
+      });
+    } catch { /* pixel not ready — safe to ignore */ }
+
     if (!user) {
-      // Store purchase intent in URL parameters
       const params = new URLSearchParams({
         intent: 'purchase',
         priceId: tier.priceId || '',
@@ -81,17 +95,10 @@ export default function Pricing() {
       return;
     }
 
-    if (tier.price === "0") {
-      // Handle free tier
-      router.push('/dashboard');
-      return;
-    }
-
     try {
       if (!tier.priceId) {
         throw new Error('Price ID not found');
       }
-      
       const userToken = await user.getIdToken();
       console.log('Attempting to create checkout session with priceId:', tier.priceId);
       await createCheckoutSession(tier.priceId, userToken);

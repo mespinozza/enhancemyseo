@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { sendMetaCAPIEvent } from '@/lib/meta-capi';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -99,6 +100,14 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   console.log(`User ${userId} subscription set to free`);
 }
 
+// Price ID → plan metadata for CAPI Purchase event
+const PRICE_TO_PLAN: Record<string, { name: string; value: number }> = {
+  'price_1Rr1TsDAs3fJVx0166aj2A2g': { name: 'Kickstart Monthly',      value: 29  },
+  'price_1Rr1WhDAs3fJVx01CWG4O9c4': { name: 'Kickstart Annual',       value: 276 },
+  'price_1Rr1UVDAs3fJVx01bM18CiAG': { name: 'SEO Takeover Monthly',   value: 99  },
+  'price_1Rr1XuDAs3fJVx01cRt6Wosa': { name: 'SEO Takeover Annual',    value: 948 },
+};
+
 async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
   console.log('💰 Payment succeeded for invoice:', invoice.id);
   
@@ -106,6 +115,30 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
     // Fetch the subscription to get updated info
     const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
     await updateUserSubscription(subscription);
+
+    // ── Meta CAPI Purchase event ──────────────────────────────────────────
+    // Only fire on the very first payment (not recurring renewals).
+    if ((invoice as Stripe.Invoice & { billing_reason?: string }).billing_reason === 'subscription_create') {
+      try {
+        const priceId = subscription.items.data[0]?.price?.id ?? '';
+        const plan = PRICE_TO_PLAN[priceId];
+        // Amount paid is in cents; fall back to plan value if not on invoice
+        const value = plan?.value ?? (invoice.amount_paid ?? 0) / 100;
+
+        await sendMetaCAPIEvent({
+          eventName: 'Purchase',
+          email: invoice.customer_email ?? undefined,
+          value,
+          currency: (invoice.currency ?? 'usd').toUpperCase(),
+          contentName: plan?.name,
+          // Use invoice ID as dedup key — matches the eventId you'd set in fbq()
+          eventId: invoice.id ?? undefined,
+        });
+      } catch (err) {
+        // Never let CAPI failure break the webhook response
+        console.error('[CAPI] Error sending Purchase event:', err);
+      }
+    }
   }
 }
 

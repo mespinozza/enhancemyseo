@@ -178,6 +178,13 @@ function LoginForm() {
         return;
       }
       await registerUser(data.email, data.password);
+      // ── CompleteRegistration pixel event ──────────────────────────────
+      try {
+        (window as Window & { fbq?: (...args: unknown[]) => void }).fbq?.('track', 'CompleteRegistration', {
+          status: 'success',
+          content_name: 'Email Signup',
+        });
+      } catch { /* pixel not ready — safe to ignore */ }
     } catch (err: unknown) {
       if (err instanceof Error && err.message) setError(err.message);
     }
