@@ -129,7 +129,7 @@ const FAQS = [
   {
     q: 'Do you offer refunds?',
     a: "If you're not happy in your first 7 days, reach out and we'll make it right. Our goal is for the tool to pay for itself many times over.",
-    cta: { label: 'Email Us', href: 'mailto:enhancemyseoplz@gmail.com' },
+    cta: { label: 'Click here to contact us directly', href: '/contact' },
   },
 ];
 
@@ -153,10 +153,10 @@ function FaqItem({ q, a, cta }: { q: string; a: string; cta?: { label: string; h
           {cta && (
             <a
               href={cta.href}
-              className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
             >
-              <Mail className="w-4 h-4" />
               {cta.label}
+              <ArrowRight className="w-3.5 h-3.5" />
             </a>
           )}
         </div>
