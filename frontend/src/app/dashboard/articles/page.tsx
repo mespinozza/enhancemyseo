@@ -8,7 +8,13 @@ import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
 import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { Download, Copy, Plus, Sparkles, X, Check, Pencil } from 'lucide-react';
+import { Download, Copy, Plus, Sparkles, X, Check, Pencil, Star } from 'lucide-react';
+import {
+  getFavoriteBrands,
+  setFavoriteBrands,
+  readCachedFavoriteBrands,
+  writeCachedFavoriteBrands,
+} from '@/lib/firebase/user-preferences';
 import { useRouter } from 'next/navigation';
 import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, ContentSearchResults, WebsitePage } from '@/types/content-selection';
 import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
@@ -35,6 +41,9 @@ export default function ArticlesPage() {
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
   const [showBrandForm, setShowBrandForm] = useState(false);
+  const [favoriteBrandIds, setFavoriteBrandIds] = useState<string[]>(() =>
+    typeof window !== 'undefined' && user ? readCachedFavoriteBrands(user.uid) : []
+  );
   
   // Bulk generation states
   const [keywords, setKeywords] = useState<string[]>(['']);
@@ -338,7 +347,12 @@ export default function ArticlesPage() {
     
     setIsLoadingProfiles(true);
     try {
-      const profiles = await brandProfileOperations.getAll(user.uid);
+      const [profiles, favIds] = await Promise.all([
+        brandProfileOperations.getAll(user.uid),
+        getFavoriteBrands(user.uid),
+      ]);
+      setFavoriteBrandIds(favIds);
+      writeCachedFavoriteBrands(user.uid, favIds);
       setBrandProfiles(profiles);
       
       // Auto-select first profile if only one exists
@@ -353,6 +367,24 @@ export default function ArticlesPage() {
       setIsLoadingProfiles(false);
     }
   }, [user]);
+
+  const toggleFavoriteBrand = useCallback(async (brandId: string) => {
+    if (!user) return;
+    const isFav = favoriteBrandIds.includes(brandId);
+    let next: string[];
+    if (isFav) {
+      next = favoriteBrandIds.filter((id) => id !== brandId);
+    } else {
+      if (favoriteBrandIds.length >= 3) {
+        toast.error('You can only star up to 3 brand profiles');
+        return;
+      }
+      next = [...favoriteBrandIds, brandId];
+    }
+    setFavoriteBrandIds(next);
+    writeCachedFavoriteBrands(user.uid, next);
+    await setFavoriteBrands(user.uid, next);
+  }, [user, favoriteBrandIds]);
 
   useEffect(() => {
     loadBrandProfiles();
@@ -1052,8 +1084,8 @@ export default function ArticlesPage() {
               </button>
             </div>
 
-            <div 
-              className={`grid gap-4 ${!selectedBrandId && touchedFields.brandProfile ? 'border-2 border-red-200 rounded-lg p-4' : ''}`}
+            <div
+              className={`${!selectedBrandId && touchedFields.brandProfile ? 'border-2 border-red-200 rounded-lg p-3' : ''}`}
               onBlur={() => markFieldAsTouched('brandProfile')}
             >
               {isLoadingProfiles ? (
@@ -1062,29 +1094,63 @@ export default function ArticlesPage() {
                   <p className="mt-2 text-sm text-gray-500">Loading brand profiles...</p>
                 </div>
               ) : brandProfiles.length > 0 ? (
-                brandProfiles.map((profile) => (
-                  <button
-                    key={profile.id}
-                    onClick={() => {
-                      setSelectedBrandId(profile.id || '');
-                      markFieldAsTouched('brandProfile');
-                    }}
-                    className={`p-4 border rounded-lg text-left transition-colors ${
-                      selectedBrandId === profile.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-blue-300'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    ...brandProfiles.filter((p) => favoriteBrandIds.includes(p.id || '')),
+                    ...brandProfiles.filter((p) => !favoriteBrandIds.includes(p.id || '')),
+                  ].map((profile) => {
+                    const isFav = favoriteBrandIds.includes(profile.id || '');
+                    const isSelected = selectedBrandId === profile.id;
+                    return (
                       <div
-                        className="w-4 h-4 rounded-full"
-                        style={{ backgroundColor: profile.brandColor }}
-                      />
-                      <span className="font-medium">{profile.brandName}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">{profile.businessType}</p>
-                  </button>
-                ))
+                        key={profile.id}
+                        className={`relative group rounded-lg border transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-300 bg-white'
+                        }`}
+                        onClick={() => {
+                          setSelectedBrandId(profile.id || '');
+                          markFieldAsTouched('brandProfile');
+                        }}
+                      >
+                        {/* Star button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavoriteBrand(profile.id || '');
+                          }}
+                          className={`absolute top-1.5 right-1.5 p-0.5 rounded transition-opacity ${
+                            isFav
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={isFav ? 'Remove from favorites' : 'Star this brand (max 3)'}
+                        >
+                          <Star
+                            className={`w-3.5 h-3.5 ${isFav ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}`}
+                          />
+                        </button>
+
+                        <div className="p-2.5 pr-6">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <div
+                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: profile.brandColor }}
+                            />
+                            <span className="font-medium text-xs text-gray-900 truncate leading-tight">
+                              {profile.brandName}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 truncate leading-tight">
+                            {profile.businessType}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <div className={`text-center py-8 bg-gray-50 rounded-lg border-2 ${!selectedBrandId && touchedFields.brandProfile ? 'border-red-200' : 'border-dashed border-gray-300'}`}>
                   <p className={`mb-2 ${!selectedBrandId && touchedFields.brandProfile ? 'text-red-600' : 'text-gray-500'}`}>
@@ -1098,7 +1164,7 @@ export default function ArticlesPage() {
                   </button>
                 </div>
               )}
-              
+
               {!selectedBrandId && !isLoadingProfiles && brandProfiles.length > 0 && touchedFields.brandProfile && (
                 <div className="text-sm text-red-600 mt-2">
                   Please select a brand profile before generating content

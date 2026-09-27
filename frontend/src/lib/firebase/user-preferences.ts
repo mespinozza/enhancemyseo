@@ -1,6 +1,45 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './config';
 
+// ─── Favorite Brand Profiles ──────────────────────────────────────────────────
+
+const FAVORITE_BRANDS_FIELD = 'favoriteBrandIds';
+const MAX_FAVORITE_BRANDS = 3;
+
+export const getFavoriteBrands = async (uid: string): Promise<string[]> => {
+  const snapshot = await getDoc(doc(db, 'users', uid));
+  if (!snapshot.exists()) return [];
+  const value = snapshot.data()?.[FAVORITE_BRANDS_FIELD];
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string').slice(0, MAX_FAVORITE_BRANDS);
+};
+
+export const setFavoriteBrands = async (uid: string, brandIds: string[]): Promise<void> => {
+  const capped = brandIds.slice(0, MAX_FAVORITE_BRANDS);
+  await setDoc(doc(db, 'users', uid), { [FAVORITE_BRANDS_FIELD]: capped }, { merge: true });
+};
+
+const favCacheKey = (uid: string) => `dashboard:favoriteBrands:${uid}`;
+
+export const readCachedFavoriteBrands = (uid: string): string[] => {
+  try {
+    const stored = window.localStorage.getItem(favCacheKey(uid));
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+export const writeCachedFavoriteBrands = (uid: string, brandIds: string[]): void => {
+  try {
+    window.localStorage.setItem(favCacheKey(uid), JSON.stringify(brandIds));
+  } catch {
+    // non-critical
+  }
+};
+
 /**
  * Per-account UI preferences, stored on the user document so they follow the account
  * across browsers and devices rather than living in one browser's local storage.
