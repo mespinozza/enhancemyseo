@@ -108,7 +108,7 @@ export default async function ResultsPage() {
                 icon={<Store className="h-5 w-5" />}
                 value={totals.stores.toLocaleString()}
                 label={totals.stores === 1 ? 'Store' : 'Stores'}
-                note={totals.active > 0 ? `${totals.active} still active` : undefined}
+                note={totals.active > 0 ? `${totals.active} active now` : undefined}
               />
             </div>
           )}
