@@ -21,6 +21,12 @@ import { useEffect, useRef, useState } from 'react';
 
 const SERVICES = [{ href: '/services/article-generation', label: 'Article Generation' }];
 
+const COMING_SOON_SERVICES = [
+  'Automated Link Building',
+  'AI Meta Tag Optimizer',
+  'Competitor Gap Analysis',
+];
+
 export default function Header() {
   const { user, logout, subscription_status } = useAuth();
   const router = useRouter();
@@ -135,7 +141,7 @@ export default function Header() {
               </button>
 
               {openMenu === 'services' && (
-                <div className="absolute left-0 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                <div className="absolute left-0 mt-1 w-64 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                   {SERVICES.map((service) => (
                     <Link
                       key={service.href}
@@ -145,6 +151,21 @@ export default function Header() {
                       <FileText className="h-4 w-4 text-gray-400" />
                       {service.label}
                     </Link>
+                  ))}
+                  <div className="my-1 border-t border-gray-100" />
+                  {COMING_SOON_SERVICES.map((label) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-gray-400 cursor-not-allowed select-none"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-gray-300" />
+                        {label}
+                      </div>
+                      <span className="text-xs font-medium text-blue-400 bg-blue-50 rounded-full px-2 py-0.5 whitespace-nowrap">
+                        Coming Soon
+                      </span>
+                    </div>
                   ))}
                 </div>
               )}
