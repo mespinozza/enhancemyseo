@@ -64,7 +64,7 @@ export const navigationGroups: NavigationGroup[] = [
         name: 'Tools',
         href: '/dashboard/automate',
         icon: Workflow,
-        requiredSubscription: ['kickstart', 'seo_takeover', 'agency', 'admin'] // Every paid tier
+        requiredSubscription: ['seo_takeover', 'agency', 'admin'] // SEO Takeover and above only
       },
     ],
   },

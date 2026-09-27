@@ -21,13 +21,13 @@ interface UsageCheckResult {
 const UPGRADE_SUGGESTIONS = {
   free: {
     nextTier: 'kickstart',
-    message: 'Upgrade to Kickstart for 15 articles and 10 keywords per month',
-    urgency: 'Get 7.5x more articles with a paid plan!'
+    message: 'Upgrade to Kickstart for 25 articles and 10 keywords per month',
+    urgency: 'Get 12.5x more articles with a paid plan!'
   },
   kickstart: {
     nextTier: 'seo_takeover',
-    message: 'Upgrade to SEO Takeover for 40 articles and 30 keywords per month',
-    urgency: 'Need more content? SEO Takeover gives you 2.5x more generations!'
+    message: 'Upgrade to SEO Takeover for 90 articles, 30 keywords, and automated scheduling per month',
+    urgency: 'Need more content? SEO Takeover gives you 3.6x more generations plus hands-free automation!'
   },
   seo_takeover: {
     nextTier: 'agency',

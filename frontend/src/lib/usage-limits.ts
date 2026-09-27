@@ -19,13 +19,13 @@ export const USAGE_LIMITS: Record<string, UsageData> = {
     lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   kickstart: {
-    articles: 15,
+    articles: 25,
     keywords: 10,
     thumbnails: 20,
     lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   seo_takeover: {
-    articles: 40,
+    articles: 90,
     keywords: 30,
     thumbnails: 50,
     lastReset: new Date(2023, 0, 1), // Example last reset date
@@ -226,7 +226,7 @@ export const canPerformAction = async (
       canPerform: false,
       remaining: 0,
       reason: `🚀 Bulk generation requires a paid plan. Upgrade to generate ${requestedCount} articles at once!`,
-      upgradeMessage: 'Upgrade to Kickstart for 15 articles per month and bulk generation!'
+      upgradeMessage: 'Upgrade to Kickstart for 25 articles per month and bulk generation!'
     };
   }
   
@@ -236,7 +236,7 @@ export const canPerformAction = async (
   // Check if they have enough remaining for the bulk request
   if (requestedCount > remaining) {
     const upgradeMessages = {
-      kickstart: 'Upgrade to SEO Takeover for 40 articles and 30 keywords per month!',
+      kickstart: 'Upgrade to SEO Takeover for 90 articles, 30 keywords, and automated scheduling per month!',
       seo_takeover: 'Upgrade to Agency for unlimited articles and keywords!',
       agency: 'You\'re on the highest tier! Limits reset monthly.',
       admin: 'You have unlimited access.'

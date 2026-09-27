@@ -40,7 +40,7 @@ export default function Pricing() {
       price: getDisplayPrice('kickstart', isAnnual).toString(),
       description: "Ideal for growing businesses",
       features: [
-        "15 article generations per month",
+        "25 article generations per month",
         "Advanced article customization",
         "Bulk article generation",
         "Product & collection integration",
@@ -55,7 +55,8 @@ export default function Pricing() {
       price: getDisplayPrice('seo_takeover', isAnnual).toString(),
       description: "For serious content creators",
       features: [
-        "40 article generations per month",
+        "90 article generations per month",
+        "Automated scheduling & hands-free publishing",
         "Premium SEO optimization",
         "Advanced product selection modes",
         "Automatic content integration",

@@ -6,6 +6,7 @@
  */
 import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import {
   AutomationAccessError,
@@ -13,6 +14,8 @@ import {
   finishManualRun,
   runAutomation,
 } from '@/lib/automation/runner';
+
+const AUTOMATION_ALLOWED_TIERS = ['seo_takeover', 'agency', 'admin'];
 
 initializeFirebaseAdmin();
 
@@ -34,6 +37,20 @@ export async function POST(request: Request) {
     uid = decoded.uid;
   } catch {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+
+  // Server-side subscription gate: automation requires SEO Takeover or above
+  try {
+    const userDoc = await getFirestore().collection('users').doc(uid).get();
+    const tier = userDoc.data()?.subscription_status ?? 'free';
+    if (!AUTOMATION_ALLOWED_TIERS.includes(tier)) {
+      return NextResponse.json(
+        { error: 'Automated scheduling requires the SEO Takeover plan or above.' },
+        { status: 403 }
+      );
+    }
+  } catch {
+    return NextResponse.json({ error: 'Could not verify subscription' }, { status: 500 });
   }
 
   let automationId: string | undefined;
