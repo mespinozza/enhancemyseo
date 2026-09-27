@@ -88,6 +88,7 @@ export default function Header() {
   const onServices = pathname.startsWith('/services');
   const onBlog = pathname.startsWith('/blog');
   const onResults = pathname.startsWith('/results');
+  const onPricing = pathname.startsWith('/pricing');
 
   const navLink = (active: boolean) =>
     `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -173,6 +174,10 @@ export default function Header() {
 
             <Link href="/results" className={navLink(onResults)}>
               Results
+            </Link>
+
+            <Link href="/pricing" className={navLink(onPricing)}>
+              Pricing
             </Link>
 
             <Link href="/blog" className={navLink(onBlog)}>
