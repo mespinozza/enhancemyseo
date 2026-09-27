@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useEffect } from 'react';
 import { FcGoogle } from 'react-icons/fc';
+import { Eye, EyeOff } from 'lucide-react';
 import { createCheckoutSession } from '@/lib/stripe';
 
 const loginSchema = z.object({
@@ -15,7 +16,19 @@ const loginSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
+const signupSchema = z
+  .object({
+    email: z.string().email('Invalid email address'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+    confirmPassword: z.string().min(6, 'Please confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
 type LoginFormData = z.infer<typeof loginSchema>;
+type SignupFormData = z.infer<typeof signupSchema>;
 
 // Separate component for purchase intent handling that uses useSearchParams
 function PurchaseIntentHandler() {
@@ -68,31 +81,44 @@ function LoginForm() {
   const { login, register: registerUser, signInWithGoogle } = useAuth();
   const [error, setError] = useState('');
   const [isLogin, setIsLogin] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<LoginFormData>({
+  const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
 
-  const onSubmit = async (data: LoginFormData) => {
+  const signupForm = useForm<SignupFormData>({
+    resolver: zodResolver(signupSchema),
+  });
+
+  const activeForm = isLogin ? loginForm : signupForm;
+  const { formState: { isSubmitting } } = activeForm;
+
+  const switchTab = (toLogin: boolean) => {
+    setIsLogin(toLogin);
+    setError('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    loginForm.reset();
+    signupForm.reset();
+  };
+
+  const onLoginSubmit = async (data: LoginFormData) => {
     try {
       setError('');
-      if (isLogin) {
-        await login(data.email, data.password);
-        // Don't redirect here - let useEffect handle it with purchase intent
-      } else {
-        await registerUser(data.email, data.password);
-        // Don't redirect here - let useEffect handle it with purchase intent
-      }
+      await login(data.email, data.password);
     } catch (err: unknown) {
-      // Only show error if it's not a user cancellation
-      if (err instanceof Error && err.message) {
-        setError(err.message);
-      }
-      // If error is undefined, it means user cancelled - don't show error
+      if (err instanceof Error && err.message) setError(err.message);
+    }
+  };
+
+  const onSignupSubmit = async (data: SignupFormData) => {
+    try {
+      setError('');
+      await registerUser(data.email, data.password);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message) setError(err.message);
     }
   };
 
@@ -100,37 +126,32 @@ function LoginForm() {
     try {
       setError('');
       await signInWithGoogle();
-      // Don't redirect here - let useEffect handle it with purchase intent
     } catch (err: unknown) {
-      // Only show error if it's not a user cancellation
-      if (err instanceof Error && err.message) {
-        setError(err.message);
-      }
-      // If error is undefined, it means user cancelled - don't show error
+      if (err instanceof Error && err.message) setError(err.message);
     }
   };
+
+  const loginErrors = loginForm.formState.errors;
+  const signupErrors = signupForm.formState.errors;
 
   return (
     <div className="min-h-screen flex flex-col py-12 sm:px-6 lg:px-8 bg-gray-50">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white shadow sm:rounded-lg">
+          {/* Tabs */}
           <div className="flex border-b">
             <button
-              onClick={() => setIsLogin(true)}
+              onClick={() => switchTab(true)}
               className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${
-                isLogin
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
+                isLogin ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               Sign In
             </button>
             <button
-              onClick={() => setIsLogin(false)}
+              onClick={() => switchTab(false)}
               className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${
-                !isLogin
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
+                !isLogin ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               Sign Up
@@ -138,65 +159,131 @@ function LoginForm() {
           </div>
 
           <div className="px-4 py-8 sm:px-10">
-            <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
-              {error && (
-                <div className="rounded-md bg-red-50 p-4">
-                  <div className="text-sm text-red-700">{error}</div>
-                </div>
-              )}
+            {error && (
+              <div className="rounded-md bg-red-50 p-4 mb-6">
+                <div className="text-sm text-red-700">{error}</div>
+              </div>
+            )}
 
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Email address
-                </label>
-                <div className="mt-1">
-                  <input
-                    {...register('email')}
-                    type="email"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                  {errors.email && (
-                    <p className="mt-2 text-sm text-red-600">
-                      {errors.email.message}
-                    </p>
+            {/* ── Sign In ── */}
+            {isLogin && (
+              <form className="space-y-6" onSubmit={loginForm.handleSubmit(onLoginSubmit)}>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Email address</label>
+                  <div className="mt-1">
+                    <input
+                      {...loginForm.register('email')}
+                      type="email"
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    />
+                    {loginErrors.email && (
+                      <p className="mt-2 text-sm text-red-600">{loginErrors.email.message}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Password</label>
+                  <div className="mt-1 relative">
+                    <input
+                      {...loginForm.register('password')}
+                      type={showPassword ? 'text' : 'password'}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {loginErrors.password && (
+                    <p className="mt-2 text-sm text-red-600">{loginErrors.password.message}</p>
                   )}
                 </div>
-              </div>
 
-              <div>
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Password
-                </label>
-                <div className="mt-1">
-                  <input
-                    {...register('password')}
-                    type="password"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                  {errors.password && (
-                    <p className="mt-2 text-sm text-red-600">
-                      {errors.password.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors duration-200"
                 >
-                  {isSubmitting ? 'Processing...' : isLogin ? 'Sign In' : 'Sign Up'}
+                  {isSubmitting ? 'Processing...' : 'Sign In'}
                 </button>
-              </div>
-            </form>
+              </form>
+            )}
+
+            {/* ── Sign Up ── */}
+            {!isLogin && (
+              <form className="space-y-6" onSubmit={signupForm.handleSubmit(onSignupSubmit)}>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Email address</label>
+                  <div className="mt-1">
+                    <input
+                      {...signupForm.register('email')}
+                      type="email"
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    />
+                    {signupErrors.email && (
+                      <p className="mt-2 text-sm text-red-600">{signupErrors.email.message}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Password</label>
+                  <div className="mt-1 relative">
+                    <input
+                      {...signupForm.register('password')}
+                      type={showPassword ? 'text' : 'password'}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {signupErrors.password && (
+                    <p className="mt-2 text-sm text-red-600">{signupErrors.password.message}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
+                  <div className="mt-1 relative">
+                    <input
+                      {...signupForm.register('confirmPassword')}
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {signupErrors.confirmPassword && (
+                    <p className="mt-2 text-sm text-red-600">{signupErrors.confirmPassword.message}</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors duration-200"
+                >
+                  {isSubmitting ? 'Creating account...' : 'Sign Up'}
+                </button>
+              </form>
+            )}
 
             <div className="mt-6">
               <div className="relative">
