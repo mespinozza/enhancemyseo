@@ -12,7 +12,7 @@
  * the store belongs to happens there, through the same flow the Connect button uses.
  */
 import { NextResponse } from 'next/server';
-import { isCallbackFresh, isShopifyAppConfigured, verifyCallbackSignature } from '@/lib/shopify/oauth';
+import { appThatSigned, isCallbackFresh, isShopifyAppConfigured } from '@/lib/shopify/oauth';
 import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
 import { publicOrigin } from '@/lib/oauth/origin';
 
@@ -39,7 +39,10 @@ export async function GET(request: Request) {
 
   // A real handoff is always signed. Anything else is someone guessing at the URL, and is
   // sent to the plain page rather than being told what was wrong with their attempt.
-  if (!verifyCallbackSignature(url) || !isCallbackFresh(url)) {
+  //
+  // There is no brand here to say which app signed it, so every app this deployment
+  // knows is tried. Only one can match, and a forged request matches none.
+  if (!appThatSigned(url) || !isCallbackFresh(url)) {
     return landOn(request, {});
   }
 

@@ -124,6 +124,7 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
     brandColor: existingProfile?.brandColor || '#000000',
     websiteUrl: existingProfile?.websiteUrl || '',
     shopifyStoreUrl: existingProfile?.shopifyStoreUrl || '',
+    shopifyClientId: existingProfile?.shopifyClientId || '',
     shopifyAccessToken: existingProfile?.shopifyAccessToken || '',
     shopifyApiKey: existingProfile?.shopifyApiKey || '',
     shopifyApiSecret: existingProfile?.shopifyApiSecret || '',
@@ -306,6 +307,15 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
               inputType="url"
               placeholder="https://your-store.myshopify.com"
               hint="The store's permanent myshopify.com address. Connect the store below once this is saved."
+            />
+
+            <CredentialField
+              name="shopifyClientId"
+              label="Shopify App Client ID"
+              value={formData.shopifyClientId}
+              onChange={handleChange}
+              placeholder="Leave blank to use the default app"
+              hint="A Shopify app can only be installed on the one store it is bound to, so each store needs its own app. Paste its Client ID here — never the Client Secret, which belongs in the deployment's SHOPIFY_APP_SECRETS."
             />
 
             <CredentialField

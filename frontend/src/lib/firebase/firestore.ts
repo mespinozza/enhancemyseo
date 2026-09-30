@@ -41,6 +41,15 @@ export interface BrandProfile extends BaseDocument {
   shopifyApiKey?: string;
   shopifyApiSecret?: string;
   /**
+   * Which Shopify app this store connects through, when it is not the default one.
+   *
+   * A custom-distribution app only works for the single store it is bound to, so each
+   * merchant needs their own app. Only the client ID lives here: it is public and is
+   * already visible in the install URL. The matching secret is resolved server-side from
+   * SHOPIFY_APP_SECRETS, because a brand profile is readable by the browser.
+   */
+  shopifyClientId?: string;
+  /**
    * Byline for articles pushed to Shopify. Left unset, Shopify credits the access
    * token's app, which shows up publicly as "Shopify API".
    */

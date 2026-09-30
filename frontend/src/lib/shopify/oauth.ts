@@ -14,6 +14,7 @@ import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestor
 import { createHmac, timingSafeEqual } from 'crypto';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { createStateCodec } from '@/lib/oauth/state';
+import { knownShopifyApps, type ShopifyApp } from './app';
 import { isValidShopDomain } from './shop';
 
 export const SHOPIFY_CONNECTIONS_COLLECTION = 'shopifyConnections';
@@ -64,20 +65,24 @@ function adminDb(): Firestore {
   return getFirestore();
 }
 
-/** Whether this deployment can run the flow at all. Server-side only: these are secrets. */
-export function isShopifyAppConfigured(): boolean {
-  return Boolean(process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET);
-}
+export { isShopifyAppConfigured } from './app';
 
-function clientSecret(): string {
-  const secret = process.env.SHOPIFY_CLIENT_SECRET;
+/**
+ * State is signed with a key of our own rather than an app's client secret.
+ *
+ * Which app a callback belongs to is only knowable from the brand inside the state, so
+ * the state has to be readable before any app is resolved. Falling back to the default
+ * app's secret keeps states minted before this change verifiable.
+ */
+function stateSecret(): string {
+  const secret = process.env.OAUTH_STATE_SECRET || process.env.SHOPIFY_CLIENT_SECRET;
   if (!secret) {
-    throw new Error('SHOPIFY_CLIENT_SECRET is not set on this deployment');
+    throw new Error('Neither OAUTH_STATE_SECRET nor SHOPIFY_CLIENT_SECRET is set');
   }
   return secret;
 }
 
-const codec = createStateCodec(clientSecret);
+const codec = createStateCodec(stateSecret);
 export const signState = codec.signState;
 export const verifyState = codec.verifyState;
 
@@ -106,13 +111,18 @@ export function redirectUri(request?: Request): string {
 }
 
 /** Where the merchant is sent to approve the scopes. */
-export function buildInstallUrl(shopDomain: string, state: string, request: Request): string {
+export function buildInstallUrl(
+  shopDomain: string,
+  state: string,
+  request: Request,
+  app: ShopifyApp
+): string {
   if (!isValidShopDomain(shopDomain)) {
     throw new Error(`${shopDomain} is not a myshopify.com store domain`);
   }
 
   const params = new URLSearchParams({
-    client_id: process.env.SHOPIFY_CLIENT_ID as string,
+    client_id: app.clientId,
     scope: SHOPIFY_SCOPES,
     redirect_uri: redirectUri(request),
     state,
@@ -131,7 +141,7 @@ export function buildInstallUrl(shopDomain: string, state: string, request: Requ
  * URLSearchParams, because re-encoding can change escaping and silently break the
  * comparison for values that contain reserved characters.
  */
-export function verifyCallbackSignature(url: URL): boolean {
+export function verifyCallbackSignature(url: URL, app: ShopifyApp): boolean {
   const provided = url.searchParams.get('hmac');
   if (!provided) return false;
 
@@ -145,12 +155,23 @@ export function verifyCallbackSignature(url: URL): boolean {
     .sort()
     .join('&');
 
-  const expected = createHmac('sha256', clientSecret()).update(message).digest('hex');
+  const expected = createHmac('sha256', app.clientSecret).update(message).digest('hex');
   const providedBuffer = Buffer.from(provided, 'utf8');
   const expectedBuffer = Buffer.from(expected, 'utf8');
 
   if (providedBuffer.length !== expectedBuffer.length) return false;
   return timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+/**
+ * The app that signed this request, when there is no brand to say which one it is.
+ *
+ * Only for the handoff from a merchant's admin, which carries a store but nothing
+ * tying it to an account. Each app's secret produces a different HMAC, so a match
+ * identifies the app; a forged request matches none of them.
+ */
+export function appThatSigned(url: URL): ShopifyApp | null {
+  return knownShopifyApps().find((app) => verifyCallbackSignature(url, app)) ?? null;
 }
 
 /** Rejects a callback that is authentic but old enough to have been captured and replayed. */
@@ -168,7 +189,8 @@ export interface ExchangedToken {
 
 export async function exchangeCodeForToken(
   shopDomain: string,
-  code: string
+  code: string,
+  app: ShopifyApp
 ): Promise<ExchangedToken> {
   if (!isValidShopDomain(shopDomain)) {
     throw new Error(`${shopDomain} is not a myshopify.com store domain`);
@@ -178,8 +200,8 @@ export async function exchangeCodeForToken(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: process.env.SHOPIFY_CLIENT_ID,
-      client_secret: clientSecret(),
+      client_id: app.clientId,
+      client_secret: app.clientSecret,
       code,
     }),
   });

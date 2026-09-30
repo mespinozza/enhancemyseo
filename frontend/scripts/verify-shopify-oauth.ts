@@ -15,9 +15,13 @@ import { createHmac } from 'crypto';
 // Read lazily by the module under test, so it has to be set before importing.
 process.env.SHOPIFY_CLIENT_ID = 'test-client-id';
 process.env.SHOPIFY_CLIENT_SECRET = 'test-client-secret';
+// A second app, as a store with its own custom-distribution app would have.
+process.env.SHOPIFY_APP_SECRETS = JSON.stringify({ 'other-client-id': 'other-client-secret' });
 
 import { isValidShopDomain, normalizeShopDomain } from '../src/lib/shopify/shop';
+import { shopifyAppFor, type ShopifyApp } from '../src/lib/shopify/app';
 import {
+  appThatSigned,
   buildInstallUrl,
   isCallbackFresh,
   signState,
@@ -40,14 +44,17 @@ function check(label: string, condition: boolean, detail?: string) {
   }
 }
 
+const defaultApp: ShopifyApp = { clientId: 'test-client-id', clientSecret: 'test-client-secret' };
+const otherApp: ShopifyApp = { clientId: 'other-client-id', clientSecret: 'other-client-secret' };
+
 /** Builds a callback URL signed the way Shopify signs one. */
-function signedCallback(params: Record<string, string>): URL {
+function signedCallback(params: Record<string, string>, secret = 'test-client-secret'): URL {
   const message = Object.entries(params)
     .map(([key, value]) => `${key}=${value}`)
     .sort()
     .join('&');
 
-  const hmac = createHmac('sha256', 'test-client-secret').update(message).digest('hex');
+  const hmac = createHmac('sha256', secret).update(message).digest('hex');
   return new URL(`https://app.example.com/api/shopify/callback?${message}&hmac=${hmac}`);
 }
 
@@ -85,7 +92,7 @@ check('an empty domain is rejected', !isValidShopDomain(''));
 console.log('\nInstall URL');
 {
   const request = new Request('https://app.example.com/api/shopify/connect');
-  const url = new URL(buildInstallUrl('test-store.myshopify.com', 'the-state', request));
+  const url = new URL(buildInstallUrl('test-store.myshopify.com', 'the-state', request, defaultApp));
 
   check('it points at the store', url.host === 'test-store.myshopify.com');
   check('it is the authorize endpoint', url.pathname === '/admin/oauth/authorize');
@@ -103,7 +110,7 @@ console.log('\nInstall URL');
 
   let rejected = false;
   try {
-    buildInstallUrl('evil.com', 'the-state', request);
+    buildInstallUrl('evil.com', 'the-state', request, defaultApp);
   } catch {
     rejected = true;
   }
@@ -111,26 +118,26 @@ console.log('\nInstall URL');
 }
 
 console.log('\nCallback signature');
-check('a correctly signed callback passes', verifyCallbackSignature(freshCallback()));
+check('a correctly signed callback passes', verifyCallbackSignature(freshCallback(), defaultApp));
 {
   const tampered = new URL(freshCallback().toString());
   tampered.searchParams.set('shop', 'attacker-store.myshopify.com');
-  check('swapping the store invalidates it', !verifyCallbackSignature(tampered));
+  check('swapping the store invalidates it', !verifyCallbackSignature(tampered, defaultApp));
 
   const extra = new URL(freshCallback().toString());
   extra.searchParams.set('code', 'different-code');
-  check('swapping the code invalidates it', !verifyCallbackSignature(extra));
+  check('swapping the code invalidates it', !verifyCallbackSignature(extra, defaultApp));
 
   const noHmac = new URL(freshCallback().toString());
   noHmac.searchParams.delete('hmac');
-  check('a missing signature fails', !verifyCallbackSignature(noHmac));
+  check('a missing signature fails', !verifyCallbackSignature(noHmac, defaultApp));
 
   const wrongHmac = new URL(freshCallback().toString());
   wrongHmac.searchParams.set('hmac', 'f'.repeat(64));
-  check('a wrong signature fails', !verifyCallbackSignature(wrongHmac));
+  check('a wrong signature fails', !verifyCallbackSignature(wrongHmac, defaultApp));
 
   const empty = new URL('https://app.example.com/api/shopify/callback');
-  check('an empty query fails', !verifyCallbackSignature(empty));
+  check('an empty query fails', !verifyCallbackSignature(empty, defaultApp));
 }
 check(
   'parameter order does not matter',
@@ -140,9 +147,53 @@ check(
       state: 'signed-state',
       shop: 'test-store.myshopify.com',
       code: 'auth-code',
-    })
+    }),
+    defaultApp
   ),
   'Shopify does not promise an order, so the message is sorted before signing'
+);
+
+console.log('\nOne app per store');
+check(
+  'a brand with no app named uses the default',
+  shopifyAppFor(undefined).clientId === 'test-client-id'
+);
+check('a brand can name its own app', shopifyAppFor('other-client-id').clientId === 'other-client-id');
+{
+  let rejected = false;
+  try {
+    shopifyAppFor('an-app-with-no-secret-here');
+  } catch {
+    rejected = true;
+  }
+  check(
+    'an app with no secret configured is refused',
+    rejected,
+    'better than signing with the wrong app and failing at Shopify'
+  );
+}
+check(
+  'one app cannot verify another app\u2019s callback',
+  !verifyCallbackSignature(freshCallback(), otherApp),
+  'otherwise any connected merchant could forge a callback for another'
+);
+check(
+  'the signing app is identified when no brand says which',
+  appThatSigned(signedCallback({
+    code: 'auth-code',
+    shop: 'test-store.myshopify.com',
+    state: 'signed-state',
+    timestamp: String(Math.floor(Date.now() / 1000)),
+  }, 'other-client-secret'))?.clientId === 'other-client-id'
+);
+check(
+  'a forged handoff matches no app',
+  appThatSigned(signedCallback({
+    code: 'auth-code',
+    shop: 'test-store.myshopify.com',
+    state: 'signed-state',
+    timestamp: String(Math.floor(Date.now() / 1000)),
+  }, 'not-a-real-secret')) === null
 );
 
 console.log('\nCallback freshness');

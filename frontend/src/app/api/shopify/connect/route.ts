@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { shopifyAppFor } from '@/lib/shopify/app';
 import { buildInstallUrl, isShopifyAppConfigured, signState } from '@/lib/shopify/oauth';
 import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
 
@@ -81,7 +82,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const url = buildInstallUrl(shopDomain, signState(uid, body.brandId, body.returnTo), request);
+    // Which app depends on the brand: a custom-distribution app only works for the one
+    // store it is bound to, so each merchant gets their own.
+    const app = shopifyAppFor(brandSnapshot.data()?.shopifyClientId as string | undefined);
+    const url = buildInstallUrl(
+      shopDomain,
+      signState(uid, body.brandId, body.returnTo),
+      request,
+      app
+    );
     return NextResponse.json({ url });
   } catch (error) {
     console.error('[shopify] could not build the authorize URL', error);

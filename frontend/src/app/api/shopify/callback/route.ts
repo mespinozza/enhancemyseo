@@ -8,6 +8,9 @@
  * string, so the user lands somewhere useful whether or not it worked.
  */
 import { NextResponse } from 'next/server';
+import { getFirestore } from 'firebase-admin/firestore';
+import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { shopifyAppFor } from '@/lib/shopify/app';
 import {
   exchangeCodeForToken,
   isCallbackFresh,
@@ -19,6 +22,8 @@ import {
 import { isValidShopDomain, normalizeShopDomain } from '@/lib/shopify/shop';
 import { safeReturnTo } from '@/lib/oauth/state';
 import { publicOrigin } from '@/lib/oauth/origin';
+
+initializeFirebaseAdmin();
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,21 +45,6 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
 
-  // Signature first: nothing else in the query string can be trusted until it passes.
-  if (!verifyCallbackSignature(url)) {
-    return backTo(request, {
-      shopify: 'error',
-      reason: 'That response did not come from Shopify. Start the connection again.',
-    });
-  }
-
-  if (!isCallbackFresh(url)) {
-    return backTo(request, {
-      shopify: 'error',
-      reason: 'That connection link expired. Try again.',
-    });
-  }
-
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const shopDomain = normalizeShopDomain(url.searchParams.get('shop') || '');
@@ -70,6 +60,10 @@ export async function GET(request: Request) {
     return backTo(request, { shopify: 'error', reason: 'Shopify did not identify the store' });
   }
 
+  // State is checked before Shopify's signature, because verifying that signature needs
+  // the client secret of the app this brand connects through, and the brand is only
+  // knowable from the state. That is safe: the state carries a signature of our own, so
+  // it stands on its own rather than being trusted because it arrived alongside Shopify's.
   const payload = verifyState(state);
   if (!payload) {
     return backTo(request, {
@@ -78,8 +72,42 @@ export async function GET(request: Request) {
     });
   }
 
+  let app;
   try {
-    const token = await exchangeCodeForToken(shopDomain, code);
+    const brand = await getFirestore().collection('brandProfiles').doc(payload.brandId).get();
+    app = shopifyAppFor(brand.data()?.shopifyClientId as string | undefined);
+  } catch (caught) {
+    return backTo(
+      request,
+      {
+        shopify: 'error',
+        reason: caught instanceof Error ? caught.message : 'Could not identify the Shopify app',
+      },
+      payload.returnTo
+    );
+  }
+
+  if (!verifyCallbackSignature(url, app)) {
+    return backTo(
+      request,
+      {
+        shopify: 'error',
+        reason: 'That response did not come from Shopify. Start the connection again.',
+      },
+      payload.returnTo
+    );
+  }
+
+  if (!isCallbackFresh(url)) {
+    return backTo(
+      request,
+      { shopify: 'error', reason: 'That connection link expired. Try again.' },
+      payload.returnTo
+    );
+  }
+
+  try {
+    const token = await exchangeCodeForToken(shopDomain, code, app);
     await saveShopifyConnection(payload.uid, payload.brandId, shopDomain, token);
     return backTo(
       request,
