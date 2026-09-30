@@ -8,7 +8,8 @@ import { NextResponse } from 'next/server';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
-import { getShopifyConnection, isShopifyAppConfigured } from '@/lib/shopify/oauth';
+import { shopifyAppFor } from '@/lib/shopify/app';
+import { getShopifyConnection } from '@/lib/shopify/oauth';
 import { normalizeShopDomain } from '@/lib/shopify/shop';
 
 initializeFirebaseAdmin();
@@ -43,13 +44,26 @@ export async function GET(request: Request) {
   const brand = brandSnapshot.data() as {
     shopifyStoreUrl?: string;
     shopifyAccessToken?: string;
+    shopifyClientId?: string;
   };
 
   const connection = await getShopifyConnection(uid, brandId);
   const hasLegacyToken = Boolean(brand.shopifyAccessToken?.trim());
 
+  // Asked per brand rather than globally. Each store connects through its own app, so
+  // "some app is configured" says nothing about this one — and answering globally left
+  // the Connect button enabled for a brand whose app has no secret here, which then
+  // failed on click with a message about an environment variable.
+  let appIssue: string | null = null;
+  try {
+    shopifyAppFor(brand.shopifyClientId);
+  } catch (error) {
+    appIssue = error instanceof Error ? error.message : 'The Shopify app is not configured';
+  }
+
   return NextResponse.json({
-    configured: isShopifyAppConfigured(),
+    configured: appIssue === null,
+    appIssue,
     connected: Boolean(connection),
     storeUrl: normalizeShopDomain(brand.shopifyStoreUrl || '') || null,
     shopDomain: connection?.shopDomain || null,
@@ -60,6 +74,6 @@ export async function GET(request: Request) {
      * explain which one is actually in use rather than showing both as active.
      */
     hasLegacyToken,
-    source: connection ? 'oauth' : hasLegacyToken ? 'stored' : isShopifyAppConfigured() ? 'app' : null,
+    source: connection ? 'oauth' : hasLegacyToken ? 'stored' : appIssue === null ? 'app' : null,
   });
 }

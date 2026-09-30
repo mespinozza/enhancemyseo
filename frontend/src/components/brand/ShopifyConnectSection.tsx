@@ -15,7 +15,10 @@ interface ShopifyConnectSectionProps {
 }
 
 interface ShopifyStatus {
+  /** Whether the app THIS brand connects through is usable on this deployment. */
   configured: boolean;
+  /** Why it is not, when it is not. */
+  appIssue?: string | null;
   connected: boolean;
   storeUrl?: string | null;
   shopDomain?: string | null;
@@ -194,11 +197,11 @@ export default function ShopifyConnectSection({
         </div>
       ) : (
         <div className="space-y-3">
-          {!status?.configured && (
+          {status && !status.configured && (
             <p className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-              The Shopify app is not configured on this deployment yet, so connecting will
-              fail until SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET are set.
+              {status.appIssue ||
+                'The Shopify app for this store is not configured yet, so connecting would fail.'}
             </p>
           )}
 
