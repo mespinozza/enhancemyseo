@@ -14,7 +14,8 @@
     "verify:home-demo": "npx --yes tsx scripts/verify-home-demo.ts",
     "verify:site-blog": "npx --yes tsx scripts/verify-site-blog-publish.ts",
     "backfill:site-blog-flag": "npx --yes tsx scripts/backfill-site-blog-flag.ts",
-    "verify:blog-rules": "npx --yes tsx scripts/verify-blog-rules.ts"
+    "verify:blog-rules": "npx --yes tsx scripts/verify-blog-rules.ts",
+    "check:shopify": "npx --yes tsx scripts/check-shopify-connections.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",
