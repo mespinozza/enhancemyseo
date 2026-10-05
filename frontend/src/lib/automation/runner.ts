@@ -75,6 +75,22 @@ function internalBaseUrl(): string {
   return `http://127.0.0.1:${process.env.PORT || fallbackPort}`;
 }
 
+/**
+ * Waits between retries when generation answers 429 for anything but the monthly usage
+ * limit. About fifteen minutes in total: long enough for the per-user concurrency limit
+ * to clear, and well inside both the ID token's hour and STALE_CLAIM_MS.
+ */
+const RATE_LIMIT_RETRY_DELAYS_MS = [60_000, 120_000, 240_000, 480_000];
+
+/**
+ * Every automation call comes from this server, so to `/api/generate-article` they all
+ * share one IP. This key exempts them from its per-IP limit and nothing else.
+ */
+function automationKeyHeader(): Record<string, string> {
+  const key = process.env.CRON_SECRET;
+  return key ? { 'X-Automation-Key': key } : {};
+}
+
 function describeError(error: unknown): string {
   const message =
     error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error);
@@ -244,33 +260,53 @@ async function generateArticle(
   // This keyword is now taken, so drop the cached set the preview reads from.
   forgetCoveredKeywords(automation.userId, automation.brandId);
 
-  const response = await fetch(`${internalBaseUrl()}/api/generate-article`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({
-      blogId: blogRef.id,
-      keyword,
-      brandName: brand.brandName,
-      businessType: brand.businessType,
-      contentType: automation.contentType,
-      toneOfVoice: automation.toneOfVoice || '',
-      instructions: automation.instructions || '',
-      brandGuidelines: brand.brandGuidelines || '',
-      contentSelection: automation.contentSelection,
-      // Shopify credentials are resolved server-side from the brand.
-      brandId: automation.brandId,
-      websiteUrl: brand.websiteUrl || '',
-      brandColor: brand.brandColor || '#000000',
-    }),
+  const body = JSON.stringify({
+    blogId: blogRef.id,
+    keyword,
+    brandName: brand.brandName,
+    businessType: brand.businessType,
+    contentType: automation.contentType,
+    toneOfVoice: automation.toneOfVoice || '',
+    instructions: automation.instructions || '',
+    brandGuidelines: brand.brandGuidelines || '',
+    contentSelection: automation.contentSelection,
+    // Shopify credentials are resolved server-side from the brand.
+    brandId: automation.brandId,
+    websiteUrl: brand.websiteUrl || '',
+    brandColor: brand.brandColor || '#000000',
   });
+
+  let response: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    response = await fetch(`${internalBaseUrl()}/api/generate-article`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+        ...automationKeyHeader(),
+      },
+      body,
+    });
+
+    if (response.status !== 429 || attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) break;
+
+    // A 429 is answered before any generation starts, so retrying costs nothing. Only
+    // the monthly usage limit is final; the rest clear on their own.
+    const payload = (await response.clone().json().catch(() => ({}))) as { code?: string };
+    if (payload.code === 'usage_limit') break;
+
+    const delay = RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+    console.warn(
+      `[automation] generation for "${keyword}" was rate limited (${payload.code ?? 'no code'}); retrying in ${delay / 1000}s`
+    );
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
       detail?: string;
+      code?: string;
     };
     // The blog placeholder is removed so a failed run leaves no empty article behind.
     await blogRef.delete().catch(() => undefined);
@@ -281,7 +317,7 @@ async function generateArticle(
     const reason = payload.detail ? `${summary}: ${payload.detail}` : summary;
     const error = new Error(reason);
     if (response.status === 429) {
-      error.name = 'UsageLimitError';
+      error.name = payload.code === 'usage_limit' ? 'UsageLimitError' : 'RateLimitError';
     }
     throw error;
   }
@@ -460,13 +496,14 @@ async function openRun(
   db: Firestore,
   automation: Automation,
   keyword: string,
-  startedAt: Timestamp
+  startedAt: Timestamp,
+  status: Extract<AutomationRunStatus, 'queued' | 'running'> = 'running'
 ): Promise<DocumentReference> {
   return db.collection(AUTOMATION_RUNS_COLLECTION).add({
     userId: automation.userId,
     automationId: automation.id,
     automationName: automation.name,
-    status: 'running' satisfies AutomationRunStatus,
+    status,
     trigger: automation.trigger,
     keyword,
     triggerReason: '',
@@ -545,18 +582,77 @@ async function resolveKeyword(
   };
 }
 
+interface RunQueue {
+  tail: Promise<void>;
+  depth: number;
+}
+
 /**
- * Runs one automation to completion, writing a run record per article attempted.
+ * Kept on globalThis because Next.js can load this module more than once (per route
+ * bundle, and for instrumentation), and separate copies would mean separate queues.
+ */
+const globalForQueue = globalThis as typeof globalThis & { __automationRunQueue?: RunQueue };
+const runQueue: RunQueue = (globalForQueue.__automationRunQueue ??= {
+  tail: Promise.resolve(),
+  depth: 0,
+});
+
+/**
+ * Runs tasks one at a time, in the order they arrived. Scheduled ticks and Run now both
+ * land here, so automations across every account and brand generate strictly in turn.
+ */
+function enqueueRun<T>(task: () => Promise<T>): Promise<T> {
+  runQueue.depth += 1;
+  const result = runQueue.tail.then(async () => {
+    try {
+      return await task();
+    } finally {
+      runQueue.depth -= 1;
+    }
+  });
+  runQueue.tail = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
+/**
+ * Runs one automation to completion, writing a run record per article attempted. Waits
+ * its turn behind any automation already running in this process.
  * Never throws: every failure becomes a recorded run so the user can see what happened.
  */
 export async function runAutomation(automation: Automation): Promise<RunOutcome[]> {
   const db = adminDb();
-  const outcomes: RunOutcome[] = [];
 
-  // Opened up front so the dashboard has something to show immediately. Each branch below
-  // closes it, and the article loop reuses it for the first article.
-  const startedAt = Timestamp.now();
-  let openRef = await openRun(db, automation, '', startedAt);
+  // Opened up front so the dashboard has something to show immediately, even while this
+  // run waits in the queue. Each branch closes it, and the article loop reuses it for the
+  // first article. Nothing is awaited before joining the queue, so two runs arriving
+  // together cannot both see it empty.
+  const waiting = runQueue.depth > 0;
+  const opened = openRun(db, automation, '', Timestamp.now(), waiting ? 'queued' : 'running');
+  // Marks the rejection handled until the task awaits it, which still sees the error.
+  opened.catch(() => undefined);
+
+  return enqueueRun(async () => {
+    const openRef = await opened;
+    if (waiting) {
+      // Restarted so the elapsed time shown reflects generation, not time spent queued.
+      await openRef
+        .update({ status: 'running', startedAt: Timestamp.now() })
+        .catch(() => undefined);
+    }
+    return runQueuedAutomation(db, automation, openRef);
+  });
+}
+
+async function runQueuedAutomation(
+  db: Firestore,
+  automation: Automation,
+  firstRef: DocumentReference
+): Promise<RunOutcome[]> {
+  const outcomes: RunOutcome[] = [];
+  let openRef = firstRef;
 
   const record = async (
     partial: Omit<RunOutcome, 'automationId' | 'automationName'> & {
@@ -641,6 +737,9 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
     written?.add(chosen.keyword.toLowerCase());
 
     try {
+      // ID tokens last an hour, which a long run with rate-limit retries can outlast.
+      if (index > 0) idToken = await mintIdToken(automation.userId);
+
       const article = await generateArticle(db, automation, brand, chosen.keyword, idToken);
       await recordArticleAgainstCap(db, automation.id as string);
 
@@ -695,6 +794,7 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
       });
     } catch (error) {
       const isUsageLimit = error instanceof Error && error.name === 'UsageLimitError';
+      const isRateLimit = error instanceof Error && error.name === 'RateLimitError';
       await record({
         status: isUsageLimit ? 'skipped' : 'failed',
         keyword: chosen.keyword,
@@ -702,8 +802,10 @@ export async function runAutomation(automation: Automation): Promise<RunOutcome[
         error: describeError(error),
       });
 
-      // A tier limit will not clear within this run, so stop rather than burn attempts.
-      if (isUsageLimit) break;
+      // Neither limit will clear within this run: a tier limit lasts the month, and a rate
+      // limit has already outlasted every retry. The topic cursor has not moved, so the
+      // next run picks up from this article.
+      if (isUsageLimit || isRateLimit) break;
     }
   }
 

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
@@ -32,6 +33,22 @@ function checkIpRateLimit(ip: string): boolean {
   log.push(now);
   ipGenerationLog.set(ip, log);
   return true;
+}
+
+/**
+ * Scheduled automations call this route from the server itself, so every article they
+ * write shares one IP and a single busy morning would exhaust the limit above. They
+ * prove themselves with CRON_SECRET, which never leaves the server. This only lifts the
+ * IP limit: the caller still needs the owner's ID token, and usage limits still apply.
+ */
+function isAutomationCall(request: Request): boolean {
+  const expected = process.env.CRON_SECRET;
+  const supplied = request.headers.get('x-automation-key');
+  if (!expected || !supplied) return false;
+
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 // Periodically clean up old IP entries to avoid memory growth
@@ -5461,10 +5478,10 @@ export async function POST(request: Request) {
       request.headers.get('x-real-ip') ||
       'unknown';
 
-    if (ip !== 'unknown' && !checkIpRateLimit(ip)) {
+    if (!isAutomationCall(request) && ip !== 'unknown' && !checkIpRateLimit(ip)) {
       console.warn(`IP rate limit exceeded: ${ip}`);
       return NextResponse.json(
-        { error: 'Too many requests from this network. Please try again later.' },
+        { error: 'Too many requests from this network. Please try again later.', code: 'ip_rate_limit' },
         { status: 429 }
       );
     }
@@ -5521,8 +5538,9 @@ export async function POST(request: Request) {
       
       if (!usageCheck.canPerform) {
         console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
-        return NextResponse.json({ 
-          error: usageCheck.reason || 'Usage limit exceeded' 
+        return NextResponse.json({
+          error: usageCheck.reason || 'Usage limit exceeded',
+          code: 'usage_limit'
         }, { status: 429 });
       }
       
@@ -5539,7 +5557,8 @@ export async function POST(request: Request) {
     if (!trackGenerationStart(userId)) {
       console.log(`⚠️ Concurrent generation limit reached for user: ${userId}`);
       return NextResponse.json({ 
-        error: `You have reached the maximum of ${MAX_CONCURRENT_GENERATIONS} simultaneous article generations. Please wait for one to complete before starting another.`
+        error: `You have reached the maximum of ${MAX_CONCURRENT_GENERATIONS} simultaneous article generations. Please wait for one to complete before starting another.`,
+        code: 'concurrency_limit'
       }, { status: 429 });
     }
 
