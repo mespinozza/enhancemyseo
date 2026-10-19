@@ -35,7 +35,7 @@ import {
   type KeywordChoice,
 } from './selection';
 import { coveredKeywords, forgetCoveredKeywords } from './covered';
-import { deriveKeyword } from './keyword';
+import { deriveKeyword, looseKeywordKey } from './keyword';
 import { getConnection, isGscConfigured, topPageQueries, topQueries } from '@/lib/gsc/client';
 
 const FIREBASE_WEB_API_KEY =
@@ -362,6 +362,7 @@ async function pushToShopify(
     body: JSON.stringify({
       brandId: automation.brandId,
       blogId: automation.shopifyBlogId,
+      skipIfTitleExists: true,
       article: {
         title: article.title,
         content: article.content,
@@ -374,8 +375,10 @@ async function pushToShopify(
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error || `Shopify push failed with status ${response.status}`);
+    const payload = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
+    const error = new Error(payload.error || `Shopify push failed with status ${response.status}`);
+    if (payload.code === 'duplicate_title') error.name = 'DuplicateTitleError';
+    throw error;
   }
 }
 
@@ -405,18 +408,18 @@ export function toSlug(title: string): string {
     .replace(/-$/, '');
 }
 
-/** A slug nothing else is using, since /blog/[slug] resolves by this field alone. */
-async function uniqueSlug(db: Firestore, title: string, blogId: string): Promise<string> {
-  const base = toSlug(title) || `post-${blogId.slice(0, 8)}`;
-
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
-    const clash = await db.collection('blogs').where('slug', '==', candidate).limit(1).get();
-    if (clash.empty || clash.docs[0].id === blogId) return candidate;
+/**
+ * The slug for this title, since /blog/[slug] resolves by this field alone. A title the
+ * blog already has is refused rather than suffixed: a second post at `-2` is the same
+ * article published twice.
+ */
+async function freeSlug(db: Firestore, title: string, blogId: string): Promise<string> {
+  const slug = toSlug(title) || `post-${blogId.slice(0, 8)}`;
+  const clash = await db.collection('blogs').where('slug', '==', slug).limit(2).get();
+  if (clash.docs.some((doc) => doc.id !== blogId)) {
+    throw new Error(`the blog already has a post titled like this at /blog/${slug}`);
   }
-
-  // Ten near-identical titles is implausible, but a suffix is better than a collision.
-  return `${base}-${blogId.slice(0, 6)}`;
+  return slug;
 }
 
 /** First readable sentence or two of the article, for the meta description. */
@@ -452,7 +455,7 @@ export async function publishToSiteBlog(
     throw new Error('Publishing to the EnhanceMySEO blog is only available to administrators');
   }
 
-  const slug = await uniqueSlug(db, article.title, article.blogId);
+  const slug = await freeSlug(db, article.title, article.blogId);
   const live = automation.siteBlogStatus === 'published';
 
   await db
@@ -548,17 +551,31 @@ function usesDerivedKeywords(automation: Automation): boolean {
   return automation.trigger === 'topicList' && automation.deriveKeywords !== false;
 }
 
+function alreadyWritten(keyword: string, written: Set<string>): boolean {
+  const key = looseKeywordKey(keyword);
+  for (const existing of written) if (looseKeywordKey(existing) === key) return true;
+  return false;
+}
+
 /**
- * The keyword to write about, and the sentence history shows for why.
+ * The keyword to write about, and the sentence history shows for why. Null when every
+ * angle on this topic already has an article, so the caller moves to the next topic.
  *
- * `written` is null when the automation writes its topics verbatim.
+ * `written` holds the brand's covered keywords; it is null for Search Console, whose
+ * candidates were filtered against the same set when they were ranked.
  */
 async function resolveKeyword(
   brand: BrandProfile,
   choice: KeywordChoice,
-  written: Set<string> | null
-): Promise<{ keyword: string; reason: string }> {
+  written: Set<string> | null,
+  derive: boolean
+): Promise<{ keyword: string; reason: string } | null> {
   if (!written) {
+    return { keyword: choice.keyword, reason: choice.reason || '' };
+  }
+
+  if (!derive) {
+    if (alreadyWritten(choice.keyword, written)) return null;
     return { keyword: choice.keyword, reason: choice.reason || '' };
   }
 
@@ -569,9 +586,11 @@ async function resolveKeyword(
     exclusions: written,
   });
 
+  if (!derived.keyword) return null;
+
   if (!derived.derived) {
     return {
-      keyword: derived.keyword || choice.keyword,
+      keyword: derived.keyword,
       reason: `${choice.reason}. Wrote the topic as-is because ${derived.note}.`,
     };
   }
@@ -686,7 +705,13 @@ async function runQueuedAutomation(
     choices =
       automation.trigger === 'gscTraffic'
         ? await chooseGscKeywords(db, automation, requested)
-        : rotateTopics(automation.topics, automation.topicCursor, requested);
+        : // A full lap, not just `requested`, so topics with nothing new left to say can
+          // be passed over without the run coming up short.
+          rotateTopics(
+            automation.topics,
+            automation.topicCursor,
+            Math.max(requested, automation.topics.filter((topic) => topic.trim()).length)
+          );
   } catch (error) {
     // A SkipRun is a decision, not a fault: the automation is fine, there was just
     // nothing worth writing. Anything else is a genuine failure.
@@ -719,15 +744,37 @@ async function runQueuedAutomation(
 
   // Copied rather than used in place: entries are added as this run writes them, and
   // the set returned here is shared with the preview's cache.
-  const written = usesDerivedKeywords(automation)
-    ? new Set(await coveredKeywords(db, automation.userId, automation.brandId))
-    : null;
+  const written =
+    automation.trigger === 'topicList'
+      ? new Set(await coveredKeywords(db, automation.userId, automation.brandId))
+      : null;
+  const derive = usesDerivedKeywords(automation);
 
-  for (const [index, choice] of choices.entries()) {
-    const chosen = await resolveKeyword(brand, choice, written);
+  let attempted = 0;
+  let stoppedOnLimit = false;
+  const spentTopics: string[] = [];
+
+  for (const choice of choices) {
+    if (attempted >= requested) break;
+
+    const chosen = await resolveKeyword(brand, choice, written, derive);
+    if (!chosen) {
+      spentTopics.push(choice.keyword);
+      // Moved past so the next run does not start on a topic with nothing left to say.
+      if (choice.nextCursor !== undefined) {
+        await db
+          .collection(AUTOMATIONS_COLLECTION)
+          .doc(automation.id as string)
+          .update({ topicCursor: choice.nextCursor });
+      }
+      continue;
+    }
+
+    const first = attempted === 0;
+    attempted += 1;
 
     // The first article reuses the record opened above; later ones get their own.
-    if (index > 0) {
+    if (!first) {
       openRef = await openRun(db, automation, chosen.keyword, Timestamp.now());
     } else {
       await openRef.update({ keyword: chosen.keyword, triggerReason: chosen.reason });
@@ -738,7 +785,7 @@ async function runQueuedAutomation(
 
     try {
       // ID tokens last an hour, which a long run with rate-limit retries can outlast.
-      if (index > 0) idToken = await mintIdToken(automation.userId);
+      if (!first) idToken = await mintIdToken(automation.userId);
 
       const article = await generateArticle(db, automation, brand, chosen.keyword, idToken);
       await recordArticleAgainstCap(db, automation.id as string);
@@ -761,7 +808,10 @@ async function runQueuedAutomation(
             await pushToShopify(automation, brand, article, idToken);
             pushed = true;
           } catch (error) {
-            warning = `Article saved but the Shopify push failed: ${describeError(error)}`;
+            warning =
+              error instanceof Error && error.name === 'DuplicateTitleError'
+                ? `Article saved but not pushed: ${describeError(error)}`
+                : `Article saved but the Shopify push failed: ${describeError(error)}`;
           }
         }
 
@@ -805,8 +855,25 @@ async function runQueuedAutomation(
       // Neither limit will clear within this run: a tier limit lasts the month, and a rate
       // limit has already outlasted every retry. The topic cursor has not moved, so the
       // next run picks up from this article.
-      if (isUsageLimit || isRateLimit) break;
+      if (isUsageLimit || isRateLimit) {
+        stoppedOnLimit = true;
+        break;
+      }
     }
+  }
+
+  if (!stoppedOnLimit && attempted < requested && spentTopics.length > 0) {
+    // The first record is still open when nothing was written; otherwise it is closed.
+    if (attempted > 0) openRef = await openRun(db, automation, '', Timestamp.now());
+    const listed = spentTopics.slice(0, 5).map((topic) => `"${topic}"`).join(', ');
+    const more = spentTopics.length > 5 ? ` and ${spentTopics.length - 5} more` : '';
+    await record({
+      status: 'skipped',
+      keyword: '',
+      error:
+        `Wrote ${attempted} of ${requested}: every angle on ${listed}${more} already has an article, ` +
+        'so they were passed over rather than written again. Add new topics to keep this automation writing.',
+    });
   }
 
   return outcomes;

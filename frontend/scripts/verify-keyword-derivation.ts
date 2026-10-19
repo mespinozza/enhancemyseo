@@ -10,7 +10,13 @@
  *
  * Run with: npm run verify:keyword-derivation
  */
-import { buildKeywordPrompt, parseKeywordReply } from '../src/lib/automation/keyword';
+import {
+  buildKeywordPrompt,
+  deriveKeyword,
+  looseKeywordKey,
+  parseKeywordReply,
+  relevantExclusions,
+} from '../src/lib/automation/keyword';
 
 let passed = 0;
 let failed = 0;
@@ -122,5 +128,62 @@ console.log('\nPrompt construction');
   check('the exclusion list is capped', listed === 40, `listed ${listed}`);
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
-process.exit(failed > 0 ? 1 : 0);
+console.log('\nRecognising keywords that are already written');
+{
+  check(
+    'case and punctuation do not hide a repeat',
+    looseKeywordKey('Gas vs. Electric Patio Heaters') === looseKeywordKey('gas vs electric patio heaters')
+  );
+  check(
+    'curly apostrophes do not hide a repeat',
+    looseKeywordKey('Best Sauna Heater (2026 Buyer\u2019s Guide)') ===
+      looseKeywordKey("best sauna heater 2026 buyer's guide")
+  );
+
+  // The order Firestore returns them in, which is unrelated to the topic.
+  const covered = [
+    ...Array.from({ length: 60 }, (_, i) => `wine fridge topic ${i}`),
+    'patio heater buying guide',
+    'gas vs electric patio heaters',
+  ];
+  const relevant = relevantExclusions('Patio Heater Buying Guide', covered);
+  check(
+    'the keywords closest to the topic are the ones the model sees',
+    relevant[0] === 'patio heater buying guide' && relevant.includes('gas vs electric patio heaters'),
+    relevant.slice(0, 3).join(' | ')
+  );
+  check('unrelated keywords are left out', !relevant.some((k) => k.startsWith('wine fridge')));
+}
+
+async function fallbacks() {
+  console.log('\nFalling back without writing a duplicate');
+  // No key makes the model call fail, which exercises the fallback without a network.
+  delete process.env.ANTHROPIC_API_KEY;
+
+  const covered = await deriveKeyword({
+    topic: 'Patio Heater Buying Guide',
+    brandName: 'Posh Cave',
+    exclusions: new Set(['patio heater buying guide']),
+  });
+  check(
+    'a topic that already has an article is not handed back to be written again',
+    covered.keyword === '' && !covered.derived,
+    JSON.stringify(covered)
+  );
+
+  const fresh = await deriveKeyword({
+    topic: 'Outdoor Kitchen Lighting Ideas',
+    brandName: 'Posh Cave',
+    exclusions: new Set(['patio heater buying guide']),
+  });
+  check(
+    'an unwritten topic is still used as-is when the model is unavailable',
+    fresh.keyword === 'Outdoor Kitchen Lighting Ideas' && !fresh.derived,
+    JSON.stringify(fresh)
+  );
+}
+
+fallbacks().then(() => {
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed > 0 ? 1 : 0);
+});

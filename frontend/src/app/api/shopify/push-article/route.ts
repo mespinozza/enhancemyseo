@@ -5,6 +5,7 @@ import {
   resolveShopifyCredentials,
   shopifyCredentialResponse,
 } from '@/lib/shopify/credentials';
+import { findDuplicateArticle } from '@/lib/shopify/duplicates';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -15,6 +16,8 @@ interface ShopifyArticleRequest {
   shopifyStoreUrl?: string;
   shopifyAccessToken?: string;
   blogId?: string;
+  /** Refuse with 409 if the blog already has an article Shopify would give the same URL. */
+  skipIfTitleExists?: boolean;
   article: {
     title: string;
     content: string;
@@ -110,6 +113,24 @@ export async function POST(request: Request) {
 
       // Use the first blog (usually the main blog)
       blogId = blogsData.blogs[0].id;
+    }
+
+    if (body.skipIfTitleExists) {
+      const duplicate = await findDuplicateArticle(
+        shopDomain,
+        shopifyAccessToken,
+        blogId as string,
+        article.title
+      );
+      if (duplicate) {
+        return NextResponse.json(
+          {
+            error: `Shopify already has "${duplicate.title}" at /${duplicate.handle}, so this was not pushed as a second copy.`,
+            code: 'duplicate_title',
+          },
+          { status: 409 }
+        );
+      }
     }
 
     // Create the article in Shopify

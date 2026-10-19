@@ -23,6 +23,43 @@ const MAX_KEYWORD_WORDS = 12;
 /** Enough context to avoid repeats without turning the prompt into a phone book. */
 const MAX_EXCLUSIONS = 40;
 
+/** Model calls per topic before giving up on finding an angle nobody has written. */
+const MAX_DERIVE_ATTEMPTS = 3;
+
+/**
+ * Case, punctuation and spacing removed, so "Gas vs. Electric Patio Heaters" and
+ * "gas vs electric patio heaters" count as the same keyword.
+ */
+export function looseKeywordKey(keyword: string): string {
+  return keyword
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function significantWords(text: string): Set<string> {
+  return new Set(looseKeywordKey(text).split(' ').filter((word) => word.length > 2));
+}
+
+/**
+ * The covered keywords most likely to be confused with this topic, most similar first.
+ * A brand can have hundreds, and the model only sees MAX_EXCLUSIONS of them, so which
+ * ones it sees decides whether it can avoid a repeat at all.
+ */
+export function relevantExclusions(topic: string, exclusions: Iterable<string>, max = MAX_EXCLUSIONS): string[] {
+  const topicWords = significantWords(topic);
+  return Array.from(exclusions)
+    .map((keyword) => {
+      let shared = 0;
+      for (const word of significantWords(keyword)) if (topicWords.has(word)) shared += 1;
+      return { keyword, shared };
+    })
+    .filter((entry) => entry.shared > 0)
+    .sort((a, b) => b.shared - a.shared)
+    .slice(0, max)
+    .map((entry) => entry.keyword);
+}
+
 export interface DerivedKeyword {
   keyword: string;
   /** False when the topic was used verbatim, either by choice or because parsing failed. */
@@ -111,34 +148,50 @@ function anthropic(): Anthropic {
 
 /**
  * Never throws. A keyword this step cannot produce is not worth failing a run over, so
- * every failure path returns the topic and says why.
+ * failure paths fall back to the topic and say why. The one exception is a topic that
+ * already has an article: writing it again is the duplicate this step exists to prevent,
+ * so the keyword comes back empty and the caller moves on to another topic.
  */
 export async function deriveKeyword(input: DeriveKeywordInput): Promise<DerivedKeyword> {
   const topic = input.topic.trim();
   if (!topic) return { keyword: '', derived: false, note: 'empty topic' };
 
-  let reply: string;
-  try {
-    const message = await anthropic().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 100,
-      messages: [{ role: 'user', content: buildKeywordPrompt({ ...input, topic }) }],
-    });
-    reply = textFromMessage(message);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return { keyword: topic, derived: false, note: `keyword step failed (${detail})` };
+  const taken = new Set(Array.from(input.exclusions ?? []).map(looseKeywordKey));
+  const isTaken = (keyword: string) => taken.has(looseKeywordKey(keyword));
+
+  const fallBack = (note: string): DerivedKeyword =>
+    isTaken(topic)
+      ? { keyword: '', derived: false, note: `${note}, and the topic itself already has an article` }
+      : { keyword: topic, derived: false, note };
+
+  // Suggestions the model already made that turned out to be taken. Listed first so they
+  // are never crowded out of the prompt by the similarity cut.
+  const rejected: string[] = [];
+
+  for (let attempt = 0; attempt < MAX_DERIVE_ATTEMPTS; attempt += 1) {
+    let reply: string;
+    try {
+      const exclusions = new Set([
+        ...rejected,
+        ...relevantExclusions(topic, input.exclusions ?? [], MAX_EXCLUSIONS - rejected.length),
+      ]);
+      const message = await anthropic().messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 100,
+        messages: [{ role: 'user', content: buildKeywordPrompt({ ...input, topic, exclusions }) }],
+      });
+      reply = textFromMessage(message);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return fallBack(`keyword step failed (${detail})`);
+    }
+
+    const keyword = parseKeywordReply(reply);
+    if (!keyword) return fallBack('the reply was not a usable keyword');
+
+    if (!isTaken(keyword)) return { keyword, derived: true };
+    rejected.push(keyword.toLowerCase());
   }
 
-  const keyword = parseKeywordReply(reply);
-  if (!keyword) {
-    return { keyword: topic, derived: false, note: 'the reply was not a usable keyword' };
-  }
-
-  // Producing something already written defeats the purpose; the topic is no worse.
-  if (input.exclusions?.has(keyword.toLowerCase())) {
-    return { keyword: topic, derived: false, note: 'the suggested keyword already has an article' };
-  }
-
-  return { keyword, derived: true };
+  return fallBack(`every keyword suggested (${rejected.length}) already has an article`);
 }
