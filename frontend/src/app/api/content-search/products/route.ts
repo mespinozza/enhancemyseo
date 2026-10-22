@@ -5,6 +5,7 @@ import {
   resolveShopifyCredentials,
   shopifyCredentialResponse,
 } from '@/lib/shopify/credentials';
+import { activeProductsOnly, isLiveProduct, LIVE_PRODUCT_FIELDS } from '@/lib/shopify/live';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -22,6 +23,8 @@ interface ProductEdge {
     title: string;
     handle: string;
     vendor: string;
+    status?: string;
+    onlineStoreUrl?: string | null;
     variants: {
       edges: VariantEdge[];
     };
@@ -79,6 +82,7 @@ export async function POST(request: NextRequest) {
               title
               handle
               vendor
+              ${LIVE_PRODUCT_FIELDS}
               variants(first: 1) {
                 edges {
                   node {
@@ -98,7 +102,7 @@ export async function POST(request: NextRequest) {
     `;
 
     const variables = {
-      query: `title:*${searchTerm}*`,
+      query: activeProductsOnly(`title:*${searchTerm}*`),
       first: 20,
       after: cursor || null
     };
@@ -135,7 +139,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Transform the response to match our interface
-    const products = data.data.products.edges.map((edge: ProductEdge) => ({
+    const products = data.data.products.edges
+      .filter((edge: ProductEdge) => isLiveProduct(edge.node))
+      .map((edge: ProductEdge) => ({
       id: edge.node.id,
       title: edge.node.title,
       handle: edge.node.handle,

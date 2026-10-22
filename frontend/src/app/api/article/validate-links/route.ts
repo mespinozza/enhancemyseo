@@ -5,6 +5,7 @@ import {
   resolveShopifyCredentials,
   shopifyCredentialResponse,
 } from '@/lib/shopify/credentials';
+import { isLivePage, isLiveProduct, LIVE_PAGE_FIELDS, LIVE_PRODUCT_FIELDS } from '@/lib/shopify/live';
 
 initializeFirebaseAdmin();
 
@@ -90,12 +91,14 @@ export async function POST(request: Request) {
     const fragments = targets
       .filter((target) => target.kind !== 'page')
       .map((target, index) => {
-        const root = target.kind === 'product' ? 'products' : 'collections';
-        return `k${index}: ${root}(first: 1, query: "handle:${target.handle}") { edges { node { handle title } } }`;
+        const isProduct = target.kind === 'product';
+        const root = isProduct ? 'products' : 'collections';
+        const fields = isProduct ? `handle title ${LIVE_PRODUCT_FIELDS}` : 'handle title';
+        return `k${index}: ${root}(first: 1, query: "handle:${target.handle}") { edges { node { ${fields} } } }`;
       });
 
     if (needsPages) {
-      fragments.push('pageList: pages(first: 250) { edges { node { handle title } } }');
+      fragments.push(`pageList: pages(first: 250) { edges { node { handle title ${LIVE_PAGE_FIELDS} } } }`);
     }
 
     const response = await fetch(`https://${shopDomain}/admin/api/2023-10/graphql.json`, {
@@ -123,7 +126,8 @@ export async function POST(request: Request) {
     const pageHandles = new Map<string, string>();
     if (needsPages && data.pageList?.edges) {
       for (const edge of data.pageList.edges) {
-        pageHandles.set(edge.node.handle, edge.node.title);
+        // An unpublished page 404s for readers, so it counts as missing.
+        if (isLivePage(edge.node)) pageHandles.set(edge.node.handle, edge.node.title);
       }
     }
 
@@ -137,7 +141,9 @@ export async function POST(request: Request) {
       }
 
       const node = data[`k${cursor++}`]?.edges?.[0]?.node;
-      const matches = node?.handle === target.handle;
+      // A draft or unlisted product 404s for readers, so it counts as missing.
+      const matches =
+        node?.handle === target.handle && (target.kind !== 'product' || isLiveProduct(node));
       resources.push({ ...target, exists: Boolean(matches), title: matches ? node.title : undefined });
     }
 

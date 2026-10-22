@@ -7,6 +7,13 @@ import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import { resolveShopifyCredentials } from '@/lib/shopify/credentials';
+import {
+  activeProductsOnly,
+  isLivePage,
+  isLiveProduct,
+  LIVE_PAGE_FIELDS,
+  LIVE_PRODUCT_FIELDS,
+} from '@/lib/shopify/live';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { textFromMessage } from '@/lib/ai/text';
 import OpenAI from 'openai';
@@ -2318,6 +2325,7 @@ async function fetchProductsFromCollection(
                 description
                 vendor
                 productType
+                ${LIVE_PRODUCT_FIELDS}
               }
             }
             pageInfo {
@@ -2332,8 +2340,12 @@ async function fetchProductsFromCollection(
     let hasNextPage = true;
     let cursor: string | null = null;
     const pageSize = Math.min(50, maxProducts);
+    // Collection products cannot be filtered by status in the query, so drafts are
+    // skipped below. Bounded so a collection that is mostly drafts cannot be paged
+    // through end to end.
+    let pagesLeft = Math.ceil(maxProducts / pageSize) * 5;
     
-    while (hasNextPage && products.length < maxProducts) {
+    while (hasNextPage && products.length < maxProducts && pagesLeft-- > 0) {
       // Annotated because the request body reads `cursor`, which is written from this
       // same response: without it TypeScript sees a circular inference and gives up.
       const response: Response = await fetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
@@ -2365,6 +2377,7 @@ async function fetchProductsFromCollection(
       
       for (const edge of collectionData.products.edges) {
         if (products.length >= maxProducts) break;
+        if (!isLiveProduct(edge.node)) continue;
         products.push(edge.node);
       }
       
@@ -2839,7 +2852,7 @@ async function validateVendorInProducts(shopDomain: string, token: string, vendo
       },
       body: JSON.stringify({
         query: graphqlQuery,
-        variables: { query: `vendor:"${vendorName}"` }
+        variables: { query: activeProductsOnly(`vendor:"${vendorName}"`) }
       }),
     });
     
@@ -3124,6 +3137,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
                 vendor
                 productType
                 tags
+                ${LIVE_PRODUCT_FIELDS}
                 variants(first: 1) {
                   edges {
                     node {
@@ -3163,7 +3177,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
           },
           body: JSON.stringify({
             query: graphqlQuery,
-            variables: { query: compoundQuery }
+            variables: { query: activeProductsOnly(compoundQuery) }
           }),
         });
         
@@ -3180,6 +3194,8 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
             for (const edge of products) {
               const product = edge.node;
               
+              if (!isLiveProduct(product)) continue;
+
               // Check if already added
               if (candidateProducts.some(cp => cp.product.id === product.id)) continue;
               
@@ -3304,7 +3320,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
           },
           body: JSON.stringify({
             query: graphqlQuery,
-            variables: { query }
+            variables: { query: activeProductsOnly(query) }
           }),
         });
         
@@ -3341,6 +3357,8 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
           } }) => {
             const product = edge.node;
             
+            if (!isLiveProduct(product)) return;
+
             // Check if we already have this product
             if (candidateProducts.some(cp => cp.product.id === product.id)) {
               return; // Skip duplicates
@@ -4282,6 +4300,7 @@ async function searchPagesWithGraphQL(shopDomain: string, token: string, searchT
             bodySummary
             createdAt
             updatedAt
+            ${LIVE_PAGE_FIELDS}
           }
         }
         pageInfo {
@@ -4328,6 +4347,8 @@ async function searchPagesWithGraphQL(shopDomain: string, token: string, searchT
       if (matchedPages.length >= 3) break; // Limit to top 3 pages
       
       const page = edge.node;
+      if (!isLivePage(page)) continue;
+
       const titleLower = page.title.toLowerCase();
       const handleLower = page.handle.toLowerCase();
       

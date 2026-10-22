@@ -5,6 +5,7 @@ import {
   resolveShopifyCredentials,
   shopifyCredentialResponse,
 } from '@/lib/shopify/credentials';
+import { isLivePage, LIVE_PAGE_FIELDS } from '@/lib/shopify/live';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -15,6 +16,7 @@ interface PageEdge {
     title: string;
     handle: string;
     bodySummary: string;
+    isPublished?: boolean;
   };
 }
 
@@ -68,6 +70,7 @@ export async function POST(request: NextRequest) {
               id
               title
               handle
+              ${LIVE_PAGE_FIELDS}
             }
           }
           pageInfo {
@@ -116,7 +119,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Transform the response to match our interface
-    const pages = data.data.pages.edges.map((edge: PageEdge) => ({
+    const pages = data.data.pages.edges
+      .filter((edge: PageEdge) => isLivePage(edge.node))
+      .map((edge: PageEdge) => ({
       id: edge.node.id,
       title: edge.node.title,
       handle: edge.node.handle,
