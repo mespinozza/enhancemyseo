@@ -772,7 +772,8 @@ ${blog.content || '<!-- No content available -->'}
               status: 'draft',
               // Falling through to undefined would let Shopify byline the article as
               // "Shopify API", so an unfilled box uses the brand's author instead.
-              author: articleAuthor || selectedBrand.shopifyAuthor || selectedBrand.brandName
+              author: articleAuthor || selectedBrand.shopifyAuthor || selectedBrand.brandName,
+              seo: article.seo,
             }
           }),
         });

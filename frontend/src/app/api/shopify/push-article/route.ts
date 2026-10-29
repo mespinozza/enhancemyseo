@@ -6,6 +6,8 @@ import {
   shopifyCredentialResponse,
 } from '@/lib/shopify/credentials';
 import { findDuplicateArticle } from '@/lib/shopify/duplicates';
+import { escapeHtml } from '@/lib/article/enhanced/render';
+import type { ArticleSeo } from '@/lib/article/enhanced/types';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -23,6 +25,32 @@ interface ShopifyArticleRequest {
     content: string;
     status: 'draft' | 'published';
     author?: string;
+    /** Search listing fields from Enhanced articles. Classic articles have none. */
+    seo?: Partial<ArticleSeo> | null;
+  };
+}
+
+function seoFields(seo: Partial<ArticleSeo> | null | undefined) {
+  if (!seo) return {};
+  const text = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+  const metaTitle = text(seo.metaTitle, 70);
+  const metaDescription = text(seo.metaDescription, 320);
+  const excerpt = text(seo.excerpt, 500);
+  const tags = Array.isArray(seo.tags)
+    ? seo.tags.map((tag) => text(tag, 40).replace(/,/g, ' ')).filter(Boolean).slice(0, 10)
+    : [];
+  const src = text(seo.featuredImage?.src, 2000);
+
+  const metafields = [
+    metaTitle && { namespace: 'global', key: 'title_tag', value: metaTitle, type: 'single_line_text_field' },
+    metaDescription && { namespace: 'global', key: 'description_tag', value: metaDescription, type: 'single_line_text_field' },
+  ].filter(Boolean);
+
+  return {
+    ...(excerpt && { summary_html: `<p>${escapeHtml(excerpt)}</p>` }),
+    ...(tags.length && { tags: tags.join(', ') }),
+    ...(metafields.length && { metafields }),
+    ...(/^https:\/\//.test(src) && { image: { src, alt: text(seo.featuredImage?.alt, 250) } }),
   };
 }
 
@@ -141,26 +169,39 @@ export async function POST(request: Request) {
         published: article.status === 'published',
         summary: article.content.replace(/<[^>]*>/g, '').substring(0, 160) + '...', // Create summary from content
         ...(article.author && { author: article.author }), // Include author if provided
-      }
+        ...seoFields(article.seo),
+      } as Record<string, unknown>
     };
 
     // Debug the data being sent to Shopify
     console.log('Sending to Shopify:', {
       title: articleData.article.title,
-      bodyHtmlLength: articleData.article.body_html?.length || 0,
+      bodyHtmlLength: article.content.length,
+      hasSeo: Boolean(article.seo),
       hasBodyHtml: !!articleData.article.body_html,
       published: articleData.article.published,
       author: articleData.article.author || 'None'
     });
 
-    const createResponse = await fetch(`https://${shopDomain}/admin/api/2023-10/blogs/${blogId}/articles.json`, {
-      method: 'POST',
-      headers: {
-        'X-Shopify-Access-Token': shopifyAccessToken,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(articleData),
-    });
+    const create = () =>
+      fetch(`https://${shopDomain}/admin/api/2023-10/blogs/${blogId}/articles.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': shopifyAccessToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(articleData),
+      });
+
+    let createResponse = await create();
+
+    // Shopify downloads the featured image while creating the article, so an image it
+    // cannot fetch fails the whole request. The article matters more than its picture.
+    if (!createResponse.ok && createResponse.status === 422 && articleData.article.image) {
+      console.warn('Shopify rejected the article with its featured image; retrying without it');
+      delete articleData.article.image;
+      createResponse = await create();
+    }
 
     if (!createResponse.ok) {
       const errorData = await createResponse.json();

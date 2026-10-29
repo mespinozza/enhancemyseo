@@ -19,6 +19,7 @@ import {
 } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import type { BrandProfile } from '@/lib/firebase/firestore';
+import type { ArticleSeo } from '@/lib/article/enhanced/types';
 import {
   AUTOMATIONS_COLLECTION,
   AUTOMATION_RUNS_COLLECTION,
@@ -224,6 +225,8 @@ export interface GeneratedArticle {
   title: string;
   content: string;
   hasGenerationIssues: boolean;
+  /** Search listing fields; only Enhanced articles have them. */
+  seo: ArticleSeo | null;
 }
 
 async function generateArticle(
@@ -250,6 +253,7 @@ async function generateArticle(
     generationSettings: {
       usePerplexity: false,
       articleFraming: automation.contentType,
+      articleFormat: automation.articleFormat || 'classic',
     },
     createdBy: 'automation',
     automationId: automation.id,
@@ -274,6 +278,7 @@ async function generateArticle(
     brandId: automation.brandId,
     websiteUrl: brand.websiteUrl || '',
     brandColor: brand.brandColor || '#000000',
+    articleFormat: automation.articleFormat || 'classic',
   });
 
   let response: Response;
@@ -326,18 +331,21 @@ async function generateArticle(
     title?: string;
     content?: string;
     hasGenerationIssues?: boolean;
+    seo?: ArticleSeo;
   };
 
   const title = payload.title || fallbackTitle;
   const content = payload.content || '';
+  const seo = payload.seo ?? null;
 
-  await blogRef.update({ title, content, updatedAt: Timestamp.now() });
+  await blogRef.update({ title, content, ...(seo && { seo }), updatedAt: Timestamp.now() });
 
   return {
     blogId: blogRef.id,
     title,
     content,
     hasGenerationIssues: Boolean(payload.hasGenerationIssues),
+    seo,
   };
 }
 
@@ -370,6 +378,7 @@ async function pushToShopify(
         // Without this Shopify bylines the article as "Shopify API", which is the
         // access token's app rather than anyone the reader should see.
         author: brand.shopifyAuthor || brand.brandName,
+        seo: article.seo,
       },
     }),
   });
@@ -468,7 +477,7 @@ export async function publishToSiteBlog(
       // at /blogs lists. Without it the post would be public but invisible to editing.
       isSiteBlogPost: true,
       publishDate: Timestamp.now(),
-      metaDescription: toMetaDescription(article.content),
+      metaDescription: article.seo?.metaDescription || toMetaDescription(article.content),
       // The post page only counts a view when authorId is set, and the blog CMS at
       // /blogs expects it, so an automated post has to carry the same fields a
       // hand-written one does. viewCount is deliberately left alone: every reader of

@@ -260,9 +260,30 @@ export function isEditableBlock(block: ArticleBlock): boolean {
   return block.kind !== 'raw';
 }
 
+/** Names for the blocks the Enhanced format renders, keyed by their `emseo-` class. */
+const ENHANCED_BLOCK_LABELS: Record<string, string> = {
+  'quick-answer': 'Quick answer',
+  'key-takeaways': 'Key takeaways',
+  toc: 'Table of contents',
+  quiz: 'Quiz',
+  'decision-guide': 'Decision guide',
+  comparison: 'Comparison table',
+  'pros-cons': 'Pros and cons',
+  steps: 'Steps',
+  checklist: 'Checklist',
+  stats: 'Key figures',
+  callout: 'Callout',
+  products: 'Product cards',
+  chart: 'Chart',
+  faq: 'FAQ',
+  sources: 'Sources',
+};
+
 /** Short human label for a block, used by the outline and AI panel headers. */
 export function blockLabel(block: ArticleBlock): string {
   if (block.kind === 'raw') return 'spacing';
+  const enhanced = /^<[a-z]+[^>]*\sclass="emseo-([a-z-]+)"/i.exec(block.html)?.[1];
+  if (enhanced && ENHANCED_BLOCK_LABELS[enhanced]) return ENHANCED_BLOCK_LABELS[enhanced];
   const tag = block.tag ?? 'element';
   if (tag === 'h1') return 'Title';
   if (/^h[2-6]$/.test(tag)) return `Heading ${tag.slice(1)}`;

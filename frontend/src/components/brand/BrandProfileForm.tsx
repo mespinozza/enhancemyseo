@@ -122,6 +122,7 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
     brandName: existingProfile?.brandName || '',
     businessType: existingProfile?.businessType || '',
     brandColor: existingProfile?.brandColor || '#000000',
+    citeSources: existingProfile?.citeSources !== false,
     websiteUrl: existingProfile?.websiteUrl || '',
     shopifyStoreUrl: existingProfile?.shopifyStoreUrl || '',
     shopifyClientId: existingProfile?.shopifyClientId || '',
@@ -239,6 +240,23 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             />
           </div>
+        </div>
+
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            id="citeSources"
+            checked={formData.citeSources}
+            onChange={(e) => setFormData(prev => ({ ...prev, citeSources: e.target.checked }))}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <label htmlFor="citeSources" className="text-sm text-gray-700">
+            <span className="font-medium">Cite authoritative sources</span>
+            <span className="block text-gray-500">
+              Enhanced articles end with a short Sources list (manufacturers, standards bodies,
+              government and industry sites; never retailers or competitors). Links are nofollow.
+            </span>
+          </label>
         </div>
 
         {/* Website URL Section - NEW */}

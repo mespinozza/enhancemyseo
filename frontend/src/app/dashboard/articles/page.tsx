@@ -18,6 +18,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, ContentSearchResults, WebsitePage } from '@/types/content-selection';
 import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
+import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
 
 interface BlogPost {
   id: string;
@@ -26,6 +27,7 @@ interface BlogPost {
   createdAt: Date;
   status: 'draft' | 'published';
   generationLog?: string[];
+  seo?: ArticleSeo;
 }
 
 interface BulkGenerationStatus {
@@ -59,6 +61,7 @@ export default function ArticlesPage() {
   const [instructions, setInstructions] = useState('');
   const [toneOfVoice, setToneOfVoice] = useState('');
   const [contentType, setContentType] = useState('');
+  const [articleFormat, setArticleFormat] = useState<ArticleFormat>('classic');
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
   
   // New content selection state
@@ -641,6 +644,7 @@ export default function ArticlesPage() {
             generationSettings: {
               usePerplexity: false,
               articleFraming: contentType,
+              articleFormat,
             }
           };
 
@@ -668,6 +672,7 @@ export default function ArticlesPage() {
               brandId: selectedProfile.id,
               websiteUrl: selectedProfile.websiteUrl || '',
               brandColor: selectedProfile.brandColor || '#000000',
+              articleFormat,
             }),
           });
 
@@ -695,6 +700,7 @@ export default function ArticlesPage() {
             await blogOperations.update(user.uid, blog, {
               content: generatedContent.content || '',
               title: generatedContent.title || blogData.title,
+              ...(generatedContent.seo && { seo: generatedContent.seo }),
             });
 
             // Add to generated articles (include generation log for admin debugging)
@@ -704,7 +710,8 @@ export default function ArticlesPage() {
               content: generatedContent.content || '',
               createdAt: new Date(),
               status: 'draft',
-              generationLog: generatedContent.generationLog || undefined
+              generationLog: generatedContent.generationLog || undefined,
+              seo: generatedContent.seo || undefined,
             };
 
             setGeneratedArticles(prev => [...prev, newArticle]);
@@ -1005,7 +1012,8 @@ export default function ArticlesPage() {
               status: 'draft',
               // Falling through to undefined would let Shopify byline the article as
               // "Shopify API", so an unfilled box uses the brand's author instead.
-              author: articleAuthor || selectedBrand.shopifyAuthor || selectedBrand.brandName
+              author: articleAuthor || selectedBrand.shopifyAuthor || selectedBrand.brandName,
+              seo: article.seo,
             }
           }),
         });
@@ -1847,6 +1855,26 @@ export default function ArticlesPage() {
                   Content type is required
                 </p>
               )}
+            </div>
+
+            <div>
+              <label htmlFor="articleFormat" className="block text-sm font-medium text-gray-700">
+                Article Format
+              </label>
+              <select
+                id="articleFormat"
+                value={articleFormat}
+                onChange={(e) => setArticleFormat(e.target.value as ArticleFormat)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              >
+                <option value="classic">Classic</option>
+                <option value="enhanced">Enhanced (beta)</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {articleFormat === 'enhanced'
+                  ? 'Researched on the web first, with a quick answer, a quiz, product cards, FAQ, cited sources and SEO title and description for Shopify.'
+                  : 'The current article style.'}
+              </p>
             </div>
 
             <button

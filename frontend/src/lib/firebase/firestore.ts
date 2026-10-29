@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './config';
 import type { IntegrationType } from '@/types/content-selection';
+import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
 
 // Base interface for all document types
 interface BaseDocument {
@@ -35,6 +36,8 @@ export interface BrandProfile extends BaseDocument {
   businessType: string;
   brandColor?: string;
   brandGuidelines?: string;
+  /** Enhanced articles end with a list of the sources they used. On unless false. */
+  citeSources?: boolean;
   websiteUrl?: string;
   shopifyStoreUrl?: string;
   shopifyAccessToken?: string;
@@ -82,7 +85,10 @@ export interface Blog extends BaseDocument {
   generationSettings?: {
     usePerplexity: boolean;
     articleFraming: string;
+    articleFormat?: ArticleFormat;
   };
+  /** Search listing fields. Only Enhanced articles have them. */
+  seo?: ArticleSeo;
 }
 
 export interface GeneratedProduct extends BaseDocument {

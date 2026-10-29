@@ -23,6 +23,7 @@ import {
   type AutomationTrigger,
 } from '@/lib/automation/types';
 import { shortenPage, type GscCandidate } from '@/lib/automation/selection';
+import type { ArticleFormat } from '@/lib/article/enhanced/types';
 import {
   WEEKDAY_NAMES,
   formatHour,
@@ -101,6 +102,7 @@ export default function AutomationForm({
   const [contentType, setContentType] = useState<string>(
     existing?.contentType || CONTENT_TYPE_OPTIONS[0].value
   );
+  const [articleFormat, setArticleFormat] = useState<ArticleFormat>(existing?.articleFormat || 'classic');
   const [toneOfVoice, setToneOfVoice] = useState(existing?.toneOfVoice || '');
   const [instructions, setInstructions] = useState(existing?.instructions || '');
   const [autoPushToShopify, setAutoPushToShopify] = useState(existing?.autoPushToShopify || false);
@@ -304,6 +306,7 @@ export default function AutomationForm({
       articlesPerRun,
       monthlyArticleCap,
       contentType,
+      articleFormat,
       toneOfVoice: toneOfVoice || '',
       instructions: instructions || '',
       contentSelection: existing?.contentSelection || defaultContentSelection(),
@@ -933,6 +936,25 @@ export default function AutomationForm({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label htmlFor="automation-article-format" className={labelClass}>
+              Article format
+            </label>
+            <select
+              id="automation-article-format"
+              value={articleFormat}
+              onChange={(event) => setArticleFormat(event.target.value as ArticleFormat)}
+              className={inputClass}
+            >
+              <option value="classic">Classic</option>
+              <option value="enhanced">Enhanced (beta)</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Enhanced researches each topic on the web first and adds a quick answer, a quiz,
+              product cards, an FAQ, cited sources and an SEO title and description.
+            </p>
           </div>
         </div>
 

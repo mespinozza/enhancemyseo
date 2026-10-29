@@ -198,6 +198,7 @@ async function checkPublish(db: Firestore) {
     title: before.title || 'Untitled',
     content: before.content || '<p>Body copy.</p>',
     hasGenerationIssues: false,
+    seo: null,
   };
 
   const automation = {

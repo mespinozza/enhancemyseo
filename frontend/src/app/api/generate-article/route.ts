@@ -16,6 +16,10 @@ import {
 } from '@/lib/shopify/live';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { textFromMessage } from '@/lib/ai/text';
+import { generateEnhancedArticle } from '@/lib/article/enhanced';
+import { researchTopic } from '@/lib/article/enhanced/research';
+import { filterSources } from '@/lib/article/enhanced/sources';
+import type { CatalogProduct, LinkTarget, ResearchResult } from '@/lib/article/enhanced/types';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -56,6 +60,24 @@ function isAutomationCall(request: Request): boolean {
   const a = Buffer.from(supplied);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * Whether Enhanced articles for this brand end with a Sources list. Read here rather
+ * than taken from the request so the brand's setting applies however the article is
+ * generated. On unless the brand has turned it off.
+ */
+async function brandCitesSources(uid: string, brandId: unknown): Promise<boolean> {
+  if (typeof brandId !== 'string' || !brandId) return true;
+  try {
+    const snapshot = await getFirestore().collection('brandProfiles').doc(brandId).get();
+    const brand = snapshot.data();
+    if (!brand || brand.userId !== uid) return true;
+    return brand.citeSources !== false;
+  } catch (error) {
+    console.warn('Could not read the brand sources setting:', error instanceof Error ? error.message : error);
+    return true;
+  }
 }
 
 // Periodically clean up old IP entries to avoid memory growth
@@ -236,6 +258,8 @@ interface FactCheckResult {
   isGoodToGo: boolean;
   issues: FactCheckIssue[];
   rawResponse: string;
+  /** Perplexity could not be asked, so nothing was checked. Never reported as a pass. */
+  unavailable?: boolean;
 }
 
 // Logger type for passing to fact-check functions
@@ -247,7 +271,7 @@ type Logger = (message: string) => void;
 async function factCheckWithPerplexity(content: string, log: Logger): Promise<FactCheckResult> {
   if (!perplexityKey) {
     log('⚠️ PERPLEXITY_API_KEY not configured, skipping fact-check');
-    return { isGoodToGo: true, issues: [], rawResponse: 'API key not configured' };
+    return { isGoodToGo: false, issues: [], rawResponse: 'API key not configured', unavailable: true };
   }
 
   log('🔍 FACT-CHECK: Sending content to Perplexity for verification...');
@@ -283,8 +307,9 @@ reply with the list ONLY, it should contain an issue + where in the content this
     });
 
     if (!response.ok) {
-      log(`❌ FACT-CHECK: Perplexity API error: ${response.status}`);
-      return { isGoodToGo: true, issues: [], rawResponse: `API error: ${response.status}` };
+      const detail = (await response.text().catch(() => '')).slice(0, 200);
+      log(`❌ FACT-CHECK: Perplexity API error: ${response.status} ${detail}`);
+      return { isGoodToGo: false, issues: [], rawResponse: `API error: ${response.status}`, unavailable: true };
     }
 
     const data = await response.json();
@@ -322,7 +347,7 @@ reply with the list ONLY, it should contain an issue + where in the content this
 
   } catch (error) {
     log(`❌ FACT-CHECK: Error calling Perplexity: ${error}`);
-    return { isGoodToGo: true, issues: [], rawResponse: `Error: ${error}` };
+    return { isGoodToGo: false, issues: [], rawResponse: `Error: ${error}`, unavailable: true };
   }
 }
 
@@ -976,6 +1001,12 @@ async function factCheckAndRewriteLoop(
     
     // Fact-check the current content
     const factCheckResult = await factCheckWithPerplexity(currentContent, log);
+
+    if (factCheckResult.unavailable) {
+      if (contentWasModified) currentContent = cleanupHTMLAfterRewrite(currentContent);
+      log('⚠️ FACT-CHECK: Perplexity unavailable - this article was NOT fact-checked');
+      return { content: currentContent, factCheckPassed: false, iterations: iteration };
+    }
     
     if (factCheckResult.isGoodToGo) {
       // If content was modified, do a final HTML cleanup
@@ -2326,6 +2357,8 @@ async function fetchProductsFromCollection(
                 vendor
                 productType
                 ${LIVE_PRODUCT_FIELDS}
+                featuredImage { url altText }
+                priceRangeV2 { minVariantPrice { amount } }
               }
             }
             pageInfo {
@@ -3138,6 +3171,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
                 productType
                 tags
                 ${LIVE_PRODUCT_FIELDS}
+                featuredImage { url altText }
                 variants(first: 1) {
                   edges {
                     node {
@@ -3221,6 +3255,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
                     vendor: product.vendor,
                     product_type: product.productType,
                     tags: product.tags,
+                    featuredImage: product.featuredImage ?? null,
                     variants: product.variants?.edges?.map((v: { node: { id: string; price: string } }) => ({
                       id: v.node.id,
                       price: v.node.price
@@ -3422,6 +3457,7 @@ async function searchProductsWithGraphQL(shopDomain: string, token: string, sear
                   vendor: product.vendor,
                   product_type: product.productType,
                   tags: product.tags,
+                  featuredImage: product.featuredImage ?? null,
                   variants: product.variants?.edges?.map((v: { node: { id: string; price: string } }) => ({
                     id: v.node.id,
                     price: v.node.price
@@ -5596,7 +5632,9 @@ export async function POST(request: Request) {
       instructions,
       contentSelection,
       brandColor,
+      brandGuidelines,
     } = body;
+    const isEnhanced = body.articleFormat === 'enhanced';
 
     // Shopify credentials are resolved here rather than taken from the request, so a
     // store on a Dev Dashboard app (whose tokens last a day and are minted on demand)
@@ -5629,12 +5667,20 @@ export async function POST(request: Request) {
       );
     }
 
-    log('🔬 Starting topic breakdown generation with Claude...');
+    // Enhanced articles research the web instead of asking Claude for a breakdown from
+    // memory. It starts now and runs while the store is searched.
+    let researchPromise: Promise<ResearchResult> | null = null;
+    if (isEnhanced) {
+      log('🔎 Researching the topic on the web (Enhanced format)...');
+      researchPromise = researchTopic({ keyword, brandName, businessType }, log, anthropic);
+    }
+
+    if (!isEnhanced) log('🔬 Starting topic breakdown generation with Claude...');
     // 1. Generate topic breakdown with Claude
     const topicBreakdownPrompt = `Research the topic: "${keyword}" using the latest available web information.\nWrite a clear, well-organized, and factual 500-word breakdown that covers:\n- The core concept and definition of the topic\n- Key facts, statistics, or recent developments\n- Major subtopics or components\n- Common misconceptions or challenges\n- Why this topic matters in its field or industry\nProvide only the breakdown without any conversational or meta language.`;
 
     let topicBreakdown = '';
-    try {
+    if (!isEnhanced) try {
       console.log('Calling Claude API for topic breakdown');
       const claudeRes = await retryWithBackoff(
         () => anthropic.messages.create({
@@ -5656,6 +5702,14 @@ export async function POST(request: Request) {
 
     // 2. If contentSelection is configured, fetch content based on integration type
     let relatedProductsList = '', relatedCollectionsList = '', relatedPagesList = '', relatedWebsiteContentList = '';
+    // The same content as structured data, for the Enhanced format's cards and link checks.
+    const catalogProducts: CatalogProduct[] = [];
+    const linkTargets: LinkTarget[] = [];
+    // Brands with only a store have no website URL; the myshopify domain redirects to
+    // the store's primary domain, and an absolute URL is what the link checks accept.
+    const siteBase = String(
+      body.websiteUrl?.trim() || (shopifyStoreUrl ? `https://${shopifyStoreUrl.replace(/^https?:\/\//, '')}` : '')
+    ).replace(/\/+$/, '');
     let integrationPrompt = '';
     let integrationStatus = 'none'; // Track overall integration status
     let detectedVendor: string | null = null; // Track detected vendor for vendor-specific filtering
@@ -5787,6 +5841,19 @@ export async function POST(request: Request) {
         const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (products.length > 0) {
           relatedProductsList = products.map(p => `• ${p.title} - ${body.websiteUrl}/products/${p.handle}`).join('\n');
+          for (const p of products) {
+            if (!p.handle) continue;
+            const image = p.featuredImage as { url?: string; altText?: string | null } | null | undefined;
+            const variants = p.variants as { price?: string }[] | undefined;
+            const priceRange = p.priceRangeV2 as { minVariantPrice?: { amount?: string } } | undefined;
+            catalogProducts.push({
+              handle: p.handle,
+              title: p.title,
+              url: `${siteBase}/products/${p.handle}`,
+              price: variants?.[0]?.price ?? priceRange?.minVariantPrice?.amount,
+              image: image?.url ? { url: image.url, alt: image.altText } : null,
+            });
+          }
           log(`🛒 Products found: ${products.length}`);
           products.forEach((p, i) => log(`   ${i + 1}. ${p.title}`));
           rlog(`✅ Found ${products.length} relevant products`);
@@ -5799,6 +5866,9 @@ export async function POST(request: Request) {
         const collections = await searchShopifyCollections(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
         if (collections.length > 0) {
           relatedCollectionsList = collections.map(c => `• ${c.title} - ${body.websiteUrl}/collections/${c.handle}`).join('\n');
+          for (const c of collections) {
+            linkTargets.push({ kind: 'collection', title: c.title, url: `${siteBase}/collections/${c.handle}` });
+          }
           log(`📂 Collections found: ${collections.length}`);
           collections.forEach((c, i) => log(`   ${i + 1}. ${c.title}`));
           console.log(`✅ Found ${collections.length} relevant collections`);
@@ -5811,6 +5881,9 @@ export async function POST(request: Request) {
         const pages = await searchPagesWithGraphQL(shopDomain, accessToken, searchQueries, keyword);
         if (pages.length > 0) {
           relatedPagesList = pages.map(p => `• ${p.title} - ${body.websiteUrl}/pages/${p.handle}`).join('\n');
+          for (const p of pages) {
+            linkTargets.push({ kind: 'page', title: p.title, url: `${siteBase}/pages/${p.handle}` });
+          }
           rlog(`✅ Found ${pages.length} relevant pages`);
         }
       }
@@ -5822,18 +5895,36 @@ export async function POST(request: Request) {
         relatedProductsList = contentSelection.manualSelections.products.map((p: any) => 
           `• ${p.title} - ${body.websiteUrl}/products/${p.handle}`
         ).join('\n');
+        for (const p of contentSelection.manualSelections.products) {
+          if (!p?.handle || !p?.title) continue;
+          catalogProducts.push({
+            handle: String(p.handle),
+            title: String(p.title),
+            url: `${siteBase}/products/${p.handle}`,
+            price: p.variants?.[0]?.price ?? p.price,
+            image: null,
+          });
+        }
       }
       
       if (contentSelection.manualSelections.collections.length > 0) {
         relatedCollectionsList = contentSelection.manualSelections.collections.map((c: any) => 
           `• ${c.title} - ${body.websiteUrl}/collections/${c.handle}`
         ).join('\n');
+        for (const c of contentSelection.manualSelections.collections) {
+          if (c?.handle && c?.title) {
+            linkTargets.push({ kind: 'collection', title: String(c.title), url: `${siteBase}/collections/${c.handle}` });
+          }
+        }
       }
       
       if (contentSelection.manualSelections.pages.length > 0) {
         relatedPagesList = contentSelection.manualSelections.pages.map((p: any) => 
           `• ${p.title} - ${p.url}`
         ).join('\n');
+        for (const p of contentSelection.manualSelections.pages) {
+          if (p?.url && p?.title) linkTargets.push({ kind: 'page', title: String(p.title), url: String(p.url) });
+        }
       }
     }
     
@@ -5936,6 +6027,11 @@ export async function POST(request: Request) {
         }
         
         relatedWebsiteContentList = contentList;
+        for (const page of [...products.slice(0, 8), ...categories.slice(0, 6), ...blogs.slice(0, 6), ...services.slice(0, 4), ...other.slice(0, 3)]) {
+          if (page.url && page.title) {
+            linkTargets.push({ kind: page.pageType === 'blog' ? 'blog' : 'website', title: page.title, url: page.url });
+          }
+        }
         
         rlog(`✅ Found ${uniquePages.length} pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
         
@@ -5990,6 +6086,11 @@ export async function POST(request: Request) {
         }
         
         relatedWebsiteContentList = contentList;
+        for (const page of selectedPages) {
+          if (page?.url && page?.title) {
+            linkTargets.push({ kind: page.pageType === 'blog' ? 'blog' : 'website', title: String(page.title), url: String(page.url) });
+          }
+        }
         
         rlog(`📋 Using ${selectedPages.length} manually selected pages (${products.length} products, ${categories.length} collections, ${blogs.length} blogs)`);
       }
@@ -6067,6 +6168,86 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       return prompt;
     }
 
+    if (isEnhanced) {
+      try {
+        const research = await (researchPromise ?? Promise.resolve<ResearchResult>({ brief: '', facts: [], questions: [], sources: [] }));
+        const citeSources = await brandCitesSources(verifiedUser.uid, body.brandId);
+        const sources = citeSources
+          ? filterSources(research.sources, [siteBase, shopifyStoreUrl ? `https://${shopifyStoreUrl.replace(/^https?:\/\//, '')}` : ''])
+          : [];
+        if (!citeSources) log('ℹ️ Sources list is off for this brand');
+
+        const seenProducts = new Set<string>();
+        const products = catalogProducts.filter((p) => !seenProducts.has(p.handle) && seenProducts.add(p.handle)).slice(0, 12);
+        const seenLinks = new Set<string>();
+        const links = linkTargets.filter((l) => !seenLinks.has(l.url) && seenLinks.add(l.url)).slice(0, 20);
+
+        const productRules = detectedVendor
+          ? `This article is about ${detectedVendor} products. The product and link lists contain only ${detectedVendor} items. Do not mention or recommend any other brand by name; keep any alternatives generic.`
+          : '';
+
+        const result = await generateEnhancedArticle(
+          anthropic,
+          {
+            keyword,
+            brandName,
+            businessType,
+            toneOfVoice: [toneOfVoice, contentType && contentType !== 'default' ? `framed as ${contentType}` : ''].filter(Boolean).join(', '),
+            instructions,
+            brandGuidelines,
+            research,
+            products,
+            links,
+            sources,
+            productRules,
+            // White accents would be invisible on the white cards.
+            brandColor: /^#?f{3}(?:f{3})?$/i.test(String(brandColor || '').trim()) ? '#000000' : String(brandColor || '#000000'),
+          },
+          (html) => factCheckAndRewriteLoop(html, anthropic, 3, log),
+          log
+        );
+
+        const hasGenerationIssues = detectGenerationIssues(result.content);
+        if (!hasGenerationIssues) {
+          try {
+            await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', getFirestore());
+          } catch (usageError) {
+            console.error('Error incrementing usage count:', usageError);
+          }
+        } else {
+          console.log('⚠️ Skipping usage increment due to generation issues - user will not be charged');
+        }
+
+        log(`✅ Enhanced article complete: "${result.title.substring(0, 50)}..."`);
+        return NextResponse.json({
+          title: result.title,
+          content: result.content,
+          format: 'enhanced',
+          seo: result.seo,
+          hasGenerationIssues,
+          factCheck: result.factCheck,
+          shopifyIntegration: {
+            status: integrationStatus,
+            message: getShopifyStatusMessage(integrationStatus)
+          },
+          generationLog: getRequestLog()
+        });
+      } catch (error) {
+        console.error('Error generating Enhanced article:', error);
+        return NextResponse.json(
+          {
+            error: 'Failed to generate article content',
+            detail: error instanceof Error ? error.message : String(error),
+            shopifyIntegration: {
+              status: integrationStatus,
+              message: getShopifyStatusMessage(integrationStatus)
+            }
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     // 3. Generate the article content using Claude
     console.log('Starting article generation with Claude');
     
@@ -6122,7 +6303,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       ${integrationPrompt}
 
       Please write a long-form SEO-optimized article with 1500 words about the following article keyword: ${keyword}.
-      Answer in HTML, starting with one single <h1> tag, as this is going on wordpress, do not give unnecessary HTML tags.
+      Answer in HTML, starting with one single <h1> tag, as this is going on the brand's blog, do not give unnecessary HTML tags.
       
       VISUAL STYLING REQUIREMENTS:
       - Use ${finalBrandColor} as the primary accent color throughout the article
@@ -6165,7 +6346,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       ARTICLE STRUCTURE REQUIREMENTS:
       - Introduction: 150-200 words introducing the topic and brand perspective
       - Main content: 4-5 sections of 200-250 words each covering key aspects
-      - Conclusion: 150 words summarizing key points with call-to-action for Malachy Parts Plus
+      - Conclusion: 150 words summarizing key points with call-to-action for ${brandName}
       - CRITICAL: Always include a complete conclusion section - never end abruptly
       - Target total: 1400-1500 words maximum for optimal completion
       

@@ -6,6 +6,7 @@
  * that happen to share a shape, which `TimestampLike` captures.
  */
 import type { ContentSelection } from '@/types/content-selection';
+import type { ArticleFormat } from '@/lib/article/enhanced/types';
 
 export const AUTOMATIONS_COLLECTION = 'automations';
 export const AUTOMATION_RUNS_COLLECTION = 'automationRuns';
@@ -124,6 +125,11 @@ export interface Automation {
   monthlyArticleCap: number;
   monthUsage?: AutomationMonthUsage;
   contentType: string;
+  /**
+   * 'enhanced' writes structured articles with research, interactive blocks and SEO
+   * fields. Absent on automations made before it existed, which stay 'classic'.
+   */
+  articleFormat?: ArticleFormat;
   toneOfVoice?: string;
   instructions?: string;
   contentSelection: ContentSelection;
