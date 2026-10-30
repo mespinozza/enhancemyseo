@@ -122,7 +122,12 @@ export interface Automation {
   articlesPerRun: number;
   monthlyArticleCap: number;
   monthUsage?: AutomationMonthUsage;
+  /** The first of `contentTypes`, kept for automations saved before the list existed. */
   contentType: string;
+  /** Each article gets one of these, chosen to fit its keyword. */
+  contentTypes?: string[];
+  /** The latest picks, newest first, so the next ones vary. Written by the runner. */
+  recentContentTypes?: string[];
   toneOfVoice?: string;
   instructions?: string;
   contentSelection: ContentSelection;
@@ -159,6 +164,8 @@ export interface AutomationRun {
   keyword: string;
   /** Why this keyword was chosen, e.g. 'Topic 2 of 5 in the list'. */
   triggerReason: string;
+  /** The content type picked for this article. */
+  contentType?: string;
   blogId?: string | null;
   articleTitle?: string | null;
   pushedToShopify: boolean;
@@ -178,7 +185,14 @@ export interface AutomationRun {
  */
 export type AutomationDraft = Omit<
   Automation,
-  'id' | 'createdAt' | 'updatedAt' | 'claimedAt' | 'lastRunAt' | 'monthUsage' | 'nextRunAt'
+  | 'id'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'claimedAt'
+  | 'lastRunAt'
+  | 'monthUsage'
+  | 'nextRunAt'
+  | 'recentContentTypes'
 >;
 
 export { CONTENT_TYPE_OPTIONS } from '@/lib/article/enhanced/blueprints';

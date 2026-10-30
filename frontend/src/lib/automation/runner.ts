@@ -20,6 +20,7 @@ import {
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
+import { RECENT_CONTENT_TYPES, allowedContentTypes, pickContentType } from './content-type';
 import {
   AUTOMATIONS_COLLECTION,
   AUTOMATION_RUNS_COLLECTION,
@@ -234,9 +235,10 @@ async function generateArticle(
   automation: Automation,
   brand: BrandProfile,
   keyword: string,
+  contentType: string,
   idToken: string
 ): Promise<GeneratedArticle> {
-  const fallbackTitle = `${keyword} - ${automation.contentType}`;
+  const fallbackTitle = `${keyword} - ${contentType}`;
 
   // Mirrors the shape the articles dashboard creates, so automated articles appear in
   // history and open in the editor exactly like hand-generated ones.
@@ -247,12 +249,12 @@ async function generateArticle(
     brandId: automation.brandId,
     status: 'draft',
     keyword,
-    contentType: automation.contentType,
+    contentType,
     toneOfVoice: automation.toneOfVoice || '',
     instructions: automation.instructions || '',
     generationSettings: {
       usePerplexity: false,
-      articleFraming: automation.contentType,
+      articleFraming: contentType,
       articleFormat: 'enhanced',
     },
     createdBy: 'automation',
@@ -269,7 +271,7 @@ async function generateArticle(
     keyword,
     brandName: brand.brandName,
     businessType: brand.businessType,
-    contentType: automation.contentType,
+    contentType,
     toneOfVoice: automation.toneOfVoice || '',
     instructions: automation.instructions || '',
     brandGuidelines: brand.brandGuidelines || '',
@@ -768,6 +770,8 @@ async function runQueuedAutomation(
   let attempted = 0;
   let stoppedOnLimit = false;
   const spentTopics: string[] = [];
+  const allowedTypes = allowedContentTypes(automation);
+  let recentTypes = automation.recentContentTypes ?? [];
 
   for (const choice of choices) {
     if (attempted >= requested) break;
@@ -788,12 +792,17 @@ async function runQueuedAutomation(
     const first = attempted === 0;
     attempted += 1;
 
+    const contentType = pickContentType(chosen.keyword, allowedTypes, recentTypes);
+    recentTypes = [contentType, ...recentTypes].slice(0, RECENT_CONTENT_TYPES);
+
     // The first article reuses the record opened above; later ones get their own.
     if (!first) {
       openRef = await openRun(db, automation, chosen.keyword, Timestamp.now());
-    } else {
-      await openRef.update({ keyword: chosen.keyword, triggerReason: chosen.reason });
     }
+    await openRef.update({
+      ...(first && { keyword: chosen.keyword, triggerReason: chosen.reason }),
+      contentType,
+    });
 
     // So the next article in this same run cannot land on the keyword just taken.
     written?.add(chosen.keyword.toLowerCase());
@@ -802,8 +811,14 @@ async function runQueuedAutomation(
       // ID tokens last an hour, which a long run with rate-limit retries can outlast.
       if (!first) idToken = await mintIdToken(automation.userId);
 
-      const article = await generateArticle(db, automation, brand, chosen.keyword, idToken);
+      const article = await generateArticle(db, automation, brand, chosen.keyword, contentType, idToken);
       await recordArticleAgainstCap(db, automation.id as string);
+      if (allowedTypes.length > 1) {
+        await db
+          .collection(AUTOMATIONS_COLLECTION)
+          .doc(automation.id as string)
+          .update({ recentContentTypes: recentTypes });
+      }
 
       let pushed = false;
       let sitePath: string | null = null;

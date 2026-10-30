@@ -27,6 +27,7 @@ import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota'
 import AutomationForm from '@/components/automation/AutomationForm';
 import { describeSchedule, monthKey } from '@/lib/automation/schedule';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
+import { blueprintFor } from '@/lib/article/enhanced/blueprints';
 
 /** How many recent runs the history panel keeps live. */
 const RUN_HISTORY_LIMIT = 25;
@@ -425,6 +426,11 @@ export default function AutomatePage() {
                             <span className="font-medium">{run.automationName}</span>
                             {run.keyword && (
                               <span className="text-gray-600"> — {run.keyword}</span>
+                            )}
+                            {run.contentType && (
+                              <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                                {blueprintFor(run.contentType).label}
+                              </span>
                             )}
                           </p>
 

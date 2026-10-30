@@ -99,9 +99,17 @@ export default function AutomationForm({
   const [monthlyArticleCap, setMonthlyArticleCap] = useState(
     existing?.monthlyArticleCap ?? DEFAULT_MONTHLY_ARTICLE_CAP
   );
-  const [contentType, setContentType] = useState<string>(
-    existing?.contentType || CONTENT_TYPE_OPTIONS[0].value
-  );
+  const [contentTypes, setContentTypes] = useState<string[]>(() => {
+    const saved = existing?.contentTypes?.length ? existing.contentTypes : [existing?.contentType || 'default'];
+    const known = saved.filter((type) => CONTENT_TYPE_OPTIONS.some((option) => option.value === type));
+    return known.length ? known : [CONTENT_TYPE_OPTIONS[0].value];
+  });
+  const toggleContentType = (type: string) =>
+    setContentTypes((current) =>
+      current.includes(type)
+        ? current.filter((t) => t !== type)
+        : CONTENT_TYPE_OPTIONS.map((o) => o.value).filter((t) => t === type || current.includes(t))
+    );
   const [toneOfVoice, setToneOfVoice] = useState(existing?.toneOfVoice || '');
   const [instructions, setInstructions] = useState(existing?.instructions || '');
   const [autoPushToShopify, setAutoPushToShopify] = useState(existing?.autoPushToShopify || false);
@@ -262,6 +270,7 @@ export default function AutomationForm({
       }
     }
     if (frequency === 'weekly' && daysOfWeek.length === 0) return 'Pick at least one day of the week.';
+    if (contentTypes.length === 0) return 'Pick at least one content type.';
     if (articlesPerRun < 1 || articlesPerRun > MAX_ARTICLES_PER_RUN) {
       return `Articles per run must be between 1 and ${MAX_ARTICLES_PER_RUN}.`;
     }
@@ -304,7 +313,8 @@ export default function AutomationForm({
       },
       articlesPerRun,
       monthlyArticleCap,
-      contentType,
+      contentType: contentTypes[0],
+      contentTypes,
       toneOfVoice: toneOfVoice || '',
       instructions: instructions || '',
       contentSelection: existing?.contentSelection || defaultContentSelection(),
@@ -894,29 +904,55 @@ export default function AutomationForm({
       <div className="border-t border-gray-200 pt-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-900">Article settings</h3>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="automation-content-type" className={labelClass}>
-              Content type
-            </label>
-            <select
-              id="automation-content-type"
-              value={contentType}
-              onChange={(event) => setContentType(event.target.value)}
-              className={inputClass}
+        <fieldset className="mb-4">
+          <div className="flex items-center justify-between">
+            <legend className={labelClass}>Content types</legend>
+            <button
+              type="button"
+              onClick={() =>
+                setContentTypes(
+                  contentTypes.length === CONTENT_TYPE_OPTIONS.length
+                    ? [CONTENT_TYPE_OPTIONS[0].value]
+                    : CONTENT_TYPE_OPTIONS.map((option) => option.value)
+                )
+              }
+              className="text-xs font-medium text-blue-600 hover:text-blue-700"
             >
-              {CONTENT_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-              {/* An automation saved before this list changed would otherwise show blank. */}
-              {!CONTENT_TYPE_OPTIONS.some((option) => option.value === contentType) && (
-                <option value={contentType}>{contentType}</option>
-              )}
-            </select>
+              {contentTypes.length === CONTENT_TYPE_OPTIONS.length ? 'Clear' : 'Select all'}
+            </button>
           </div>
+          <p className="mb-2 text-xs text-gray-500">
+            Each article gets one of these. A keyword that calls for a format gets it (&quot;how to
+            ...&quot; becomes a How To, &quot;A vs B&quot; a Versus); the rest rotate at random, avoiding
+            the formats used most recently. Versus is only used for keywords that name both sides.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CONTENT_TYPE_OPTIONS.map((option) => {
+              const checked = contentTypes.includes(option.value);
+              return (
+                <label
+                  key={option.value}
+                  className={`flex cursor-pointer gap-2 rounded-md border p-2 text-sm ${
+                    checked ? 'border-blue-300 bg-blue-50' : 'border-gray-200'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleContentType(option.value)}
+                    className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>
+                    <span className="block font-medium text-gray-900">{option.label}</span>
+                    <span className="block text-xs text-gray-500">{blueprintFor(option.value).description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
 
+        <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="automation-tone" className={labelClass}>
               Tone of voice
@@ -935,11 +971,6 @@ export default function AutomationForm({
               ))}
             </select>
           </div>
-
-          <p className="text-xs text-gray-500 sm:col-span-2">
-            {blueprintFor(contentType).description}
-            {contentType === 'versus' && ' Name both sides in each topic, e.g. "Hoshizaki vs Manitowoc".'}
-          </p>
         </div>
 
         <div className="mt-4">
