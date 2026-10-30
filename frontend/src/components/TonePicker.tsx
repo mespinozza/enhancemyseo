@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { TONE_PROFILES, toneFor, type ToneProfile } from '@/lib/article/enhanced/tones';
+import { OPTIONS_PER_PAGE, OPTION_CLASS, PANEL_CLASS, usePagedWheel } from './usePagedWheel';
 
 interface ToneStyle {
   icon: LucideIcon;
@@ -114,6 +115,7 @@ interface TonePickerProps {
 export default function TonePicker({ id, value, onChange }: TonePickerProps) {
   // Picking Custom shows the input before anything is typed; a saved custom tone is custom anyway.
   const [customChosen, setCustomChosen] = useState(false);
+  const pagedWheel = usePagedWheel<HTMLElement>(OPTIONS_PER_PAGE);
   const customMode = customChosen || (Boolean(value.trim()) && !toneFor(value));
   const profile = customMode ? null : toneFor(value) ?? TONE_PROFILES[0];
   const selected = customMode ? CUSTOM : profile!.value;
@@ -150,9 +152,10 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
         </ListboxButton>
 
         <ListboxOptions
+          ref={pagedWheel}
           anchor={{ to: 'bottom start', gap: 6 }}
           transition
-          className="z-50 max-h-[26rem] w-[var(--button-width)] min-w-[20rem] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 transition duration-150 ease-out focus:outline-none data-[closed]:-translate-y-1 data-[closed]:scale-[0.98] data-[closed]:opacity-0"
+          className={PANEL_CLASS}
         >
           {TONE_PROFILES.map((tone) => {
             const toneStyle = STYLES[tone.value];
@@ -160,7 +163,7 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
               <ListboxOption
                 key={tone.value || 'default'}
                 value={tone.value}
-                className="group flex cursor-pointer items-start gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 data-[focus]:bg-gray-50 data-[selected]:bg-blue-50/70"
+                className={`${OPTION_CLASS} items-start`}
               >
                 <span className="transition-transform duration-200 group-data-[focus]:scale-110">
                   <IconChip style={toneStyle} size="sm" />
@@ -170,7 +173,7 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
                     {tone.label}
                     {!tone.value && <span className="rounded bg-gray-100 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-gray-500">Recommended</span>}
                   </span>
-                  <span className="mt-0.5 block text-xs leading-snug text-gray-500">{tone.description}</span>
+                  <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-gray-500">{tone.description}</span>
                   <span className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
                     {meters(tone).map(([label, level]) => (
                       <Meter key={label} label={label} level={level} dot={toneStyle.dot} />
@@ -181,11 +184,7 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
               </ListboxOption>
             );
           })}
-          <div className="my-1 border-t border-gray-100" />
-          <ListboxOption
-            value={CUSTOM}
-            className="group flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 data-[focus]:bg-gray-50 data-[selected]:bg-blue-50/70"
-          >
+          <ListboxOption value={CUSTOM} className={`${OPTION_CLASS} items-center`}>
             <span className="transition-transform duration-200 group-data-[focus]:scale-110">
               <IconChip style={STYLES[CUSTOM]} size="sm" />
             </span>

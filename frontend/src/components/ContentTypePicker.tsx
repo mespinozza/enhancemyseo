@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { CONTENT_BLUEPRINTS, blueprintFor } from '@/lib/article/enhanced/blueprints';
 import type { BlockType } from '@/lib/article/enhanced/types';
+import { OPTIONS_PER_PAGE, OPTION_CLASS, PANEL_CLASS, usePagedWheel } from './usePagedWheel';
 
 interface TypeStyle {
   icon: LucideIcon;
@@ -227,6 +228,7 @@ interface ContentTypePickerProps {
 export default function ContentTypePicker({ id, value, onChange, invalid = false, onBlur }: ContentTypePickerProps) {
   const chosen = value ? blueprintFor(value) : null;
   const style = chosen ? styleFor(value) : null;
+  const pagedWheel = usePagedWheel<HTMLElement>(OPTIONS_PER_PAGE);
 
   return (
     <div className="mt-1 space-y-2">
@@ -260,17 +262,9 @@ export default function ContentTypePicker({ id, value, onChange, invalid = false
           <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 group-data-[open]:rotate-180" />
         </ListboxButton>
 
-        <ListboxOptions
-          anchor={{ to: 'bottom start', gap: 6 }}
-          transition
-          className="z-50 max-h-[28rem] w-[var(--button-width)] min-w-[20rem] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 transition duration-150 ease-out focus:outline-none data-[closed]:-translate-y-1 data-[closed]:scale-[0.98] data-[closed]:opacity-0"
-        >
+        <ListboxOptions ref={pagedWheel} anchor={{ to: 'bottom start', gap: 6 }} transition className={PANEL_CLASS}>
           {CONTENT_BLUEPRINTS.map((blueprint) => (
-            <ListboxOption
-              key={blueprint.value}
-              value={blueprint.value}
-              className="group flex cursor-pointer items-start gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 data-[focus]:bg-gray-50 data-[selected]:bg-blue-50/70"
-            >
+            <ListboxOption key={blueprint.value} value={blueprint.value} className={`${OPTION_CLASS} items-start`}>
               <span className="transition-transform duration-200 group-data-[focus]:scale-110">
                 <IconChip style={styleFor(blueprint.value)} size="sm" />
               </span>
@@ -283,7 +277,7 @@ export default function ContentTypePicker({ id, value, onChange, invalid = false
                     </span>
                   )}
                 </span>
-                <span className="mt-0.5 block text-xs leading-snug text-gray-500">{blueprint.description}</span>
+                <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-gray-500">{blueprint.description}</span>
                 <BlockChips value={blueprint.value} />
               </span>
               <Check className="mt-1 h-4 w-4 shrink-0 text-blue-600 opacity-0 transition-opacity group-data-[selected]:opacity-100" />
