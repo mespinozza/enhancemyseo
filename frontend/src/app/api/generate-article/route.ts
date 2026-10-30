@@ -18,6 +18,7 @@ import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { textFromMessage } from '@/lib/ai/text';
 import { generateEnhancedArticle } from '@/lib/article/enhanced';
 import { blueprintFor, comparisonSubjects } from '@/lib/article/enhanced/blueprints';
+import { buildVoiceInstructions } from '@/lib/article/enhanced/tones';
 import { applyQuotedFix, factCheckWithClaude } from '@/lib/article/factcheck';
 import { researchTopic } from '@/lib/article/enhanced/research';
 import { interleaveProducts, rankForArticle, suggestSupplySearches, versusSearches } from '@/lib/article/enhanced/products';
@@ -6325,7 +6326,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     console.log('Starting article generation with Claude');
     
     // Create all prompt variables
-    const toneOfVoicePrompt = toneOfVoice ? `\n\nTONE OF VOICE: ${toneOfVoice}` : '';
+    const toneOfVoicePrompt = `\n\n${buildVoiceInstructions(toneOfVoice)}`;
     const contentTypePrompt = contentType ? `\n\nCONTENT TYPE: ${contentType}` : '';
     const brandPrompt = `\n\nBRAND: ${brandName} (${businessType})`;
 
@@ -6429,7 +6430,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       Please use a lot of formatting, tables and visuals are great for ranking on Google. If there is data that can be displayed through a table or other visual, ensure its removed from the text and replaced with the visual.
       Always include a modern styled key takeaways table at the beginning of the article listing the key points of the topic.
 
-      The article should be written in a ${toneOfVoice || 'professional'} tone and framed as ${contentType}.
+      The article should be written in the voice described above and framed as ${contentType}.
       This is a ${businessType} so write from the perspective of that business.
       ${instructions ? `Additional instructions:\n${instructions}` : ''}
     `;

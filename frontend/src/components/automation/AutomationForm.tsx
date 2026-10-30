@@ -24,6 +24,7 @@ import {
 } from '@/lib/automation/types';
 import { shortenPage, type GscCandidate } from '@/lib/automation/selection';
 import { blueprintFor } from '@/lib/article/enhanced/blueprints';
+import { toneFor } from '@/lib/article/enhanced/tones';
 import {
   WEEKDAY_NAMES,
   formatHour,
@@ -969,8 +970,15 @@ export default function AutomationForm({
                   {option}
                 </option>
               ))}
+              {/* A tone saved from free text would otherwise show as Default and be lost on save. */}
+              {toneOfVoice && !(TONE_OPTIONS as readonly string[]).includes(toneOfVoice) && (
+                <option value={toneOfVoice}>{toneOfVoice}</option>
+              )}
             </select>
           </div>
+          <p className="self-end text-xs text-gray-500">
+            {toneFor(toneOfVoice)?.description ?? 'A custom voice, applied to every part of the article.'}
+          </p>
         </div>
 
         <div className="mt-4">

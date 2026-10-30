@@ -9,6 +9,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { blueprintFor } from './blueprints';
+import { buildVoiceInstructions, measureVoice, voiceProblems } from './tones';
 import {
   BLOCK_TYPES,
   type ArticleBlockData,
@@ -200,7 +201,7 @@ export function missingBlocks(article: EnhancedArticle, required: BlockType[]): 
   return required.filter((type) => !present.has(type));
 }
 
-export function buildSystemPrompt(brandName: string): string {
+export function buildSystemPrompt(brandName: string, toneOfVoice?: string): string {
   const targets = INTENTS.map((intent) => `${intent} ${WORD_TARGETS[intent][0]}-${WORD_TARGETS[intent][1]}`).join(', ');
   const today = new Date();
   return `You are a senior content strategist and writer for ${brandName}. You write articles that rank in search, get quoted by AI answer engines, and genuinely help the reader decide or act.
@@ -221,6 +222,9 @@ Writing standards:
 - Never name or recommend competing retailers or stores.
 - The conclusion ends with a clear, specific call to action for ${brandName}.
 
+${buildVoiceInstructions(toneOfVoice)}
+If the brand guidelines describe their own voice or terminology, follow their terminology and rules; this voice sets the register.
+
 Visual blocks (attach to the section they belong to):
 - When the request lists required section blocks, every one of them must appear, in the section it belongs to. This overrides every other block rule.
 - Use 3-5 section blocks in total, never in adjacent sections unless the article is long, and only where they add something the prose cannot.
@@ -237,6 +241,17 @@ Links:
 - No external links in the prose; sources are listed separately.
 
 HTML in html fields: only p, ul, ol, li, h3, strong, em and a href. No styles, classes, h1, h2, tables, images or markdown.`;
+}
+
+/** The article's running prose, which is what a tone is judged on. */
+export function proseText(article: EnhancedArticle): string {
+  return [
+    article.quickAnswer,
+    article.introHtml,
+    ...article.sections.map((s) => s.html),
+    ...article.faq.map((f) => f.answer),
+    article.conclusionHtml,
+  ].join(' ');
 }
 
 export function productLine(p: CatalogProduct): string {
@@ -270,7 +285,6 @@ export function buildUserPrompt(input: WriterInput): string {
     );
   }
 
-  if (input.toneOfVoice) parts.push(`Tone of voice: ${input.toneOfVoice}`);
   if (input.brandGuidelines?.trim()) parts.push(`Brand guidelines:\n${input.brandGuidelines.trim()}`);
   if (input.instructions?.trim()) parts.push(`Additional instructions from the brand:\n${input.instructions.trim()}`);
 
@@ -431,7 +445,7 @@ export async function writeEnhancedArticle(
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 16000,
-      system: buildSystemPrompt(input.brandName),
+      system: buildSystemPrompt(input.brandName, input.toneOfVoice),
       tools: [ARTICLE_TOOL],
       tool_choice: { type: 'tool', name: ARTICLE_TOOL.name },
       messages: [{ role: 'user', content: buildUserPrompt(input) + correction }],
@@ -449,12 +463,17 @@ export async function writeEnhancedArticle(
     try {
       const draft = await write();
       const missing = missingBlocks(draft, required);
-      // A draft missing a required block is still kept on the last attempt: an article
+      const problems = [
+        ...(missing.length ? [`It left out these required section blocks: ${missing.join(', ')}. Include each of them.`] : []),
+        ...(draft.introHtml.replace(/<[^>]+>/g, '').trim() ? [] : ['The introduction was empty. Write it.']),
+        ...voiceProblems(input.toneOfVoice, measureVoice(proseText(draft))),
+      ];
+      // One rewrite at most; a draft with problems is still kept after that: an article
       // without its table is better than no article.
-      if (missing.length && !reasked && attempt < MAX_WRITE_ATTEMPTS) {
+      if (problems.length && !reasked && attempt < MAX_WRITE_ATTEMPTS) {
         reasked = true;
-        log(`⚠️ Draft is missing required blocks (${missing.join(', ')}); writing again`);
-        correction = `\n\nYour previous draft left out these required section blocks: ${missing.join(', ')}. Include each of them.`;
+        log(`⚠️ Draft needs another pass (${problems.join(' ')}); writing again`);
+        correction = `\n\nYour previous draft had these problems:\n${problems.map((p) => `- ${p}`).join('\n')}`;
         continue;
       }
       article = draft;
@@ -467,5 +486,11 @@ export async function writeEnhancedArticle(
 
   const blocks = article.sections.filter((s) => s.block).map((s) => s.block!.type);
   log(`✍️ Intent: ${article.intent}; ${article.sections.length} sections; blocks: ${blocks.join(', ') || 'none'}; quiz ${article.quiz ? 'yes' : 'no'}; FAQ ${article.faq.length}`);
+  const voice = measureVoice(proseText(article));
+  log(
+    `🗣️ Voice (${input.toneOfVoice || 'Default'}): ${voice.averageSentenceWords} words per sentence, ` +
+      `${voice.contractionsPer100} contractions and ${voice.youPer100} "you" per 100 words, ` +
+      `${voice.questions} questions, ${voice.exclamations} exclamations`
+  );
   return article;
 }

@@ -20,6 +20,7 @@ import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, Conte
 import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
 import type { ArticleSeo } from '@/lib/article/enhanced/types';
 import { CONTENT_BLUEPRINTS, blueprintFor } from '@/lib/article/enhanced/blueprints';
+import { TONE_LABELS, toneFor } from '@/lib/article/enhanced/tones';
 
 interface BlogPost {
   id: string;
@@ -61,6 +62,7 @@ export default function ArticlesPage() {
   
   const [instructions, setInstructions] = useState('');
   const [toneOfVoice, setToneOfVoice] = useState('');
+  const [customTone, setCustomTone] = useState(false);
   const [contentType, setContentType] = useState('');
   const [versusSubjects, setVersusSubjects] = useState<[string, string]>(['', '']);
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
@@ -1807,14 +1809,39 @@ export default function ArticlesPage() {
                   </div>
                 </div>
               </div>
-              <input
-                type="text"
+              <select
                 id="toneOfVoice"
-                value={toneOfVoice}
-                onChange={(e) => setToneOfVoice(e.target.value)}
+                value={customTone ? 'custom' : toneFor(toneOfVoice)?.label || 'Default'}
+                onChange={(e) => {
+                  const choice = e.target.value;
+                  setCustomTone(choice === 'custom');
+                  setToneOfVoice(choice === 'Default' || choice === 'custom' ? '' : choice);
+                }}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                placeholder="e.g., Professional, Casual, Friendly..."
-              />
+              >
+                <option value="Default">Default</option>
+                {TONE_LABELS.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
+                <option value="custom">Custom...</option>
+              </select>
+              {customTone && (
+                <input
+                  type="text"
+                  aria-label="Custom tone of voice"
+                  value={toneOfVoice}
+                  onChange={(e) => setToneOfVoice(e.target.value)}
+                  className="mt-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Describe the voice, e.g. witty and irreverent, like a seasoned chef"
+                />
+              )}
+              <p className="mt-1 text-xs text-gray-500">
+                {customTone
+                  ? 'Applied to every part of the article: wording, sentence length, formality, FAQ, quiz and call to action.'
+                  : toneFor(toneOfVoice)?.description}
+              </p>
             </div>
 
             {/* Content Type - Required */}

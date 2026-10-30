@@ -22,7 +22,8 @@ import {
 } from '../src/lib/article/enhanced/render';
 import { filterSources } from '../src/lib/article/enhanced/sources';
 import { BLOCK_TYPES, type ArticleBlockData, type CatalogProduct, type EnhancedArticle } from '../src/lib/article/enhanced/types';
-import { buildUserPrompt, missingBlocks, normalizeArticle, productLine, requiredBlocksFor } from '../src/lib/article/enhanced/writer';
+import { buildSystemPrompt, buildUserPrompt, missingBlocks, normalizeArticle, productLine, requiredBlocksFor } from '../src/lib/article/enhanced/writer';
+import { TONE_LABELS, TONE_PROFILES, measureVoice, toneFor, toneSummary, voiceProblems } from '../src/lib/article/enhanced/tones';
 import { interleaveProducts, rankForArticle, versusSearches } from '../src/lib/article/enhanced/products';
 import type { ProductDetails } from '../src/lib/shopify/product-details';
 import { CONTENT_BLUEPRINTS, blueprintFor, comparisonSubjects } from '../src/lib/article/enhanced/blueprints';
@@ -376,6 +377,41 @@ console.log('\nProduct selection');
   check('every content type says how to use products', CONTENT_BLUEPRINTS.every((b) => b.productUse.length > 20));
   const howToPrompt = buildUserPrompt({ keyword: 'how to descale', brandName: 'S', businessType: 'x', research: { brief: '', facts: [], questions: [], sources: [] }, products: [p('in1')], links: [], sources: [], contentType: 'how-to' });
   check('the prompt carries the content type\'s product guidance', howToPrompt.includes(blueprintFor('how-to').productUse));
+}
+
+console.log('\nTone of voice');
+{
+  check('labels, values and any case resolve to a profile', toneFor('Technical')?.value === 'technical' && toneFor('technical')?.value === 'technical' && toneFor(' AUTHORITATIVE ')?.value === 'authoritative');
+  check('empty and "Default" are the default voice', toneFor('')?.value === '' && toneFor(undefined)?.value === '' && toneFor('default')?.value === '');
+  check('common synonyms map to a profile', toneFor('Casual')?.value === 'conversational' && toneFor('formal')?.value === 'professional' && toneFor('warm')?.value === 'friendly');
+  check('anything else is a custom voice', toneFor('witty and irreverent') === null);
+  check('every tone has a full profile', TONE_PROFILES.every((t) => t.voice.length >= 3 && t.blocks.length >= 3 && t.avoid.length >= 2 && t.sample && t.cta && t.sentenceWords[0] < t.sentenceWords[1]));
+  check('the selectable tones are the five saved labels', TONE_LABELS.join() === 'Professional,Conversational,Technical,Friendly,Authoritative');
+
+  const technical = buildSystemPrompt('Store', 'Technical');
+  check('the system prompt carries the chosen voice', technical.includes('Voice: Technical') && technical.includes('Do not use contractions') && technical.includes(toneFor('technical')!.sample));
+  const conversational = buildSystemPrompt('Store', 'Conversational');
+  check('different tones give different instructions', conversational.includes('Use contractions freely') && !conversational.includes('Voice: Technical'));
+  check('a custom voice is applied to every part', buildSystemPrompt('Store', 'witty, like a seasoned chef').includes('Apply "witty, like a seasoned chef" consistently'));
+  check('the default voice is used with no tone', buildSystemPrompt('Store').includes('Voice: Default'));
+  const userPrompt = buildUserPrompt({ keyword: 'k', brandName: 'S', businessType: 'x', research: { brief: '', facts: [], questions: [], sources: [] }, products: [], links: [], sources: [], toneOfVoice: 'Technical' });
+  check('the old one-line tone is gone from the request', !userPrompt.includes('Tone of voice:'));
+  check('editor rewrites get the tone summary', toneSummary('Friendly').startsWith('Friendly: Warm and encouraging') && toneSummary('my own voice') === 'my own voice');
+
+  const chatty = measureVoice("<p>Here's the thing. You'll love it. Don't worry, it's easy! Want to know why?</p>");
+  check('contractions, "you", questions and exclamations are counted', chatty.contractionsPer100 > 20 && chatty.youPer100 > 5 && chatty.questions === 1 && chatty.exclamations === 1);
+  check('possessives are not counted as contractions', measureVoice("<p>The machine's compressor and Hoshizaki's warranty last years.</p>").contractionsPer100 === 0);
+  check('average sentence length is measured', measureVoice('<p>One two three four. Five six seven eight.</p>').averageSentenceWords === 4);
+  check('list items and paragraphs count as sentences', measureVoice('<ul><li>One two</li><li>Three four.</li></ul><p>Five six</p>').averageSentenceWords === 2);
+
+  const long = (s: string) => `<p>${Array(30).fill(s).join(' ')}</p>`;
+  const stiff = measureVoice(long('The unit requires a descaling cycle with an approved acid cleaner before any sanitizing cycle begins on the ice contact surfaces of the machine.'));
+  check('a stiff draft fails the Conversational voice', voiceProblems('Conversational', stiff).length === 3);
+  check('the same draft suits the Technical voice', voiceProblems('Technical', stiff).length === 0);
+  const casual = measureVoice(long("You'll want to descale it first. Don't skip the rinse. It's quick, and you're done."));
+  check('a casual draft suits the Conversational voice', voiceProblems('Conversational', casual).length === 0);
+  check('the same draft fails the Technical voice', voiceProblems('Technical', casual).some((p) => p.includes('no contractions')) && voiceProblems('Technical', casual).some((p) => p.includes('sparingly')));
+  check('a custom voice has no measured targets', voiceProblems('witty', casual).length === 0);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

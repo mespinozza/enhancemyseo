@@ -8,6 +8,7 @@
  *
  * Server-safe: no DOM access.
  */
+import { toneSummary } from './enhanced/tones';
 
 export const AI_REFUSAL_PATTERNS: RegExp[] = [
   /^I cannot/i,
@@ -183,7 +184,7 @@ export function buildBlockEditPrompt({
   const brandLines = [
     brand?.brandName ? `Brand: ${brand.brandName}` : null,
     brand?.businessType ? `Business type: ${brand.businessType}` : null,
-    brand?.toneOfVoice ? `Tone of voice: ${brand.toneOfVoice}` : null,
+    brand?.toneOfVoice ? `Tone of voice: ${toneSummary(brand.toneOfVoice)}` : null,
     brand?.keyword ? `Article target keyword: ${brand.keyword}` : null,
   ].filter(Boolean);
 
@@ -247,7 +248,7 @@ export function buildSectionEditPrompt({
   const brandLines = [
     brand?.brandName ? `Brand: ${brand.brandName}` : null,
     brand?.businessType ? `Business type: ${brand.businessType}` : null,
-    brand?.toneOfVoice ? `Tone of voice: ${brand.toneOfVoice}` : null,
+    brand?.toneOfVoice ? `Tone of voice: ${toneSummary(brand.toneOfVoice)}` : null,
     brand?.keyword ? `Article target keyword: ${brand.keyword}` : null,
   ].filter(Boolean);
 

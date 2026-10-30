@@ -197,13 +197,7 @@ export type AutomationDraft = Omit<
 
 export { CONTENT_TYPE_OPTIONS } from '@/lib/article/enhanced/blueprints';
 
-export const TONE_OPTIONS = [
-  'Professional',
-  'Conversational',
-  'Technical',
-  'Friendly',
-  'Authoritative',
-] as const;
+export { TONE_LABELS as TONE_OPTIONS } from '@/lib/article/enhanced/tones';
 
 export function defaultContentSelection(): ContentSelection {
   return {
