@@ -6,10 +6,7 @@ import {
   CheckCircle2,
   Clock,
   Loader2,
-  Pencil,
-  Play,
   Plus,
-  Trash2,
   Workflow,
   XCircle,
 } from 'lucide-react';
@@ -25,7 +22,7 @@ import {
 } from '@/lib/firebase/automations';
 import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota';
 import AutomationForm from '@/components/automation/AutomationForm';
-import { describeSchedule, monthKey } from '@/lib/automation/schedule';
+import AutomationCard, { formatWhen } from '@/components/automation/AutomationCard';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
 import { blueprintFor } from '@/lib/article/enhanced/blueprints';
 
@@ -34,24 +31,6 @@ const RUN_HISTORY_LIMIT = 25;
 
 function isActive(run: AutomationRun): boolean {
   return run.status === 'running' || run.status === 'queued';
-}
-
-function formatWhen(value?: { toDate(): Date } | null): string {
-  if (!value) return 'Never';
-  try {
-    return value.toDate().toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  } catch {
-    return 'Unknown';
-  }
-}
-
-function usedThisMonth(automation: Automation): number {
-  return automation.monthUsage?.month === monthKey() ? automation.monthUsage.count : 0;
 }
 
 function StatusIcon({ status }: { status: AutomationRunStatus }) {
@@ -279,119 +258,22 @@ export default function AutomatePage() {
           ) : (
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="space-y-4 lg:col-span-2">
-              {automations.map((automation) => {
-                const brand = brandProfiles.find((profile) => profile.id === automation.brandId);
-                const used = usedThisMonth(automation);
-                const atCap = used >= automation.monthlyArticleCap;
-                const activeRun = runs.find(
-                  (run) => run.automationId === automation.id && isActive(run)
-                );
-
-                return (
-                  <div
-                    key={automation.id}
-                    className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h2 className="truncate font-semibold text-gray-900">{automation.name}</h2>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              automation.enabled
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {automation.enabled ? 'On' : 'Paused'}
-                          </span>
-                          {activeRun && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              Writing now
-                            </span>
-                          )}
-                          {automation.autoPushToShopify && (
-                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                              Auto-push {automation.shopifyStatus}
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="mt-1 text-sm text-gray-600">
-                          {brand?.brandName || 'Brand profile missing'} &middot;{' '}
-                          {describeSchedule(automation.schedule)} &middot;{' '}
-                          {automation.articlesPerRun} article
-                          {automation.articlesPerRun === 1 ? '' : 's'} per run
-                        </p>
-
-                        <p className="mt-1 text-xs text-gray-500">
-                          {automation.topics.length} topic
-                          {automation.topics.length === 1 ? '' : 's'} &middot; {used} of{' '}
-                          {automation.monthlyArticleCap} used this month &middot; next run{' '}
-                          {automation.enabled ? formatWhen(automation.nextRunAt) : 'paused'}
-                        </p>
-
-                        {atCap && (
-                          <p className="mt-2 text-xs font-medium text-amber-700">
-                            Monthly cap reached. Runs are skipped until next month or you raise the
-                            cap.
-                          </p>
-                        )}
-
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2">
-                        {/* Stays disabled for the whole run, not just the request: the
-                            request returns in milliseconds while the work takes minutes. */}
-                        <button
-                          onClick={() => void handleRunNow(automation)}
-                          disabled={runningId === automation.id || Boolean(activeRun)}
-                          title={activeRun ? 'Already running' : 'Run once now'}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {runningId === automation.id || activeRun ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
-                          {activeRun ? 'Running' : 'Run now'}
-                        </button>
-
-                        <button
-                          onClick={() => void handleToggle(automation)}
-                          className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                            automation.enabled
-                              ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
-                              : 'bg-blue-600 text-white hover:bg-blue-700'
-                          }`}
-                        >
-                          {automation.enabled ? 'Pause' : 'Turn on'}
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setEditing(automation);
-                            setShowForm(true);
-                          }}
-                          title="Edit"
-                          className="rounded-md border border-gray-300 p-1.5 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-
-                        <button
-                          onClick={() => void handleDelete(automation)}
-                          title="Delete"
-                          className="rounded-md border border-gray-300 p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {automations.map((automation) => (
+                <AutomationCard
+                  key={automation.id}
+                  automation={automation}
+                  brandName={brandProfiles.find((profile) => profile.id === automation.brandId)?.brandName}
+                  isRunning={runs.some((run) => run.automationId === automation.id && isActive(run))}
+                  isStarting={runningId === automation.id}
+                  onRunNow={() => void handleRunNow(automation)}
+                  onToggle={() => void handleToggle(automation)}
+                  onEdit={() => {
+                    setEditing(automation);
+                    setShowForm(true);
+                  }}
+                  onDelete={() => void handleDelete(automation)}
+                />
+              ))}
               </div>
 
               <div className="lg:col-span-1">
@@ -425,7 +307,7 @@ export default function AutomatePage() {
                           <p className="text-sm text-gray-900">
                             <span className="font-medium">{run.automationName}</span>
                             {run.keyword && (
-                              <span className="text-gray-600"> — {run.keyword}</span>
+                              <span className="text-gray-600"> â€” {run.keyword}</span>
                             )}
                             {run.contentType && (
                               <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
@@ -439,7 +321,7 @@ export default function AutomatePage() {
                               {run.status === 'queued'
                                 ? 'Queued, waiting to start'
                                 : run.keyword
-                                  ? 'Writing the article — this takes a few minutes'
+                                  ? 'Writing the article â€” this takes a few minutes'
                                   : 'Picking a topic'}
                             </p>
                           ) : (
@@ -455,11 +337,11 @@ export default function AutomatePage() {
 
                           <p className="mt-1 text-xs text-gray-500">
                             {formatWhen(run.startedAt)}
-                            {isActive(run) && ` · ${elapsedSince(run.startedAt)}`}
-                            {run.pushedToShopify && ' · pushed to Shopify'}
+                            {isActive(run) && ` Â· ${elapsedSince(run.startedAt)}`}
+                            {run.pushedToShopify && ' Â· pushed to Shopify'}
                             {run.publishedToSiteBlog && (
                               <>
-                                {' · '}
+                                {' Â· '}
                                 <Link
                                   href={run.siteBlogPath || '/blog'}
                                   className="text-blue-600 hover:text-blue-700"
