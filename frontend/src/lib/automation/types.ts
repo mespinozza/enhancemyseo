@@ -166,6 +166,8 @@ export interface AutomationRun {
   triggerReason: string;
   /** The content type picked for this article. */
   contentType?: string;
+  /** The automation's tone when this article was written; '' is Default. */
+  toneOfVoice?: string;
   blogId?: string | null;
   articleTitle?: string | null;
   pushedToShopify: boolean;

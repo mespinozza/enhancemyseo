@@ -24,20 +24,47 @@ interface ToneStyle {
   dot: string;
   /** Sample card accent. */
   accent: string;
+  /** Small pill wherever a tone is shown. */
+  badge: string;
 }
 
 const CUSTOM = 'custom';
 
 // Full class names, so Tailwind keeps them.
 const STYLES: Record<string, ToneStyle> = {
-  '': { icon: Sparkles, chip: 'bg-blue-100 text-blue-600', dot: 'bg-blue-500', accent: 'border-blue-400 bg-blue-50/60' },
-  professional: { icon: Briefcase, chip: 'bg-indigo-100 text-indigo-600', dot: 'bg-indigo-500', accent: 'border-indigo-400 bg-indigo-50/60' },
-  conversational: { icon: MessageCircle, chip: 'bg-sky-100 text-sky-600', dot: 'bg-sky-500', accent: 'border-sky-400 bg-sky-50/60' },
-  technical: { icon: Cpu, chip: 'bg-emerald-100 text-emerald-600', dot: 'bg-emerald-500', accent: 'border-emerald-400 bg-emerald-50/60' },
-  friendly: { icon: Smile, chip: 'bg-amber-100 text-amber-600', dot: 'bg-amber-500', accent: 'border-amber-400 bg-amber-50/60' },
-  authoritative: { icon: ShieldCheck, chip: 'bg-violet-100 text-violet-600', dot: 'bg-violet-500', accent: 'border-violet-400 bg-violet-50/60' },
-  [CUSTOM]: { icon: PenLine, chip: 'bg-pink-100 text-pink-600', dot: 'bg-pink-500', accent: 'border-pink-400 bg-pink-50/60' },
+  '': { icon: Sparkles, chip: 'bg-blue-100 text-blue-600', dot: 'bg-blue-500', accent: 'border-blue-400 bg-blue-50/60', badge: 'bg-blue-50 text-blue-700 ring-blue-200' },
+  professional: { icon: Briefcase, chip: 'bg-indigo-100 text-indigo-600', dot: 'bg-indigo-500', accent: 'border-indigo-400 bg-indigo-50/60', badge: 'bg-indigo-50 text-indigo-700 ring-indigo-200' },
+  conversational: { icon: MessageCircle, chip: 'bg-sky-100 text-sky-600', dot: 'bg-sky-500', accent: 'border-sky-400 bg-sky-50/60', badge: 'bg-sky-50 text-sky-700 ring-sky-200' },
+  technical: { icon: Cpu, chip: 'bg-emerald-100 text-emerald-600', dot: 'bg-emerald-500', accent: 'border-emerald-400 bg-emerald-50/60', badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  friendly: { icon: Smile, chip: 'bg-amber-100 text-amber-600', dot: 'bg-amber-500', accent: 'border-amber-400 bg-amber-50/60', badge: 'bg-amber-50 text-amber-700 ring-amber-200' },
+  authoritative: { icon: ShieldCheck, chip: 'bg-violet-100 text-violet-600', dot: 'bg-violet-500', accent: 'border-violet-400 bg-violet-50/60', badge: 'bg-violet-50 text-violet-700 ring-violet-200' },
+  [CUSTOM]: { icon: PenLine, chip: 'bg-pink-100 text-pink-600', dot: 'bg-pink-500', accent: 'border-pink-400 bg-pink-50/60', badge: 'bg-pink-50 text-pink-700 ring-pink-200' },
 };
+
+export function toneIcon(tone: string | undefined | null): LucideIcon {
+  const profile = toneFor(tone);
+  return STYLES[profile ? profile.value : CUSTOM].icon;
+}
+
+/**
+ * The tone as a small pill: its icon, color and name, with the description on hover.
+ * Accepts the stored value: '' for Default, a label, a synonym, or custom text.
+ */
+export function ToneBadge({ tone, className = '' }: { tone: string | undefined | null; className?: string }) {
+  const profile = toneFor(tone);
+  const style = STYLES[profile ? profile.value : CUSTOM];
+  const Icon = style.icon;
+  const label = profile ? profile.label : String(tone).trim();
+  return (
+    <span
+      title={profile ? `Tone: ${profile.label}. ${profile.description}` : `Custom tone: ${label}`}
+      className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${style.badge} ${className}`}
+    >
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
 
 const FORMALITY = { avoid: 3, sometimes: 2, often: 1 } as const;
 const PERSONAL = { sparingly: 1, regularly: 2, constantly: 3 } as const;

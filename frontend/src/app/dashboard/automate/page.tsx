@@ -25,6 +25,7 @@ import AutomationForm from '@/components/automation/AutomationForm';
 import AutomationCard, { formatWhen } from '@/components/automation/AutomationCard';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
 import { blueprintFor } from '@/lib/article/enhanced/blueprints';
+import { ToneBadge } from '@/components/TonePicker';
 
 /** How many recent runs the history panel keeps live. */
 const RUN_HISTORY_LIMIT = 25;
@@ -314,6 +315,7 @@ export default function AutomatePage() {
                                 {blueprintFor(run.contentType).label}
                               </span>
                             )}
+                            {run.toneOfVoice !== undefined && <ToneBadge tone={run.toneOfVoice} className="ml-1.5 align-middle" />}
                           </p>
 
                           {isActive(run) ? (

@@ -3,6 +3,7 @@
 import { Loader2, Pencil, Play, Trash2 } from 'lucide-react';
 import { describeSchedule, monthKey } from '@/lib/automation/schedule';
 import type { Automation } from '@/lib/automation/types';
+import { ToneBadge } from '@/components/TonePicker';
 
 export function formatWhen(value?: { toDate(): Date } | null): string {
   if (!value) return 'Never';
@@ -80,6 +81,7 @@ export default function AutomationCard({
                 Auto-push {automation.shopifyStatus}
               </span>
             )}
+            <ToneBadge tone={automation.toneOfVoice} />
           </div>
 
           <p className="mt-1 truncate text-sm text-gray-600" title={summary}>

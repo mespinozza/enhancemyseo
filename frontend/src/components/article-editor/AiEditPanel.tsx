@@ -5,6 +5,8 @@ import { Sparkles, X, Loader2, Check, RefreshCw } from 'lucide-react';
 import { EDIT_PRESETS, type BrandContext } from '@/lib/article/rewrite';
 import { sanitizeArticleHtml } from '@/lib/article/sanitize';
 import DiffView from './DiffView';
+import { toneIcon } from '@/components/TonePicker';
+import { toneFor } from '@/lib/article/enhanced/tones';
 
 export interface AiEditRequest {
   /** Editable blocks in scope, in document order. */
@@ -38,6 +40,8 @@ export default function AiEditPanel({
   const [result, setResult] = useState<string | null>(null);
   const [lastDescription, setLastDescription] = useState('');
 
+  const ToneIcon = toneIcon(brand.toneOfVoice);
+  const toneName = toneFor(brand.toneOfVoice)?.label ?? 'custom';
   const blockCount = request.blockIds.length;
   const isSection = blockCount > 1;
   const scopeKey = request.blockIds.join(',');
@@ -87,7 +91,7 @@ export default function AiEditPanel({
       if (!response.ok) throw new Error(payload.error || 'The edit could not be generated.');
 
       setResult(sanitizeArticleHtml(payload.html));
-      setLastDescription(preset ? preset.label : freeText.slice(0, 60));
+      setLastDescription(preset ? (preset.id === 'tone' ? `Match ${toneName} tone` : preset.label) : freeText.slice(0, 60));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The edit could not be generated.');
     } finally {
@@ -141,21 +145,25 @@ export default function AiEditPanel({
               Quick edits
             </h3>
             <div className="flex flex-wrap gap-2">
-              {EDIT_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  title={preset.description}
-                  onClick={() => setPresetId(presetId === preset.id ? null : preset.id)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    presetId === preset.id
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-600'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
+              {EDIT_PRESETS.map((preset) => {
+                const isTone = preset.id === 'tone';
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    title={isTone ? `Rewrite in the ${toneName} voice: ${toneFor(brand.toneOfVoice)?.description ?? brand.toneOfVoice}` : preset.description}
+                    onClick={() => setPresetId(presetId === preset.id ? null : preset.id)}
+                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      presetId === preset.id
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-600'
+                    }`}
+                  >
+                    {isTone && <ToneIcon className="h-3 w-3" />}
+                    {isTone ? `Match ${toneName} tone` : preset.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

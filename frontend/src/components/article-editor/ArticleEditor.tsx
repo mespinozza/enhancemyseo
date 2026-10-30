@@ -37,6 +37,7 @@ import BlockView from './BlockView';
 import BlockSelectionBar from './BlockSelectionBar';
 import SelectionToolbar, { type SelectionTarget } from './SelectionToolbar';
 import AiEditPanel, { type AiEditRequest } from './AiEditPanel';
+import { ToneBadge } from '@/components/TonePicker';
 import LinkPanel from './LinkPanel';
 import HistoryPanel from './HistoryPanel';
 
@@ -565,6 +566,7 @@ export default function ArticleEditor({
           <span>{saveState}</span>
           <span className="mx-1 text-gray-300">|</span>
           <span>{words} words</span>
+          {toneOfVoice !== undefined && <ToneBadge tone={toneOfVoice} className="ml-2" />}
         </div>
 
         <div className="flex items-center gap-1">

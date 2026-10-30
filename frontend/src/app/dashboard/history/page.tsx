@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import ArticlePreview, { HighlightedText } from '@/components/history/ArticlePreview';
+import { ToneBadge } from '@/components/TonePicker';
 
 type TabType = 'blogs' | 'keywords' | 'thumbnails' | 'collections' | 'products';
 type SubscriptionTier = 'free' | 'kickstart' | 'seo_takeover' | 'agency' | 'admin';
@@ -899,6 +900,11 @@ ${blog.content || '<!-- No content available -->'}
               <p className="text-sm text-gray-500">
                 Status: <span className="capitalize">{blog.status}</span>
               </p>
+              {blog.toneOfVoice !== undefined && (
+                <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-500">
+                  Tone: <ToneBadge tone={blog.toneOfVoice} />
+                </p>
+              )}
               <p className="text-sm text-gray-500">
                 Generated: {blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
               </p>
@@ -1550,6 +1556,7 @@ ${blog.content || '<!-- No content available -->'}
                       <p className="text-xs text-gray-500">
                         Keyword: {article.keyword || 'Not specified'}
                       </p>
+                      {article.toneOfVoice !== undefined && <ToneBadge tone={article.toneOfVoice} className="mt-1" />}
                       {article.content && (
                         <div className="mt-2">
                           <div 

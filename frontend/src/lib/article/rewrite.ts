@@ -8,7 +8,7 @@
  *
  * Server-safe: no DOM access.
  */
-import { toneSummary } from './enhanced/tones';
+import { buildVoiceInstructions, toneSummary } from './enhanced/tones';
 
 export const AI_REFUSAL_PATTERNS: RegExp[] = [
   /^I cannot/i,
@@ -135,9 +135,9 @@ export const EDIT_PRESETS: EditPreset[] = [
   },
   {
     id: 'tone',
-    label: 'Match brand tone',
-    description: 'Align to the brand voice',
-    instruction: 'Rewrite this so it sits naturally in the brand voice described above, keeping the substance unchanged.',
+    label: 'Match tone',
+    description: "Rewrite in the article's tone of voice",
+    instruction: 'Rewrite this so it reads naturally in the voice to match above, keeping the substance and every link unchanged.',
   },
   {
     id: 'confident',
@@ -166,6 +166,23 @@ export interface BrandContext {
   keyword?: string;
 }
 
+function contextLines(brand: BrandContext | undefined): string[] {
+  return [
+    brand?.brandName ? `Brand: ${brand.brandName}` : null,
+    brand?.businessType ? `Business type: ${brand.businessType}` : null,
+    brand?.toneOfVoice ? `Tone of voice: ${toneSummary(brand.toneOfVoice)}` : null,
+    brand?.keyword ? `Article target keyword: ${brand.keyword}` : null,
+  ].filter((line): line is string => Boolean(line));
+}
+
+/** "Match tone" needs the tone's full rules, not the one-line summary other edits get. */
+function voiceSection(instruction: string, brand: BrandContext | undefined): string {
+  const matchTone = EDIT_PRESETS.find((preset) => preset.id === 'tone')!.instruction;
+  if (instruction !== matchTone) return '';
+  // Articles from before tones were saved were written in the default voice.
+  return `THE VOICE TO MATCH:\n${buildVoiceInstructions(brand?.toneOfVoice)}\n\n`;
+}
+
 export interface BuildEditPromptArgs {
   blockHtml: string;
   instruction: string;
@@ -180,13 +197,7 @@ export function buildBlockEditPrompt({
   brand,
 }: BuildEditPromptArgs): string {
   const tag = detectPrimaryTag(blockHtml);
-
-  const brandLines = [
-    brand?.brandName ? `Brand: ${brand.brandName}` : null,
-    brand?.businessType ? `Business type: ${brand.businessType}` : null,
-    brand?.toneOfVoice ? `Tone of voice: ${toneSummary(brand.toneOfVoice)}` : null,
-    brand?.keyword ? `Article target keyword: ${brand.keyword}` : null,
-  ].filter(Boolean);
+  const brandLines = contextLines(brand);
 
   const scope = selectedText
     ? `SCOPE OF THE EDIT:
@@ -204,7 +215,7 @@ ${brandLines.length ? `CONTEXT:\n${brandLines.join('\n')}\n` : ''}
 ORIGINAL HTML ELEMENT:
 ${blockHtml}
 
-WHAT TO CHANGE:
+${voiceSection(instruction, brand)}WHAT TO CHANGE:
 ${instruction}
 
 ${scope}
@@ -245,12 +256,7 @@ export function buildSectionEditPrompt({
   blockCount,
   brand,
 }: BuildSectionPromptArgs): string {
-  const brandLines = [
-    brand?.brandName ? `Brand: ${brand.brandName}` : null,
-    brand?.businessType ? `Business type: ${brand.businessType}` : null,
-    brand?.toneOfVoice ? `Tone of voice: ${toneSummary(brand.toneOfVoice)}` : null,
-    brand?.keyword ? `Article target keyword: ${brand.keyword}` : null,
-  ].filter(Boolean);
+  const brandLines = contextLines(brand);
 
   return `You are editing a section of a published SEO article. The section currently contains ${blockCount} top-level HTML elements. Return replacement HTML for the whole section.
 
@@ -258,7 +264,7 @@ ${brandLines.length ? `CONTEXT:\n${brandLines.join('\n')}\n` : ''}
 ORIGINAL SECTION HTML:
 ${sectionHtml}
 
-WHAT TO CHANGE:
+${voiceSection(instruction, brand)}WHAT TO CHANGE:
 ${instruction}
 
 STRUCTURE:

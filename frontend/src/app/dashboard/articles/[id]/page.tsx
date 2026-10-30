@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { blogOperations } from '@/lib/firebase/firestore';
+import { ToneBadge } from '@/components/TonePicker';
 
 const GENERATION_POLL_INTERVAL_MS = 3000;
 /** Long enough for the slowest generation, short enough to not poll an empty page all day. */
@@ -34,6 +35,7 @@ export default function ArticleDetailPage() {
         content: blogData.content || "",
         html_content: blogData.content || "",
         published: blogData.status === 'published',
+        toneOfVoice: blogData.toneOfVoice,
         created_at: blogData.createdAt?.toDate() || new Date(),
         publish_url: "#" // Not implemented
       };
@@ -117,6 +119,7 @@ export default function ArticleDetailPage() {
             <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
               {article.keyword}
             </h2>
+            {article.toneOfVoice !== undefined && <ToneBadge tone={article.toneOfVoice} className="mt-2" />}
           </div>
           <div className="mt-4 flex md:ml-4 md:mt-0">
             <button

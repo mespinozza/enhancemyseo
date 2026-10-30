@@ -26,6 +26,7 @@ import { buildSystemPrompt, buildUserPrompt, missingBlocks, normalizeArticle, pr
 import { TONE_LABELS, TONE_PROFILES, measureVoice, toneFor, toneSummary, voiceProblems } from '../src/lib/article/enhanced/tones';
 import { interleaveProducts, rankForArticle, versusSearches } from '../src/lib/article/enhanced/products';
 import type { ProductDetails } from '../src/lib/shopify/product-details';
+import { EDIT_PRESETS, buildBlockEditPrompt, buildSectionEditPrompt } from '../src/lib/article/rewrite';
 import { CONTENT_BLUEPRINTS, blueprintFor, comparisonSubjects } from '../src/lib/article/enhanced/blueprints';
 
 let passed = 0;
@@ -412,6 +413,12 @@ console.log('\nTone of voice');
   check('a casual draft suits the Conversational voice', voiceProblems('Conversational', casual).length === 0);
   check('the same draft fails the Technical voice', voiceProblems('Technical', casual).some((p) => p.includes('no contractions')) && voiceProblems('Technical', casual).some((p) => p.includes('sparingly')));
   check('a custom voice has no measured targets', voiceProblems('witty', casual).length === 0);
+
+  const matchTone = EDIT_PRESETS.find((p) => p.id === 'tone')!.instruction;
+  const toneEdit = buildBlockEditPrompt({ blockHtml: '<p>x</p>', instruction: matchTone, brand: { toneOfVoice: 'Technical' } });
+  check('"Match tone" edits get the full voice rules', toneEdit.includes('THE VOICE TO MATCH') && toneEdit.includes('Voice: Technical') && toneEdit.includes('Do not use contractions'));
+  check('"Match tone" on an older article uses the default voice', buildSectionEditPrompt({ sectionHtml: '<p>x</p>', instruction: matchTone, blockCount: 2, brand: {} }).includes('Voice: Default'));
+  check('other edits only get the one-line tone', !buildBlockEditPrompt({ blockHtml: '<p>x</p>', instruction: 'Shorten', brand: { toneOfVoice: 'Technical' } }).includes('THE VOICE TO MATCH'));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

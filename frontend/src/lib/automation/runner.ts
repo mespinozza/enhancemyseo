@@ -802,6 +802,7 @@ async function runQueuedAutomation(
     await openRef.update({
       ...(first && { keyword: chosen.keyword, triggerReason: chosen.reason }),
       contentType,
+      toneOfVoice: automation.toneOfVoice || '',
     });
 
     // So the next article in this same run cannot land on the keyword just taken.
