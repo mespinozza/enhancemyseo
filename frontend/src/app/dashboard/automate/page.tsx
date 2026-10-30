@@ -307,7 +307,7 @@ export default function AutomatePage() {
                           <p className="text-sm text-gray-900">
                             <span className="font-medium">{run.automationName}</span>
                             {run.keyword && (
-                              <span className="text-gray-600"> â€” {run.keyword}</span>
+                              <span className="text-gray-600"> — {run.keyword}</span>
                             )}
                             {run.contentType && (
                               <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
@@ -321,7 +321,7 @@ export default function AutomatePage() {
                               {run.status === 'queued'
                                 ? 'Queued, waiting to start'
                                 : run.keyword
-                                  ? 'Writing the article â€” this takes a few minutes'
+                                  ? 'Writing the article — this takes a few minutes'
                                   : 'Picking a topic'}
                             </p>
                           ) : (
@@ -337,11 +337,11 @@ export default function AutomatePage() {
 
                           <p className="mt-1 text-xs text-gray-500">
                             {formatWhen(run.startedAt)}
-                            {isActive(run) && ` Â· ${elapsedSince(run.startedAt)}`}
-                            {run.pushedToShopify && ' Â· pushed to Shopify'}
+                            {isActive(run) && ` · ${elapsedSince(run.startedAt)}`}
+                            {run.pushedToShopify && ' · pushed to Shopify'}
                             {run.publishedToSiteBlog && (
                               <>
-                                {' Â· '}
+                                {' · '}
                                 <Link
                                   href={run.siteBlogPath || '/blog'}
                                   className="text-blue-600 hover:text-blue-700"
