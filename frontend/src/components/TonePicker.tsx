@@ -137,7 +137,7 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
           id={id}
           className="group flex w-full items-center gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left shadow-sm transition hover:border-blue-400 hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-500 data-[open]:border-blue-500 data-[open]:ring-2 data-[open]:ring-blue-500/30"
         >
-          <span key={selected} className="animate-tone-pop">
+          <span key={selected} className="animate-pick-pop">
             <IconChip style={style} />
           </span>
           <span className="min-w-0 flex-1">
@@ -216,7 +216,7 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
         </div>
       </div>
 
-      <div key={selected} className={`animate-tone-fade rounded-lg border-l-4 px-3 py-2 ${style.accent}`}>
+      <div key={selected} className={`animate-pick-fade rounded-lg border-l-4 px-3 py-2 ${style.accent}`}>
         {profile ? (
           <>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Sounds like</p>

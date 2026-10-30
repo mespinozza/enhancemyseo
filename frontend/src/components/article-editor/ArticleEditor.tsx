@@ -38,6 +38,7 @@ import BlockSelectionBar from './BlockSelectionBar';
 import SelectionToolbar, { type SelectionTarget } from './SelectionToolbar';
 import AiEditPanel, { type AiEditRequest } from './AiEditPanel';
 import { ToneBadge } from '@/components/TonePicker';
+import { ContentTypeBadge } from '@/components/ContentTypePicker';
 import LinkPanel from './LinkPanel';
 import HistoryPanel from './HistoryPanel';
 
@@ -86,6 +87,7 @@ interface ArticleEditorProps {
   brand: BrandProfile | null;
   keyword?: string;
   toneOfVoice?: string;
+  contentType?: string;
   getToken: () => Promise<string | null>;
 }
 
@@ -106,6 +108,7 @@ export default function ArticleEditor({
   brand,
   keyword,
   toneOfVoice,
+  contentType,
   getToken,
 }: ArticleEditorProps) {
   const router = useRouter();
@@ -566,7 +569,8 @@ export default function ArticleEditor({
           <span>{saveState}</span>
           <span className="mx-1 text-gray-300">|</span>
           <span>{words} words</span>
-          {toneOfVoice !== undefined && <ToneBadge tone={toneOfVoice} className="ml-2" />}
+          {contentType && <ContentTypeBadge contentType={contentType} className="ml-2" />}
+          {toneOfVoice !== undefined && <ToneBadge tone={toneOfVoice} className={contentType ? 'ml-1' : 'ml-2'} />}
         </div>
 
         <div className="flex items-center gap-1">

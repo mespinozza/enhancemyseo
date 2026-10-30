@@ -24,7 +24,7 @@ import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota'
 import AutomationForm from '@/components/automation/AutomationForm';
 import AutomationCard, { formatWhen } from '@/components/automation/AutomationCard';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
-import { blueprintFor } from '@/lib/article/enhanced/blueprints';
+import { ContentTypeBadge } from '@/components/ContentTypePicker';
 import { ToneBadge } from '@/components/TonePicker';
 
 /** How many recent runs the history panel keeps live. */
@@ -310,11 +310,7 @@ export default function AutomatePage() {
                             {run.keyword && (
                               <span className="text-gray-600"> — {run.keyword}</span>
                             )}
-                            {run.contentType && (
-                              <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                                {blueprintFor(run.contentType).label}
-                              </span>
-                            )}
+                            {run.contentType && <ContentTypeBadge contentType={run.contentType} className="ml-2 align-middle" />}
                             {run.toneOfVoice !== undefined && <ToneBadge tone={run.toneOfVoice} className="ml-1.5 align-middle" />}
                           </p>
 

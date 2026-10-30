@@ -97,6 +97,7 @@ export default function ArticleEditPage() {
       brand={article.brand}
       keyword={article.blog.keyword}
       toneOfVoice={article.blog.toneOfVoice}
+      contentType={article.blog.contentType}
       getToken={async () => (user ? await user.getIdToken() : null)}
     />
   );

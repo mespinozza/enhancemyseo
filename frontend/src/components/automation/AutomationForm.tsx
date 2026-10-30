@@ -22,7 +22,7 @@ import {
   type AutomationTrigger,
 } from '@/lib/automation/types';
 import { shortenPage, type GscCandidate } from '@/lib/automation/selection';
-import { blueprintFor } from '@/lib/article/enhanced/blueprints';
+import { ContentTypeChoice } from '@/components/ContentTypePicker';
 import TonePicker from '@/components/TonePicker';
 import {
   WEEKDAY_NAMES,
@@ -927,28 +927,14 @@ export default function AutomationForm({
             the formats used most recently. Versus is only used for keywords that name both sides.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {CONTENT_TYPE_OPTIONS.map((option) => {
-              const checked = contentTypes.includes(option.value);
-              return (
-                <label
-                  key={option.value}
-                  className={`flex cursor-pointer gap-2 rounded-md border p-2 text-sm ${
-                    checked ? 'border-blue-300 bg-blue-50' : 'border-gray-200'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleContentType(option.value)}
-                    className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>
-                    <span className="block font-medium text-gray-900">{option.label}</span>
-                    <span className="block text-xs text-gray-500">{blueprintFor(option.value).description}</span>
-                  </span>
-                </label>
-              );
-            })}
+            {CONTENT_TYPE_OPTIONS.map((option) => (
+              <ContentTypeChoice
+                key={option.value}
+                value={option.value}
+                checked={contentTypes.includes(option.value)}
+                onToggle={() => toggleContentType(option.value)}
+              />
+            ))}
           </div>
         </fieldset>
 

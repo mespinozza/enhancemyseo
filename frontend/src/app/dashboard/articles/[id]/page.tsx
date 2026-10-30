@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { blogOperations } from '@/lib/firebase/firestore';
 import { ToneBadge } from '@/components/TonePicker';
+import { ContentTypeBadge } from '@/components/ContentTypePicker';
 
 const GENERATION_POLL_INTERVAL_MS = 3000;
 /** Long enough for the slowest generation, short enough to not poll an empty page all day. */
@@ -36,6 +37,7 @@ export default function ArticleDetailPage() {
         html_content: blogData.content || "",
         published: blogData.status === 'published',
         toneOfVoice: blogData.toneOfVoice,
+        contentType: blogData.contentType,
         created_at: blogData.createdAt?.toDate() || new Date(),
         publish_url: "#" // Not implemented
       };
@@ -119,7 +121,12 @@ export default function ArticleDetailPage() {
             <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
               {article.keyword}
             </h2>
-            {article.toneOfVoice !== undefined && <ToneBadge tone={article.toneOfVoice} className="mt-2" />}
+            {(article.contentType || article.toneOfVoice !== undefined) && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {article.contentType && <ContentTypeBadge contentType={article.contentType} />}
+                {article.toneOfVoice !== undefined && <ToneBadge tone={article.toneOfVoice} />}
+              </div>
+            )}
           </div>
           <div className="mt-4 flex md:ml-4 md:mt-0">
             <button

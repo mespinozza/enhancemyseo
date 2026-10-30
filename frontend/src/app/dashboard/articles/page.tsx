@@ -19,7 +19,7 @@ import { useRouter } from 'next/navigation';
 import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, ContentSearchResults, WebsitePage } from '@/types/content-selection';
 import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
 import type { ArticleSeo } from '@/lib/article/enhanced/types';
-import { CONTENT_BLUEPRINTS, blueprintFor } from '@/lib/article/enhanced/blueprints';
+import ContentTypePicker from '@/components/ContentTypePicker';
 import TonePicker from '@/components/TonePicker';
 
 interface BlogPost {
@@ -1827,30 +1827,20 @@ export default function ArticlesPage() {
                   </div>
                 </div>
               </div>
-              <select
+              <ContentTypePicker
                 id="contentType"
                 value={contentType}
-                onChange={(e) => setContentType(e.target.value)}
-                onFocus={() => markFieldAsTouched('contentType')}
+                onChange={(value) => {
+                  setContentType(value);
+                  markFieldAsTouched('contentType');
+                }}
                 onBlur={() => markFieldAsTouched('contentType')}
-                className={`mt-1 block w-full rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 ${
-                  !contentType && touchedFields.contentType ? 'border-red-300' : 'border-gray-300'
-                }`}
-              >
-                <option value="">Select a content type...</option>
-                {CONTENT_BLUEPRINTS.map((blueprint) => (
-                  <option key={blueprint.value} value={blueprint.value}>
-                    {blueprint.label}
-                  </option>
-                ))}
-              </select>
+                invalid={!contentType && touchedFields.contentType}
+              />
               {!contentType && touchedFields.contentType && (
                 <p className="mt-1 text-sm text-red-600">
                   Content type is required
                 </p>
-              )}
-              {contentType && (
-                <p className="mt-1 text-xs text-gray-500">{blueprintFor(contentType).description}</p>
               )}
             </div>
 
