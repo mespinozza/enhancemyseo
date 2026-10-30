@@ -20,8 +20,11 @@ import { generateEnhancedArticle } from '@/lib/article/enhanced';
 import { blueprintFor, comparisonSubjects } from '@/lib/article/enhanced/blueprints';
 import { applyQuotedFix, factCheckWithClaude } from '@/lib/article/factcheck';
 import { researchTopic } from '@/lib/article/enhanced/research';
+import { interleaveProducts, rankForArticle, suggestSupplySearches, versusSearches } from '@/lib/article/enhanced/products';
+import { fetchProductDetails, type ProductDetails } from '@/lib/shopify/product-details';
 import { filterSources } from '@/lib/article/enhanced/sources';
 import type { CatalogProduct, LinkTarget, ResearchResult } from '@/lib/article/enhanced/types';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -167,10 +170,10 @@ async function retryWithBackoff<T>(
 
 // ============================================================================
 // REQUEST-SCOPED LOGGING SYSTEM
-// Captures all generation logs for the current request
+// Captures all generation logs for the current request. Generations overlap (bulk
+// runs, automations, several users), so each request gets its own log.
 // ============================================================================
-let currentRequestLog: string[] = [];
-let isLoggingEnabled = false;
+const requestLogStore = new AsyncLocalStorage<string[]>();
 
 /**
  * Logs a message to both console and the current request's log array
@@ -178,25 +181,11 @@ let isLoggingEnabled = false;
  */
 function rlog(message: string): void {
   console.log(message);
-  if (isLoggingEnabled) {
-    currentRequestLog.push(message);
-  }
+  requestLogStore.getStore()?.push(message);
 }
 
-/**
- * Resets the request log for a new generation
- */
-function resetRequestLog(): void {
-  currentRequestLog = [];
-  isLoggingEnabled = true;
-}
-
-/**
- * Gets the current request log and disables logging
- */
 function getRequestLog(): string[] {
-  isLoggingEnabled = false;
-  return [...currentRequestLog];
+  return [...(requestLogStore.getStore() ?? [])];
 }
 
 // Get API keys from environment variables
@@ -5560,9 +5549,10 @@ ${cleaned}`;
 
 
 export async function POST(request: Request) {
-  // Reset the request log for this generation
-  resetRequestLog();
-  
+  return requestLogStore.run([], () => generate(request));
+}
+
+async function generate(request: Request) {
   // Create a logger that uses the request-scoped logging system
   const log = rlog;
   
@@ -5744,6 +5734,9 @@ export async function POST(request: Request) {
     let integrationPrompt = '';
     let integrationStatus = 'none'; // Track overall integration status
     let detectedVendor: string | null = null; // Track detected vendor for vendor-specific filtering
+    const contentBlueprint = blueprintFor(contentType);
+    const versusSubjects = contentBlueprint.value === 'versus' ? comparisonSubjects(keyword, body.comparisonSubjects) : null;
+    let supplyProductCount = 0;
     
     if (contentSelection) {
       // Create a brandProfile-like object for integration detection
@@ -5850,11 +5843,12 @@ export async function POST(request: Request) {
       // Fetch vendors from collections if not already provided
       const vendorsFromCollections = currentAvailableVendors.length > 0 ? currentAvailableVendors : await fetchVendorsFromCollections(shopDomain, accessToken);
       
-      // Step 1: Quick vendor detection (no AI call, just string matching)
-      detectedVendor = quickVendorDetection(keyword, vendorsFromCollections);
+      // Step 1: Quick vendor detection (no AI call, just string matching).
+      // A versus article is about two sides, so it is never locked to one vendor.
+      detectedVendor = versusSubjects ? null : quickVendorDetection(keyword, vendorsFromCollections);
       
       // Step 2: If no quick match, try AI extraction as fallback
-      if (!detectedVendor) {
+      if (!detectedVendor && !versusSubjects) {
         rlog('ℹ️ No quick vendor match, trying AI analysis...');
         const aiAnalysisResult = await extractKeyTerms('', keyword, vendorsFromCollections, businessType);
         detectedVendor = aiAnalysisResult.primaryVendor;
@@ -5869,22 +5863,63 @@ export async function POST(request: Request) {
       // Search products if enabled
       if (contentSelection.automaticOptions.includeProducts) {
         console.log('🔍 Searching Shopify products...');
-        const products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
-        if (products.length > 0) {
-          relatedProductsList = products.map(p => `• ${p.title} - ${body.websiteUrl}/products/${p.handle}`).join('\n');
-          for (const p of products) {
-            if (!p.handle) continue;
+        const supplySearchesPromise =
+          contentBlueprint.value === 'how-to' ? suggestSupplySearches(anthropic, keyword, businessType) : null;
+
+        type FoundProduct = Awaited<ReturnType<typeof searchShopifyProducts>>[number];
+        const toCatalog = (found: FoundProduct[]): CatalogProduct[] =>
+          found.flatMap((p) => {
+            if (!p.handle) return [];
             const image = p.featuredImage as { url?: string; altText?: string | null } | null | undefined;
             const variants = p.variants as { price?: string }[] | undefined;
             const priceRange = p.priceRangeV2 as { minVariantPrice?: { amount?: string } } | undefined;
-            catalogProducts.push({
+            return [{
+              id: p.id,
               handle: p.handle,
               title: p.title,
               url: `${siteBase}/products/${p.handle}`,
               price: variants?.[0]?.price ?? priceRange?.minVariantPrice?.amount,
               image: image?.url ? { url: image.url, alt: image.altText } : null,
-            });
+              vendor: p.vendor || undefined,
+              productType: (p.productType || p.product_type || undefined) as string | undefined,
+            }];
+          });
+
+        let products: FoundProduct[];
+        if (versusSubjects) {
+          // Each side is searched on its own so both get products, then alternated.
+          const sides: FoundProduct[][] = [];
+          for (const search of versusSearches(keyword, versusSubjects)) {
+            const sideVendor = quickVendorDetection(search, vendorsFromCollections);
+            rlog(`⚖️ Searching products for "${search}"${sideVendor ? ` (vendor: ${sideVendor})` : ''}`);
+            sides.push(await searchShopifyProducts(shopDomain, accessToken, [search], vendorsFromCollections, sideVendor, businessType));
           }
+          const merged = interleaveProducts(sides.map(toCatalog));
+          const byHandle = new Map(sides.flat().map((p) => [p.handle, p]));
+          products = merged.map((p) => byHandle.get(p.handle)).filter((p): p is FoundProduct => Boolean(p));
+        } else {
+          products = await searchShopifyProducts(shopDomain, accessToken, searchQueries, vendorsFromCollections, detectedVendor, businessType);
+        }
+
+        // A how-to reader usually owns the equipment already; what they need are the supplies.
+        if (supplySearchesPromise) {
+          const searches = await supplySearchesPromise;
+          const supplies: FoundProduct[] = [];
+          for (const search of searches) {
+            rlog(`🧰 Searching supplies: "${search}"`);
+            const found = await searchProductsWithGraphQL(shopDomain, accessToken, [search], null, search, search).catch(() => []);
+            supplies.push(...found.slice(0, 3));
+          }
+          const known = new Set(products.map((p) => p.handle));
+          const newSupplies = supplies.filter((p) => p.handle && !known.has(p.handle) && known.add(p.handle)).slice(0, 6);
+          supplyProductCount = newSupplies.length;
+          if (newSupplies.length) rlog(`✅ Found ${newSupplies.length} supply products`);
+          products = [...newSupplies, ...products];
+        }
+
+        if (products.length > 0) {
+          relatedProductsList = products.map(p => `• ${p.title} - ${body.websiteUrl}/products/${p.handle}`).join('\n');
+          catalogProducts.push(...toCatalog(products));
           log(`🛒 Products found: ${products.length}`);
           products.forEach((p, i) => log(`   ${i + 1}. ${p.title}`));
           rlog(`✅ Found ${products.length} relevant products`);
@@ -5929,6 +5964,7 @@ export async function POST(request: Request) {
         for (const p of contentSelection.manualSelections.products) {
           if (!p?.handle || !p?.title) continue;
           catalogProducts.push({
+            id: typeof p.id === 'string' ? p.id : undefined,
             handle: String(p.handle),
             title: String(p.title),
             url: `${siteBase}/products/${p.handle}`,
@@ -6209,14 +6245,26 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
           : [];
         if (!citeSources) log('ℹ️ Sources list is off for this brand');
 
-        const seenProducts = new Set<string>();
-        const products = catalogProducts.filter((p) => !seenProducts.has(p.handle) && seenProducts.add(p.handle)).slice(0, 12);
+        const shopDomain = shopifyStoreUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const details = shopDomain && shopifyAccessToken
+          ? await fetchProductDetails(shopDomain, shopifyAccessToken, catalogProducts.map((p) => p.id ?? ''))
+          : new Map<string, ProductDetails>();
+        const products = rankForArticle(catalogProducts, details);
+        const outOfStock = products.filter((p) => p.inStock === false).length;
+        if (details.size) log(`📦 Stock checked: ${products.length - outOfStock} of ${products.length} products available`);
         const seenLinks = new Set<string>();
         const links = linkTargets.filter((l) => !seenLinks.has(l.url) && seenLinks.add(l.url)).slice(0, 20);
 
-        const productRules = detectedVendor
-          ? `This article is about ${detectedVendor} products. The product and link lists contain only ${detectedVendor} items. Do not mention or recommend any other brand by name; keep any alternatives generic.`
-          : '';
+        const vendorRule = !detectedVendor
+          ? ''
+          : supplyProductCount
+            ? `This article is about ${detectedVendor} equipment. Do not recommend another brand's equipment by name; the supplies and parts in the product list may be recommended.`
+            : `This article is about ${detectedVendor} products. The product and link lists contain only ${detectedVendor} items. Do not mention or recommend any other brand by name; keep any alternatives generic.`;
+        const supplyRule =
+          contentBlueprint.value === 'how-to' && products.length && !supplyProductCount
+            ? 'The store has no supplies for this task in the product list: describe the supplies generically, and feature the listed products only in a section on replacing or upgrading, if at all.'
+            : '';
+        const productRules = [vendorRule, supplyRule].filter(Boolean).join('\n');
 
         const result = await generateEnhancedArticle(
           anthropic,
@@ -6226,7 +6274,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
             businessType,
             toneOfVoice,
             contentType,
-            subjects: blueprintFor(contentType).value === 'versus' ? comparisonSubjects(keyword, body.comparisonSubjects) : null,
+            subjects: versusSubjects,
             instructions,
             brandGuidelines,
             research,

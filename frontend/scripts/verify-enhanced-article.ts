@@ -21,8 +21,10 @@ import {
   type RenderContext,
 } from '../src/lib/article/enhanced/render';
 import { filterSources } from '../src/lib/article/enhanced/sources';
-import { BLOCK_TYPES, type ArticleBlockData, type EnhancedArticle } from '../src/lib/article/enhanced/types';
-import { buildUserPrompt, missingBlocks, normalizeArticle, requiredBlocksFor } from '../src/lib/article/enhanced/writer';
+import { BLOCK_TYPES, type ArticleBlockData, type CatalogProduct, type EnhancedArticle } from '../src/lib/article/enhanced/types';
+import { buildUserPrompt, missingBlocks, normalizeArticle, productLine, requiredBlocksFor } from '../src/lib/article/enhanced/writer';
+import { interleaveProducts, rankForArticle, versusSearches } from '../src/lib/article/enhanced/products';
+import type { ProductDetails } from '../src/lib/shopify/product-details';
 import { CONTENT_BLUEPRINTS, blueprintFor, comparisonSubjects } from '../src/lib/article/enhanced/blueprints';
 
 let passed = 0;
@@ -342,6 +344,38 @@ console.log('\nContent types');
   check('the prompt carries the structure, required blocks and both sides', versusPrompt.includes('Versus (Brand A Vs. Brand B)') && versusPrompt.includes('Required section blocks: comparison_table, decision_guide') && versusPrompt.includes('"Alpha" vs "Beta"'));
   const timelineHtml = renderBlock(blocks.timeline, ctx, allowed);
   check('timeline escapes its text', timelineHtml.includes('&lt;b&gt;x&lt;/b&gt;') && timelineHtml.includes('1947'));
+}
+
+console.log('\nProduct selection');
+{
+  const p = (handle: string, extra: Partial<CatalogProduct> = {}): CatalogProduct => ({ id: `gid://shopify/Product/${handle}`, handle, title: handle, url: `https://s.com/products/${handle}`, ...extra });
+  check('versus sides alternate and repeats are dropped', interleaveProducts([[p('a1'), p('a2'), p('x')], [p('b1'), p('x'), p('b2')]]).map((x) => x.handle).join() === 'a1,b1,a2,x,b2');
+  check('interleaving respects the cap', interleaveProducts([[p('a1'), p('a2')], [p('b1'), p('b2')]], 3).length === 3);
+
+  const details = new Map<string, ProductDetails>([
+    ['gid://shopify/Product/out', { inStock: false }],
+    ['gid://shopify/Product/in1', { inStock: true, productType: 'Cleaner', vendor: 'Nu-Calgon', description: 'Nickel-safe.' }],
+    ['gid://shopify/Product/in2', { inStock: true }],
+  ]);
+  const ranked = rankForArticle([p('out'), p('unknown'), p('in1'), p('in2')], details);
+  check('in-stock products come first, unknown next, in relevance order', ranked.map((x) => x.handle).join() === 'in1,in2,unknown');
+  check('out-of-stock products are dropped when 3+ others remain', !ranked.some((x) => x.handle === 'out'));
+  check('details fill type, brand and description', ranked[0].productType === 'Cleaner' && ranked[0].vendor === 'Nu-Calgon' && ranked[0].inStock === true);
+  const few = rankForArticle([p('out'), p('in1')], details);
+  check('out-of-stock products are kept, last, when few remain', few.map((x) => x.handle).join() === 'in1,out');
+  check('search-supplied type is not overwritten', rankForArticle([p('in1', { productType: 'Descaler' })], details)[0].productType === 'Descaler');
+
+  check('versus searches share a trailing product type', versusSearches('Hoshizaki vs Manitowoc ice machines', ['Hoshizaki', 'Manitowoc']).join('|') === 'Hoshizaki ice machines|Manitowoc ice machines');
+  check('versus searches borrow the type from a parsed keyword', versusSearches('Hoshizaki vs Manitowoc ice machines', ['Hoshizaki', 'Manitowoc ice machines']).join('|') === 'Hoshizaki ice machines|Manitowoc ice machines');
+  check('versus searches handle "A versus B fryer: ..."', versusSearches('gas versus electric fryer: which is better', ['gas', 'electric fryer']).join('|') === 'gas fryer|electric fryer');
+  check('form-entered sides not in the keyword are searched as given', versusSearches('best ice machine brand', ['Hoshizaki', 'Manitowoc']).join('|') === 'Hoshizaki|Manitowoc');
+
+  const line = productLine(p('in1', { price: '24.99', productType: 'Cleaner', vendor: 'Nu-Calgon', inStock: true, description: 'Nickel-safe.' }));
+  check('product lines carry price, type, brand, stock and description', line.includes('$24.99 | Cleaner | Nu-Calgon | in stock') && line.includes('\n  Nickel-safe.'));
+  check('out-of-stock products are flagged to the writer', productLine(p('o', { inStock: false })).includes('OUT OF STOCK'));
+  check('every content type says how to use products', CONTENT_BLUEPRINTS.every((b) => b.productUse.length > 20));
+  const howToPrompt = buildUserPrompt({ keyword: 'how to descale', brandName: 'S', businessType: 'x', research: { brief: '', facts: [], questions: [], sources: [] }, products: [p('in1')], links: [], sources: [], contentType: 'how-to' });
+  check('the prompt carries the content type\'s product guidance', howToPrompt.includes(blueprintFor('how-to').productUse));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -21,6 +21,8 @@ export interface ContentBlueprint {
   requiredBlocks: BlockType[];
   /** Structure instructions added to the writer prompt. */
   structure: string;
+  /** Which of the store's products to feature, and where. */
+  productUse: string;
 }
 
 export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
@@ -31,6 +33,7 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
     intent: null,
     requiredBlocks: [],
     structure: 'Choose the structure that best matches the search intent of the keyword.',
+    productUse: 'Feature the products that most directly answer the keyword, in the sections where a reader would want them.',
   },
   {
     value: 'informational',
@@ -42,6 +45,8 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
       'Open the first section with a one-sentence definition ("X is ..."), the format search engines quote. ' +
       'Then cover how it works, why it matters, types or variations, key figures (a stats block when the research has figures), ' +
       'and common misconceptions. Link products or services where they are the natural next step.',
+    productUse:
+      'Educate first: link products only where they are the natural next step, and use at most one product_cards block, near the end, with the products that best fit what was explained.',
   },
   {
     value: 'product-reviews',
@@ -54,6 +59,8 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
       'Then one H2 per product named after the product, covering key specs, who it is best for, and a pros_cons block for the most important product or a combined one. ' +
       'Include product_cards for the reviewed products, a comparison_table when two or more products are reviewed, and end with a clear verdict naming the best pick for each type of buyer. ' +
       'Be honest about drawbacks; credible reviews rank and convert better than praise. If there are no products in the list, review the leading product types instead and do not invent model names.',
+    productUse:
+      'Review in-stock products that match the keyword most closely. Prefer a spread of price points and types so each kind of buyer gets a pick; describe each from its listed type and description, never from invented specs.',
   },
   {
     value: 'listicle',
@@ -66,6 +73,8 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
       'Each item is its own H2 starting with its number ("1. Name"), with what it is, why it made the list, and who it suits. ' +
       'Put an at-a-glance comparison_table near the top summarizing every item in one row each. ' +
       'Where items are products from the product list, use product_cards in their sections. Sections outside the list (such as how to choose) have no number.',
+    productUse:
+      'When the list is of products, its items are in-stock products from the product list that match the keyword, varied in price and type. Otherwise link the products that suit each item.',
   },
   {
     value: 'history',
@@ -77,6 +86,7 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
       'Tell the history in chronological sections (origins, key developments, modern day, what comes next). ' +
       'Include a timeline block with 5-8 dated milestones taken from the research; never invent dates. ' +
       'Close by connecting the history to what buyers should know today.',
+    productUse: 'Keep the history free of product promotion; feature products only in the modern-day and closing sections, as today\'s options.',
   },
   {
     value: 'pros-cons',
@@ -87,6 +97,8 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
     structure:
       'Explain what the option is, then give the advantages and the drawbacks their own H2s with real specifics and figures, ' +
       'a pros_cons block summarizing both, and a decision_guide on who should and should not choose it. Stay balanced; one-sided articles lose trust.',
+    productUse:
+      'Feature products that are examples of the option being weighed, in the "who it is right for" part; link an alternative product in the decision_guide for readers it does not suit.',
   },
   {
     value: 'comparisons',
@@ -97,6 +109,8 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
     structure:
       'Compare the main options on the criteria that matter to a buyer (cost, performance, size, maintenance, and so on), one H2 per criterion or per option. ' +
       'Include a comparison_table with one column per option and a verdict, and a decision_guide matching each kind of buyer to the right option.',
+    productUse:
+      'Match one product to each option compared where the list has one, and link it from that option\'s decision_guide entry and section.',
   },
   {
     value: 'how-to',
@@ -108,6 +122,8 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
       'Start with a short section on what is needed (a checklist of tools, parts or materials, plus time and skill level). ' +
       'Then a steps block with every step in order, each with a short action title and the detail to do it. ' +
       'Follow with common mistakes (a callout with variant mistake), troubleshooting, and when to call a professional or which parts to buy, linking products where relevant. Include any safety warnings before the step they apply to.',
+    productUse:
+      'Link the supplies, tools and parts the reader needs in the checklist and in the step that uses them, with a product_cards block of those supplies. Equipment products belong only in a section on replacing or upgrading.',
   },
   {
     value: 'versus',
@@ -116,9 +132,11 @@ export const CONTENT_BLUEPRINTS: ContentBlueprint[] = [
     intent: 'comparison',
     requiredBlocks: ['comparison_table', 'decision_guide'],
     structure:
-      'Compare exactly two options head to head. Use H2s like "A vs B: <criterion>" for each important criterion, stating the winner of each. ' +
+      'Compare exactly two options head to head on the 5-8 criteria that matter most to a buyer. Use H2s like "A vs B: <criterion>", stating the winner of each. ' +
       'Include a comparison_table whose columns are exactly: Feature, A, B (using their real names), a verdict, and a decision_guide ("Choose A if ...", "Choose B if ..."). ' +
       'Be fair to both; name a clear overall winner for each type of buyer.',
+    productUse:
+      'Feature products from both sides equally: each side\'s products in its sections and linked from its "Choose ... if" entry, and a product_cards block with the best of each.',
   },
 ];
 

@@ -227,6 +227,7 @@ Visual blocks (attach to the section they belong to):
 - Always write the quiz field: 3-4 questions that test understanding of this article, each with 3-4 options and one correct answer. It is placed for you in the middle of the article.
 - comparison intent: include a comparison_table. how_to: include steps. buyers_guide: include a decision_guide or a checklist.
 - product_cards only use handles from the product list, 2-4 per block, in the section where those products are discussed.
+- Pick products for what they are (their type and description), not just their names, and only ones that genuinely fit the point being made. Never recommend or card a product marked OUT OF STOCK.
 - stats only use figures from the research, each with the number of its source when one is listed.
 - chart only for genuinely numeric comparisons from the research.
 
@@ -236,6 +237,12 @@ Links:
 - No external links in the prose; sources are listed separately.
 
 HTML in html fields: only p, ul, ol, li, h3, strong, em and a href. No styles, classes, h1, h2, tables, images or markdown.`;
+}
+
+export function productLine(p: CatalogProduct): string {
+  const stock = p.inStock === true ? 'in stock' : p.inStock === false ? 'OUT OF STOCK' : 'stock unknown';
+  const fields = [p.handle, p.title, p.price ? `$${p.price}` : '-', p.productType || '-', p.vendor || '-', stock, p.url];
+  return `- ${fields.join(' | ')}${p.description ? `\n  ${p.description}` : ''}`;
 }
 
 function numbered(items: string[]): string {
@@ -281,9 +288,9 @@ export function buildUserPrompt(input: WriterInput): string {
 
   if (input.products.length) {
     parts.push(
-      `Products you may link to and show as cards (handle | title | price | url):\n${input.products
-        .map((p) => `- ${p.handle} | ${p.title}${p.price ? ` | $${p.price}` : ''} | ${p.url}`)
-        .join('\n')}`
+      `Products you may link to and show as cards (handle | title | price | type | brand | stock | url, then its description):\n${input.products
+        .map(productLine)
+        .join('\n')}\nHow to use the products in this article: ${blueprint.productUse}`
     );
   } else {
     parts.push('There are no products to feature; do not use product_cards.');

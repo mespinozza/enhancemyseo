@@ -132,11 +132,18 @@ export interface EnhancedArticle {
 
 /** A product the article may link to or show as a card. Live products only. */
 export interface CatalogProduct {
+  /** Shopify GID, used to look up the details below. */
+  id?: string;
   handle: string;
   title: string;
   url: string;
   price?: string;
   image?: { url: string; alt?: string | null } | null;
+  vendor?: string;
+  productType?: string;
+  description?: string;
+  /** Null when unknown. */
+  inStock?: boolean | null;
 }
 
 /** Any other page the article may link to: collections, pages, site content. */
