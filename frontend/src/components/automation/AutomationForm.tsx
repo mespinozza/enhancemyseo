@@ -13,7 +13,6 @@ import {
   DEFAULT_MONTHLY_ARTICLE_CAP,
   MAX_ARTICLES_PER_RUN,
   MAX_MONTHLY_ARTICLE_CAP,
-  TONE_OPTIONS,
   defaultContentSelection,
   type Automation,
   type AutomationDraft,
@@ -24,7 +23,7 @@ import {
 } from '@/lib/automation/types';
 import { shortenPage, type GscCandidate } from '@/lib/automation/selection';
 import { blueprintFor } from '@/lib/article/enhanced/blueprints';
-import { toneFor } from '@/lib/article/enhanced/tones';
+import TonePicker from '@/components/TonePicker';
 import {
   WEEKDAY_NAMES,
   formatHour,
@@ -953,32 +952,11 @@ export default function AutomationForm({
           </div>
         </fieldset>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="automation-tone" className={labelClass}>
-              Tone of voice
-            </label>
-            <select
-              id="automation-tone"
-              value={toneOfVoice}
-              onChange={(event) => setToneOfVoice(event.target.value)}
-              className={inputClass}
-            >
-              <option value="">Default</option>
-              {TONE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-              {/* A tone saved from free text would otherwise show as Default and be lost on save. */}
-              {toneOfVoice && !(TONE_OPTIONS as readonly string[]).includes(toneOfVoice) && (
-                <option value={toneOfVoice}>{toneOfVoice}</option>
-              )}
-            </select>
-          </div>
-          <p className="self-end text-xs text-gray-500">
-            {toneFor(toneOfVoice)?.description ?? 'A custom voice, applied to every part of the article.'}
-          </p>
+        <div className="max-w-xl">
+          <label htmlFor="automation-tone" className={labelClass}>
+            Tone of voice
+          </label>
+          <TonePicker id="automation-tone" value={toneOfVoice} onChange={setToneOfVoice} />
         </div>
 
         <div className="mt-4">
