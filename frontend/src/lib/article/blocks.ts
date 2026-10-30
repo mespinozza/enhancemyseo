@@ -275,6 +275,7 @@ const ENHANCED_BLOCK_LABELS: Record<string, string> = {
   callout: 'Callout',
   products: 'Product cards',
   chart: 'Chart',
+  timeline: 'Timeline',
   faq: 'FAQ',
   sources: 'Sources',
 };

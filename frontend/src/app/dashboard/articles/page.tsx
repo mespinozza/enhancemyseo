@@ -18,7 +18,8 @@ import {
 import { useRouter } from 'next/navigation';
 import { ContentSelection, ShopifyProduct, ShopifyCollection, ShopifyPage, ContentSearchResults, WebsitePage } from '@/types/content-selection';
 import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
-import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
+import type { ArticleSeo } from '@/lib/article/enhanced/types';
+import { CONTENT_BLUEPRINTS, blueprintFor } from '@/lib/article/enhanced/blueprints';
 
 interface BlogPost {
   id: string;
@@ -61,7 +62,7 @@ export default function ArticlesPage() {
   const [instructions, setInstructions] = useState('');
   const [toneOfVoice, setToneOfVoice] = useState('');
   const [contentType, setContentType] = useState('');
-  const [articleFormat, setArticleFormat] = useState<ArticleFormat>('classic');
+  const [versusSubjects, setVersusSubjects] = useState<[string, string]>(['', '']);
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
   
   // New content selection state
@@ -644,7 +645,7 @@ export default function ArticlesPage() {
             generationSettings: {
               usePerplexity: false,
               articleFraming: contentType,
-              articleFormat,
+              articleFormat: 'enhanced',
             }
           };
 
@@ -672,7 +673,7 @@ export default function ArticlesPage() {
               brandId: selectedProfile.id,
               websiteUrl: selectedProfile.websiteUrl || '',
               brandColor: selectedProfile.brandColor || '#000000',
-              articleFormat,
+              ...(contentType === 'versus' && !bulkMode && { comparisonSubjects: versusSubjects }),
             }),
           });
 
@@ -701,6 +702,9 @@ export default function ArticlesPage() {
               content: generatedContent.content || '',
               title: generatedContent.title || blogData.title,
               ...(generatedContent.seo && { seo: generatedContent.seo }),
+              ...(generatedContent.format === 'classic' && {
+                generationSettings: { ...blogData.generationSettings, articleFormat: 'classic' as const },
+              }),
             });
 
             // Add to generated articles (include generation log for admin debugging)
@@ -1840,42 +1844,56 @@ export default function ArticlesPage() {
                 }`}
               >
                 <option value="">Select a content type...</option>
-                <option value="default">Default Article</option>
-                <option value="informational">Informational</option>
-                <option value="product-reviews">Product Reviews</option>
-                <option value="listicle">Listicle</option>
-                <option value="history">History Of</option>
-                <option value="pros-cons">Pros and Cons</option>
-                <option value="comparisons">Comparisons</option>
-                <option value="how-to">How To&apos;s</option>
-                <option value="versus">Versus (Brand A Vs. Brand B)</option>
+                {CONTENT_BLUEPRINTS.map((blueprint) => (
+                  <option key={blueprint.value} value={blueprint.value}>
+                    {blueprint.label}
+                  </option>
+                ))}
               </select>
               {!contentType && touchedFields.contentType && (
                 <p className="mt-1 text-sm text-red-600">
                   Content type is required
                 </p>
               )}
+              {contentType && (
+                <p className="mt-1 text-xs text-gray-500">{blueprintFor(contentType).description}</p>
+              )}
             </div>
 
-            <div>
-              <label htmlFor="articleFormat" className="block text-sm font-medium text-gray-700">
-                Article Format
-              </label>
-              <select
-                id="articleFormat"
-                value={articleFormat}
-                onChange={(e) => setArticleFormat(e.target.value as ArticleFormat)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              >
-                <option value="classic">Classic</option>
-                <option value="enhanced">Enhanced (beta)</option>
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                {articleFormat === 'enhanced'
-                  ? 'Researched on the web first, with a quick answer, a quiz, product cards, FAQ, cited sources and SEO title and description for Shopify.'
-                  : 'The current article style.'}
-              </p>
-            </div>
+            {contentType === 'versus' && (
+              <div>
+                <span className="block text-sm font-medium text-gray-700">What are you comparing?</span>
+                {bulkMode ? (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Name both sides in each keyword, e.g. &quot;Hoshizaki vs Manitowoc&quot;. Keywords without a pair compare the two leading options.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={versusSubjects[0]}
+                        onChange={(e) => setVersusSubjects([e.target.value, versusSubjects[1]])}
+                        placeholder="Option A, e.g. Hoshizaki"
+                        aria-label="Option A"
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                      <input
+                        type="text"
+                        value={versusSubjects[1]}
+                        onChange={(e) => setVersusSubjects([versusSubjects[0], e.target.value])}
+                        placeholder="Option B, e.g. Manitowoc"
+                        aria-label="Option B"
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Optional when the keyword already reads &quot;A vs B&quot;.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             <button
               onClick={handleBulkGenerate}

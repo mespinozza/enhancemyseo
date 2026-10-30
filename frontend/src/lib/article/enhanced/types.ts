@@ -28,6 +28,7 @@ export const BLOCK_TYPES = [
   'callout',
   'product_cards',
   'chart',
+  'timeline',
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -62,6 +63,13 @@ export interface StepItem {
   detail: string;
 }
 
+export interface TimelineEvent {
+  /** A year, date or era, e.g. "1953" or "Early 2000s". */
+  date: string;
+  title: string;
+  detail: string;
+}
+
 /**
  * One flat shape for every block, keyed by `type`. A discriminated union reads better
  * in code, but a flat object is far easier for the model to fill reliably through a
@@ -85,6 +93,7 @@ export interface ArticleBlockData {
   productHandles?: string[];
   chartItems?: ChartItem[];
   unit?: string;
+  events?: TimelineEvent[];
 }
 
 export interface ArticleSection {

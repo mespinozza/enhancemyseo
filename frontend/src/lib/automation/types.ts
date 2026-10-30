@@ -6,8 +6,6 @@
  * that happen to share a shape, which `TimestampLike` captures.
  */
 import type { ContentSelection } from '@/types/content-selection';
-import type { ArticleFormat } from '@/lib/article/enhanced/types';
-
 export const AUTOMATIONS_COLLECTION = 'automations';
 export const AUTOMATION_RUNS_COLLECTION = 'automationRuns';
 
@@ -125,11 +123,6 @@ export interface Automation {
   monthlyArticleCap: number;
   monthUsage?: AutomationMonthUsage;
   contentType: string;
-  /**
-   * 'enhanced' writes structured articles with research, interactive blocks and SEO
-   * fields. Absent on automations made before it existed, which stay 'classic'.
-   */
-  articleFormat?: ArticleFormat;
   toneOfVoice?: string;
   instructions?: string;
   contentSelection: ContentSelection;
@@ -188,23 +181,7 @@ export type AutomationDraft = Omit<
   'id' | 'createdAt' | 'updatedAt' | 'claimedAt' | 'lastRunAt' | 'monthUsage' | 'nextRunAt'
 >;
 
-/**
- * Must stay in step with the content type dropdown on the manual generator in
- * `src/app/dashboard/articles/page.tsx`. The generator sends these slugs straight into the
- * article prompt, so an automation offering labels of its own would frame articles
- * differently from the same choice made by hand.
- */
-export const CONTENT_TYPE_OPTIONS = [
-  { value: 'default', label: 'Default Article' },
-  { value: 'informational', label: 'Informational' },
-  { value: 'product-reviews', label: 'Product Reviews' },
-  { value: 'listicle', label: 'Listicle' },
-  { value: 'history', label: 'History Of' },
-  { value: 'pros-cons', label: 'Pros and Cons' },
-  { value: 'comparisons', label: 'Comparisons' },
-  { value: 'how-to', label: "How To's" },
-  { value: 'versus', label: 'Versus (Brand A Vs. Brand B)' },
-] as const;
+export { CONTENT_TYPE_OPTIONS } from '@/lib/article/enhanced/blueprints';
 
 export const TONE_OPTIONS = [
   'Professional',

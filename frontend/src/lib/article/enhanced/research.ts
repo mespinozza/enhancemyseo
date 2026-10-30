@@ -105,7 +105,8 @@ async function researchWithClaude(
   try {
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 3000,
+      // The model thinks between searches, and that counts against this limit too.
+      max_tokens: 12000,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
       messages: [
         {

@@ -19,7 +19,7 @@ import {
 } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import type { BrandProfile } from '@/lib/firebase/firestore';
-import type { ArticleSeo } from '@/lib/article/enhanced/types';
+import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
 import {
   AUTOMATIONS_COLLECTION,
   AUTOMATION_RUNS_COLLECTION,
@@ -253,7 +253,7 @@ async function generateArticle(
     generationSettings: {
       usePerplexity: false,
       articleFraming: automation.contentType,
-      articleFormat: automation.articleFormat || 'classic',
+      articleFormat: 'enhanced',
     },
     createdBy: 'automation',
     automationId: automation.id,
@@ -278,7 +278,6 @@ async function generateArticle(
     brandId: automation.brandId,
     websiteUrl: brand.websiteUrl || '',
     brandColor: brand.brandColor || '#000000',
-    articleFormat: automation.articleFormat || 'classic',
   });
 
   let response: Response;
@@ -332,13 +331,20 @@ async function generateArticle(
     content?: string;
     hasGenerationIssues?: boolean;
     seo?: ArticleSeo;
+    format?: ArticleFormat;
   };
 
   const title = payload.title || fallbackTitle;
   const content = payload.content || '';
   const seo = payload.seo ?? null;
 
-  await blogRef.update({ title, content, ...(seo && { seo }), updatedAt: Timestamp.now() });
+  await blogRef.update({
+    title,
+    content,
+    ...(seo && { seo }),
+    'generationSettings.articleFormat': payload.format || 'enhanced',
+    updatedAt: Timestamp.now(),
+  });
 
   return {
     blogId: blogRef.id,

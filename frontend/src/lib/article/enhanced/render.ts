@@ -369,6 +369,25 @@ function chart(block: ArticleBlockData, color: string): string {
   );
 }
 
+function timeline(block: ArticleBlockData, color: string): string {
+  const events = (block.events ?? []).filter((e) => e.date && e.title);
+  if (events.length < 2) return '';
+  const fg = readableOn(color);
+  const items = events
+    .map(
+      (event) =>
+        `<div style="position:relative;margin:0 0 18px;padding-left:22px;border-left:3px solid ${color}">` +
+        `<p style="margin:0 0 4px"><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${color};color:${fg};font-weight:700;font-size:0.85em">${escapeHtml(event.date)}</span></p>` +
+        `<p style="margin:0 0 4px;font-weight:600">${inlineText(event.title)}</p>` +
+        `<p style="margin:0;color:${MUTED}">${inlineText(event.detail || '')}</p></div>`
+    )
+    .join('');
+  return (
+    `<div class="emseo-timeline" style="${BOX};background:#f8f9fa">` +
+    `<p style="${LABEL}">${escapeHtml(block.title || 'Timeline')}</p>${items}</div>`
+  );
+}
+
 export function renderBlock(block: ArticleBlockData | undefined, ctx: RenderContext, allowed: Set<string>): string {
   if (!block) return '';
   const color = safeColor(ctx.brandColor);
@@ -383,6 +402,7 @@ export function renderBlock(block: ArticleBlockData | undefined, ctx: RenderCont
     case 'callout': return callout(block, color);
     case 'product_cards': return productCards(block, color, ctx.products);
     case 'chart': return chart(block, color);
+    case 'timeline': return timeline(block, color);
     default: return '';
   }
 }

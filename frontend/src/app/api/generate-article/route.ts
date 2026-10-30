@@ -17,6 +17,7 @@ import {
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { textFromMessage } from '@/lib/ai/text';
 import { generateEnhancedArticle } from '@/lib/article/enhanced';
+import { blueprintFor, comparisonSubjects } from '@/lib/article/enhanced/blueprints';
 import { applyQuotedFix, factCheckWithClaude } from '@/lib/article/factcheck';
 import { researchTopic } from '@/lib/article/enhanced/research';
 import { filterSources } from '@/lib/article/enhanced/sources';
@@ -5693,8 +5694,6 @@ export async function POST(request: Request) {
       brandColor,
       brandGuidelines,
     } = body;
-    const isEnhanced = body.articleFormat === 'enhanced';
-
     // Shopify credentials are resolved here rather than taken from the request, so a
     // store on a Dev Dashboard app (whose tokens last a day and are minted on demand)
     // works the same as one with a legacy permanent token. A store that cannot be
@@ -5726,38 +5725,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Enhanced articles research the web instead of asking Claude for a breakdown from
-    // memory. It starts now and runs while the store is searched.
-    let researchPromise: Promise<ResearchResult> | null = null;
-    if (isEnhanced) {
-      log('🔎 Researching the topic on the web (Enhanced format)...');
-      researchPromise = researchTopic({ keyword, brandName, businessType }, log, anthropic);
-    }
-
-    if (!isEnhanced) log('🔬 Starting topic breakdown generation with Claude...');
-    // 1. Generate topic breakdown with Claude
-    const topicBreakdownPrompt = `Research the topic: "${keyword}" using the latest available web information.\nWrite a clear, well-organized, and factual 500-word breakdown that covers:\n- The core concept and definition of the topic\n- Key facts, statistics, or recent developments\n- Major subtopics or components\n- Common misconceptions or challenges\n- Why this topic matters in its field or industry\nProvide only the breakdown without any conversational or meta language.`;
-
+    // The web research starts now and runs while the store is searched.
+    log('🔎 Researching the topic on the web...');
+    const researchPromise = researchTopic({ keyword, brandName, businessType }, log, anthropic);
+    // Classic articles are only written when the Enhanced writer fails; they get the research as their breakdown.
     let topicBreakdown = '';
-    if (!isEnhanced) try {
-      console.log('Calling Claude API for topic breakdown');
-      const claudeRes = await retryWithBackoff(
-        () => anthropic.messages.create({
-          model: CLAUDE_MODEL,
-          max_tokens: 1024,
-          messages: [
-            { role: 'user', content: topicBreakdownPrompt }
-          ]
-        }),
-        'Topic Breakdown Generation'
-      );
-      topicBreakdown = textFromMessage(claudeRes);
-      log('✅ Topic breakdown generated');
-      console.log('Successfully generated topic breakdown');
-    } catch (err) {
-      console.error('Error generating topic breakdown:', err);
-      // Continue without breakdown rather than failing completely
-    }
 
     // 2. If contentSelection is configured, fetch content based on integration type
     let relatedProductsList = '', relatedCollectionsList = '', relatedPagesList = '', relatedWebsiteContentList = '';
@@ -6227,9 +6199,10 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       return prompt;
     }
 
-    if (isEnhanced) {
+    {
+      let research: ResearchResult = { brief: '', facts: [], questions: [], sources: [] };
       try {
-        const research = await (researchPromise ?? Promise.resolve<ResearchResult>({ brief: '', facts: [], questions: [], sources: [] }));
+        research = await researchPromise;
         const citeSources = await brandCitesSources(verifiedUser.uid, body.brandId);
         const sources = citeSources
           ? filterSources(research.sources, [siteBase, shopifyStoreUrl ? `https://${shopifyStoreUrl.replace(/^https?:\/\//, '')}` : ''])
@@ -6251,7 +6224,9 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
             keyword,
             brandName,
             businessType,
-            toneOfVoice: [toneOfVoice, contentType && contentType !== 'default' ? `framed as ${contentType}` : ''].filter(Boolean).join(', '),
+            toneOfVoice,
+            contentType,
+            subjects: blueprintFor(contentType).value === 'versus' ? comparisonSubjects(keyword, body.comparisonSubjects) : null,
             instructions,
             brandGuidelines,
             research,
@@ -6293,17 +6268,8 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
         });
       } catch (error) {
         console.error('Error generating Enhanced article:', error);
-        return NextResponse.json(
-          {
-            error: 'Failed to generate article content',
-            detail: error instanceof Error ? error.message : String(error),
-            shopifyIntegration: {
-              status: integrationStatus,
-              message: getShopifyStatusMessage(integrationStatus)
-            }
-          },
-          { status: 500 }
-        );
+        log(`⚠️ Enhanced article failed (${error instanceof Error ? error.message : String(error)}); writing a Classic article instead`);
+        topicBreakdown = [research.brief, ...research.facts.map((f) => `- ${f.claim}`)].filter(Boolean).join('\n');
       }
     }
 
@@ -6515,6 +6481,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     return NextResponse.json({
       title,
       content: generatedContent,
+      format: 'classic',
       hasGenerationIssues,
       factCheck: {
         passed: factCheckResult.factCheckPassed,

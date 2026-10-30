@@ -8,9 +8,11 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { blueprintFor } from './blueprints';
 import {
   BLOCK_TYPES,
   type ArticleBlockData,
+  type BlockType,
   type CatalogProduct,
   type EnhancedArticle,
   type LinkTarget,
@@ -56,7 +58,8 @@ const BLOCK_SCHEMA = {
     'A visual block shown after the section text. Fill only the fields for its type: ' +
     'decision_guide → title, options; comparison_table → title, columns, rows, verdict; ' +
     'pros_cons → title, pros, cons; steps → title, steps; checklist → title, items; stats → title, stats; ' +
-    'callout → variant, text (title optional); product_cards → title, productHandles; chart → title, chartItems, unit.',
+    'callout → variant, text (title optional); product_cards → title, productHandles; chart → title, chartItems, unit; ' +
+    'timeline → title, events.',
   properties: {
     type: { type: 'string', enum: SECTION_BLOCK_TYPES },
     title: str,
@@ -102,6 +105,14 @@ const BLOCK_SCHEMA = {
       items: { type: 'object', properties: { label: str, value: { type: 'number' } }, required: ['label', 'value'] },
     },
     unit: str,
+    events: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { date: { type: 'string', description: 'A year, date or era from the research.' }, title: str, detail: str },
+        required: ['date', 'title', 'detail'],
+      },
+    },
   },
   required: ['type'],
 };
@@ -171,6 +182,22 @@ export interface WriterInput {
   sources: ResearchSource[];
   /** Brand-specific product rules, such as the vendor restriction. */
   productRules?: string;
+  /** A content type slug; sets the intent, required blocks and structure. */
+  contentType?: string;
+  /** The two sides of a versus article, when known. */
+  subjects?: [string, string] | null;
+}
+
+/** Blocks this article must have: the content type's, less any it has nothing to fill with. */
+export function requiredBlocksFor(input: Pick<WriterInput, 'contentType' | 'products'>): BlockType[] {
+  return blueprintFor(input.contentType).requiredBlocks.filter(
+    (type) => type !== 'product_cards' || input.products.length > 0
+  );
+}
+
+export function missingBlocks(article: EnhancedArticle, required: BlockType[]): BlockType[] {
+  const present = new Set(article.sections.map((s) => s.block?.type).filter(Boolean));
+  return required.filter((type) => !present.has(type));
 }
 
 export function buildSystemPrompt(brandName: string): string {
@@ -195,6 +222,7 @@ Writing standards:
 - The conclusion ends with a clear, specific call to action for ${brandName}.
 
 Visual blocks (attach to the section they belong to):
+- When the request lists required section blocks, every one of them must appear, in the section it belongs to. This overrides every other block rule.
 - Use 3-5 section blocks in total, never in adjacent sections unless the article is long, and only where they add something the prose cannot.
 - Always write the quiz field: 3-4 questions that test understanding of this article, each with 3-4 options and one correct answer. It is placed for you in the middle of the article.
 - comparison intent: include a comparison_table. how_to: include steps. buyers_guide: include a decision_guide or a checklist.
@@ -217,6 +245,23 @@ function numbered(items: string[]): string {
 export function buildUserPrompt(input: WriterInput): string {
   const { research } = input;
   const parts: string[] = [`Keyword: ${input.keyword}`, `Brand: ${input.brandName} (${input.businessType})`];
+
+  const blueprint = blueprintFor(input.contentType);
+  const required = requiredBlocksFor(input);
+  parts.push(
+    `Content type: ${blueprint.label}${blueprint.intent ? ` (intent: ${blueprint.intent})` : ''}\n` +
+      `Structure: ${blueprint.structure}` +
+      (required.length
+        ? `\nRequired section blocks: ${required.join(', ')}. Each section holds at most one block, so put each in a different section.`
+        : '')
+  );
+  if (blueprint.value === 'versus') {
+    parts.push(
+      input.subjects
+        ? `The two sides: "${input.subjects[0]}" vs "${input.subjects[1]}".`
+        : 'Identify the two options this keyword compares, or the two leading options for it, and compare those.'
+    );
+  }
 
   if (input.toneOfVoice) parts.push(`Tone of voice: ${input.toneOfVoice}`);
   if (input.brandGuidelines?.trim()) parts.push(`Brand guidelines:\n${input.brandGuidelines.trim()}`);
@@ -246,7 +291,10 @@ export function buildUserPrompt(input: WriterInput): string {
   if (input.productRules?.trim()) parts.push(input.productRules.trim());
 
   if (input.links.length) {
-    parts.push(`Other pages you may link to (title | url):\n${input.links.map((l) => `- ${l.title} | ${l.url}`).join('\n')}`);
+    parts.push(
+      `Other pages you may link to (title | url). Link the most relevant collections, service pages and related articles ` +
+        `where they help the reader, with descriptive anchor text (never "click here"):\n${input.links.map((l) => `- ${l.title} | ${l.url}`).join('\n')}`
+    );
   }
 
   if (input.sources.length) {
@@ -301,7 +349,7 @@ function asBlock(value: unknown): ArticleBlockData | undefined {
   const block = asObject(value);
   if (!(BLOCK_TYPES as readonly string[]).includes(block.type as string)) return undefined;
   const fields: Record<string, unknown> = { ...block };
-  for (const key of ['questions', 'options', 'columns', 'rows', 'pros', 'cons', 'steps', 'items', 'stats', 'productHandles', 'chartItems']) {
+  for (const key of ['questions', 'options', 'columns', 'rows', 'pros', 'cons', 'steps', 'items', 'stats', 'productHandles', 'chartItems', 'events']) {
     if (key in fields) fields[key] = asArray(fields[key]);
   }
   return fields as unknown as ArticleBlockData;
@@ -356,7 +404,9 @@ export function normalizeArticle(raw: unknown, sourceCount: number): EnhancedArt
   if (article.sections.length < 3) {
     const raw = input.sections;
     const shape = typeof raw === 'string' ? `a string starting ${JSON.stringify(raw.slice(0, 120))}` : Array.isArray(raw) ? `an array of ${raw.length} with keys ${JSON.stringify(raw.slice(0, 2).map((s) => Object.keys(asObject(s))))}` : typeof raw;
-    throw new Error(`The writer returned ${article.sections.length} usable sections (sections was ${shape})`);
+    throw new Error(
+      `The writer returned ${article.sections.length} usable sections (sections was ${shape}; reply keys ${JSON.stringify(Object.keys(input))})`
+    );
   }
   return article;
 }
@@ -366,6 +416,10 @@ export async function writeEnhancedArticle(
   input: WriterInput,
   log: (message: string) => void = console.log
 ): Promise<EnhancedArticle> {
+  const required = requiredBlocksFor(input);
+  let correction = '';
+  let reasked = false;
+
   const write = async (): Promise<EnhancedArticle> => {
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
@@ -373,7 +427,7 @@ export async function writeEnhancedArticle(
       system: buildSystemPrompt(input.brandName),
       tools: [ARTICLE_TOOL],
       tool_choice: { type: 'tool', name: ARTICLE_TOOL.name },
-      messages: [{ role: 'user', content: buildUserPrompt(input) }],
+      messages: [{ role: 'user', content: buildUserPrompt(input) + correction }],
     });
 
     if (message.stop_reason === 'max_tokens') throw new Error('The article was cut off before it finished');
@@ -386,7 +440,17 @@ export async function writeEnhancedArticle(
   let article: EnhancedArticle | null = null;
   for (let attempt = 1; !article; attempt += 1) {
     try {
-      article = await write();
+      const draft = await write();
+      const missing = missingBlocks(draft, required);
+      // A draft missing a required block is still kept on the last attempt: an article
+      // without its table is better than no article.
+      if (missing.length && !reasked && attempt < MAX_WRITE_ATTEMPTS) {
+        reasked = true;
+        log(`⚠️ Draft is missing required blocks (${missing.join(', ')}); writing again`);
+        correction = `\n\nYour previous draft left out these required section blocks: ${missing.join(', ')}. Include each of them.`;
+        continue;
+      }
+      article = draft;
     } catch (error) {
       // An unusable reply is usually a one-off in how the model filled the schema.
       if (attempt >= MAX_WRITE_ATTEMPTS) throw error;

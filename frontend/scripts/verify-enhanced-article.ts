@@ -22,7 +22,8 @@ import {
 } from '../src/lib/article/enhanced/render';
 import { filterSources } from '../src/lib/article/enhanced/sources';
 import { BLOCK_TYPES, type ArticleBlockData, type EnhancedArticle } from '../src/lib/article/enhanced/types';
-import { buildUserPrompt, normalizeArticle } from '../src/lib/article/enhanced/writer';
+import { buildUserPrompt, missingBlocks, normalizeArticle, requiredBlocksFor } from '../src/lib/article/enhanced/writer';
+import { CONTENT_BLUEPRINTS, blueprintFor, comparisonSubjects } from '../src/lib/article/enhanced/blueprints';
 
 let passed = 0;
 let failed = 0;
@@ -91,6 +92,7 @@ const blocks: Record<(typeof BLOCK_TYPES)[number], ArticleBlockData> = {
   callout: { type: 'callout', variant: 'mistake', text: 'Do not skip the water filter.' },
   product_cards: { type: 'product_cards', productHandles: ['hoshizaki-km-515mah', 'invented-handle', 'manitowoc-iyt0500a'] },
   chart: { type: 'chart', title: 'Daily output', unit: 'lb', chartItems: [{ label: 'Small', value: 300 }, { label: 'Large', value: 1000 }] },
+  timeline: { type: 'timeline', events: [{ date: '1947', title: 'First flaker', detail: 'Early machines.' }, { date: '2000s', title: 'ENERGY STAR', detail: '<b>x</b>' }] },
 };
 
 const allowed = new Set<string>([
@@ -317,6 +319,29 @@ console.log('\nSEO fields');
   check('meta description is clipped to 160 characters', seo.metaDescription.length <= 160);
   check('featured image comes from the first product card', seo.featuredImage?.src === 'https://cdn.shopify.com/s/files/1/ice.jpg?v=1');
   check('no image when no product has one', buildSeo(minimalArticle(), [ctx.products[1]]).featuredImage === null);
+}
+
+console.log('\nContent types');
+{
+  check('every content type has a blueprint with a description', CONTENT_BLUEPRINTS.length === 9 && CONTENT_BLUEPRINTS.every((b) => b.description && b.structure));
+  check('every required block is a real block type', CONTENT_BLUEPRINTS.every((b) => b.requiredBlocks.every((t) => (BLOCK_TYPES as readonly string[]).includes(t))));
+  check('an unknown content type falls back to Default', blueprintFor('nonsense').value === 'default' && blueprintFor(undefined).value === 'default');
+  check('how-to requires steps and a checklist', blueprintFor('how-to').requiredBlocks.join() === 'steps,checklist');
+  check('product reviews drop product cards when there are no products', requiredBlocksFor({ contentType: 'product-reviews', products: [] }).join() === 'pros_cons');
+  check('product reviews keep product cards when there are products', requiredBlocksFor({ contentType: 'product-reviews', products: ctx.products }).includes('product_cards'));
+
+  const article = minimalArticle();
+  check('missing blocks are reported', missingBlocks(article, ['comparison_table', 'steps', 'timeline']).join() === 'steps,timeline');
+
+  check('versus subjects come from the form first', comparisonSubjects('anything', [' Hoshizaki ', 'Manitowoc'])?.join('|') === 'Hoshizaki|Manitowoc');
+  check('versus subjects are read from "A vs B"', comparisonSubjects('Hoshizaki vs. Manitowoc ice machines')?.join('|') === 'Hoshizaki|Manitowoc ice machines');
+  check('versus subjects are read from "A versus B?"', comparisonSubjects('gas versus electric fryer: which is better')?.join('|') === 'gas|electric fryer');
+  check('no subjects when the keyword names no pair', comparisonSubjects('best ice machines') === null && comparisonSubjects('a vs b vs c') === null);
+
+  const versusPrompt = buildUserPrompt({ keyword: 'a vs b', brandName: 'S', businessType: 'x', research: { brief: '', facts: [], questions: [], sources: [] }, products: [], links: [], sources: [], contentType: 'versus', subjects: ['Alpha', 'Beta'] });
+  check('the prompt carries the structure, required blocks and both sides', versusPrompt.includes('Versus (Brand A Vs. Brand B)') && versusPrompt.includes('Required section blocks: comparison_table, decision_guide') && versusPrompt.includes('"Alpha" vs "Beta"'));
+  const timelineHtml = renderBlock(blocks.timeline, ctx, allowed);
+  check('timeline escapes its text', timelineHtml.includes('&lt;b&gt;x&lt;/b&gt;') && timelineHtml.includes('1947'));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
