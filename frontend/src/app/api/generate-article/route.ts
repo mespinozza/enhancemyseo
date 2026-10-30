@@ -17,6 +17,7 @@ import {
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { textFromMessage } from '@/lib/ai/text';
 import { generateEnhancedArticle } from '@/lib/article/enhanced';
+import { applyQuotedFix, factCheckWithClaude } from '@/lib/article/factcheck';
 import { researchTopic } from '@/lib/article/enhanced/research';
 import { filterSources } from '@/lib/article/enhanced/sources';
 import type { CatalogProduct, LinkTarget, ResearchResult } from '@/lib/article/enhanced/types';
@@ -978,18 +979,76 @@ function escapeRegExpForFix(string: string): string {
 }
 
 /**
- * Main fact-checking loop - checks and rewrites until content passes
+ * Fact-checks with Claude and web search, falling back to the Perplexity loop when
+ * Claude's check cannot run. Claude names each problem by exact quote, so most fixes
+ * are a phrase swap; a quote split by markup goes to the element rewriter instead.
  */
 async function factCheckAndRewriteLoop(
-  content: string, 
+  content: string,
   anthropicClient: Anthropic,
   maxIterations: number = 3,
   log: Logger = console.log
 ): Promise<{ content: string; factCheckPassed: boolean; iterations: number }> {
   log('═'.repeat(50));
-  log('🔬 FACT-CHECK LAYER: Starting verification process...');
+  log('🔬 FACT-CHECK LAYER: Verifying claims with Claude web search...');
   log('═'.repeat(50));
-  
+
+  const check = await factCheckWithClaude(anthropicClient, content, log);
+  if (check.unavailable) {
+    log('↪️ FACT-CHECK: falling back to Perplexity');
+    return perplexityFactCheckLoop(content, anthropicClient, maxIterations, log);
+  }
+
+  log(`🔎 FACT-CHECK: ${check.units.length} passages checked, ${check.searches} web searches, ${check.issues.length} issue(s)`);
+  let current = content;
+  let unresolved = 0;
+  const byId = new Map(check.units.map((unit) => [unit.id, unit]));
+
+  for (const issue of check.issues) {
+    log(`  • ${issue.problem.slice(0, 120)}${issue.source ? ` (${issue.source})` : ''}`);
+    const unit = byId.get(issue.unitId)!;
+    const swapped = applyQuotedFix(current, unit, issue);
+    if (swapped) {
+      current = swapped.html;
+      unit.html = swapped.unitHtml;
+      log(`    ✅ "${issue.quote.slice(0, 60)}" → "${issue.correction.slice(0, 60)}"`);
+      continue;
+    }
+
+    const rewrite = await rewriteContentWithFeedback(
+      current,
+      {
+        issue: `${issue.problem} Replace "${issue.quote}" with wording equivalent to "${issue.correction}".`,
+        location: unit.text.slice(0, 80),
+        originalText: issue.quote,
+      },
+      anthropicClient,
+      log
+    );
+    const rewritten = rewrite.foundSection ? applyContentFix(current, rewrite, log) : current;
+    if (rewritten !== current) {
+      current = rewritten;
+      log('    ✅ Fixed by rewriting the passage');
+    } else {
+      unresolved += 1;
+      log('    ⚠️ Could not apply this fix');
+    }
+  }
+
+  if (check.issues.length > 0) current = cleanupHTMLAfterRewrite(current);
+  const passed = unresolved === 0;
+  log(passed ? '✅ FACT-CHECK COMPLETE' : `⚠️ FACT-CHECK: ${unresolved} issue(s) left for manual review`);
+  return { content: current, factCheckPassed: passed, iterations: 1 };
+}
+
+/** The original Perplexity loop, kept as the fallback. */
+async function perplexityFactCheckLoop(
+  content: string,
+  anthropicClient: Anthropic,
+  maxIterations: number,
+  log: Logger
+): Promise<{ content: string; factCheckPassed: boolean; iterations: number }> {
+
   let currentContent = content;
   let iteration = 0;
   let contentWasModified = false;
