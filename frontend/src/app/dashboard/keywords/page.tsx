@@ -172,11 +172,12 @@ export default function KeywordsPage() {
   const currentKeyword = generatedKeywords[currentKeywordIndex];
 
   return (
-    <div className="flex-1 flex min-h-screen h-screen bg-white">
+    // Stacked on phones; side by side from md, under the mobile top bar until lg.
+    <div className="flex flex-1 flex-col bg-white md:h-[calc(100dvh-3.5rem)] md:flex-row lg:h-dvh">
       {/* Brand Profile Form Modal */}
       {showBrandForm && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Create Brand Profile</h2>
               <button
@@ -197,7 +198,7 @@ export default function KeywordsPage() {
       )}
 
       {/* Left Panel - Keyword Generation Form */}
-      <div className="w-full md:w-1/2 p-4 md:p-6 border-r border-gray-200 overflow-y-auto h-full flex-shrink-0">
+      <div className="w-full md:w-1/2 p-4 md:p-6 border-b border-gray-200 md:border-b-0 md:border-r md:h-full md:overflow-y-auto flex-shrink-0">
         <div className="max-w-xl mx-auto">
           <h1 className="text-3xl font-bold text-gray-900 mb-6">Keyword Research & Analysis</h1>
           <p className="text-gray-600 mb-8">
@@ -345,8 +346,8 @@ export default function KeywordsPage() {
       </div>
 
       {/* Right Panel - Keywords Preview */}
-      <div className="w-full md:w-1/2 p-4 md:p-6 bg-white overflow-hidden flex flex-col h-full">
-        <div className="max-w-2xl mx-auto w-full flex flex-col h-full">
+      <div className="w-full md:w-1/2 p-4 md:p-6 bg-white flex flex-col md:h-full md:min-w-0 md:overflow-hidden">
+        <div className="max-w-2xl mx-auto w-full flex flex-col md:h-full">
           {isGenerating ? (
             <div className="flex flex-col items-center justify-center space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -383,7 +384,7 @@ export default function KeywordsPage() {
               </div>
 
               {currentKeyword && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
                   <h3 className="text-lg font-semibold mb-4">{currentKeyword.keyword}</h3>
                   
                   <div className="space-y-4">

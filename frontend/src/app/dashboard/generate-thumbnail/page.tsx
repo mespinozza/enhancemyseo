@@ -339,7 +339,7 @@ export default function GenerateThumbnailPage() {
   // Don't render the page content if user is not admin
   if (subscription_status !== 'admin') {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="max-w-6xl mx-auto">
           <div className="text-center py-12">
             <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Restricted</h1>
@@ -357,11 +357,11 @@ export default function GenerateThumbnailPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Brand Profile Form Modal */}
       {showBrandForm && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Create Brand Profile</h2>
               <button
@@ -469,8 +469,8 @@ export default function GenerateThumbnailPage() {
 
         {/* Articles Selection */}
         {selectedBrandId && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
               <div>
                 <h2 className="text-lg font-semibold">Shopify Articles</h2>
                 <p className="text-sm text-gray-600">Select articles to generate thumbnails for</p>

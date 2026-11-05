@@ -125,7 +125,7 @@ export default function Pricing() {
           </p>
           
           {/* Billing Toggle */}
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <span className={`text-sm ${!isAnnual ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
               Monthly billing
             </span>
@@ -153,11 +153,12 @@ export default function Pricing() {
         </div>
 
         {/* Pricing Tiers */}
-        <div className="grid md:grid-cols-3 gap-8 mb-12">
+        {/* Three across only from lg: at tablet width each card is too narrow for its price row. */}
+        <div className="mx-auto mb-12 grid max-w-lg gap-8 lg:max-w-none lg:grid-cols-3">
           {pricingTiers.map((tier) => (
             <div
               key={tier.name}
-              className={`relative bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 ${
+              className={`relative bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 sm:p-8 ${
                 tier.popular ? 'ring-2 ring-blue-600' : ''
               }`}
             >
@@ -171,7 +172,7 @@ export default function Pricing() {
               <div className="mb-6">
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{tier.name}</h3>
                 <div className="flex flex-col mb-2">
-                  <div className="flex items-baseline">
+                  <div className="flex flex-wrap items-baseline">
                     {isAnnual && tier.name !== "Free" ? (
                       <>
                         <span className="text-2xl font-bold text-gray-400 line-through mr-2">
@@ -218,7 +219,7 @@ export default function Pricing() {
         </div>
 
         {/* Enterprise Section */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-2xl shadow-xl p-8 text-white relative overflow-hidden mb-12">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-2xl shadow-xl p-6 sm:p-8 text-white relative overflow-hidden mb-12">
           <div className="md:flex items-center justify-between">
             <div className="mb-6 md:mb-0">
               <h3 className="text-2xl font-bold mb-2">Agency / Enterprise</h3>
@@ -239,7 +240,7 @@ export default function Pricing() {
             </div>
             <button
               onClick={handleEnterpriseClick}
-              className="bg-white text-blue-600 py-2 px-6 rounded-lg font-medium hover:bg-blue-50 transition-colors inline-flex items-center"
+              className="bg-white text-blue-600 py-2 px-6 rounded-lg font-medium hover:bg-blue-50 transition-colors inline-flex w-full items-center justify-center md:w-auto"
             >
               Speak to someone!
               <ArrowRight className="w-4 h-4 ml-1" />
@@ -249,11 +250,11 @@ export default function Pricing() {
 
         {/* Feature Showcase Section. No id="features" here: that anchor belongs to the
             section above, and a duplicate would be the one the browser jumps to. */}
-        <div className="mb-12 bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl p-12">
+        <div className="mb-12 bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl p-5 sm:p-8 lg:p-12">
           <div className="max-w-7xl mx-auto">
             {/* Header */}
-            <div className="mb-16 text-center">
-              <h2 className="text-4xl font-bold inline-flex flex-col items-center">
+            <div className="mb-10 text-center sm:mb-16">
+              <h2 className="text-3xl sm:text-4xl font-bold inline-flex flex-col items-center">
                 <span className="relative inline-block mb-2">
                   <span className="relative z-10">Our tool</span>
                   <div className="absolute -inset-1 bg-blue-200 rounded-lg transform -rotate-2"></div>
@@ -269,7 +270,7 @@ export default function Pricing() {
             </div>
 
             {/* Features Grid */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
               {/* Feature 1 */}
               <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
                 <div className="flex items-center mb-4">

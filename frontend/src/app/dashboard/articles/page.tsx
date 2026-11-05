@@ -1050,11 +1050,13 @@ export default function ArticlesPage() {
   };
 
   return (
-    <div className="flex-1 flex min-h-screen h-screen bg-white">
+    // Stacked on phones, where the page scrolls as a whole; side by side from md,
+    // where each column scrolls on its own beneath the mobile top bar (gone at lg).
+    <div className="flex flex-1 flex-col bg-white md:h-[calc(100dvh-3.5rem)] md:flex-row lg:h-dvh">
       {/* Brand Profile Form Modal */}
       {showBrandForm && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Create Brand Profile</h2>
               <button
@@ -1075,7 +1077,7 @@ export default function ArticlesPage() {
       )}
 
       {/* Left Panel - Article Generation Form */}
-      <div className="w-full md:w-1/2 p-4 md:p-6 border-r border-gray-200 overflow-y-auto h-full flex-shrink-0">
+      <div className="w-full md:w-1/2 p-4 md:p-6 border-b border-gray-200 md:border-b-0 md:border-r md:h-full md:overflow-y-auto flex-shrink-0">
         <div className="max-w-xl mx-auto">
           <h2 className="text-2xl font-bold mb-6">Generate New Article</h2>
           
@@ -1921,11 +1923,11 @@ export default function ArticlesPage() {
       </div>
 
       {/* Right Panel - Bulk Generation Results */}
-      <div className="w-full md:w-1/2 p-4 md:p-6 bg-white flex flex-col h-full">
-        <div className="w-full flex flex-col h-full">
+      <div className="w-full md:w-1/2 p-4 md:p-6 bg-white flex flex-col md:h-full md:min-w-0">
+        <div className="w-full flex flex-col md:h-full">
           {/* Show content when generating OR has articles */}
           {(isGenerating || generatedArticles.length > 0) ? (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col md:h-full">
               {/* Sticky Progress Bar - Only during generation */}
               {isGenerating && (
                 <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg mb-4 shadow-lg">
@@ -2014,12 +2016,12 @@ export default function ArticlesPage() {
 
               {/* Header with actions - show when articles exist */}
               {generatedArticles.length > 0 && (
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <h3 className="text-xl font-bold">
                     Generated Articles ({generatedArticles.length})
                   </h3>
                   {!isGenerating && (
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={handleDownloadAll}
                         className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
@@ -2045,7 +2047,7 @@ export default function ArticlesPage() {
               
               {/* Articles Grid - Shows completed articles during generation */}
               {generatedArticles.length > 0 && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-y-auto pr-2 mb-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:flex-1 md:overflow-y-auto md:pr-2 mb-4">
                   {generatedArticles.map((article, index) => (
                     <div
                       key={article.id}
@@ -2210,7 +2212,7 @@ export default function ArticlesPage() {
       {/* Shopify Push Modal */}
       {showShopifyModal && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-900">Push Articles to Shopify</h2>
               <button

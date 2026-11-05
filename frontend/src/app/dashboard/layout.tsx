@@ -15,6 +15,7 @@ import {
   Star,
   GripVertical,
   MailWarning,
+  Menu,
   X,
 } from 'lucide-react';
 import { auth } from '@/lib/firebase/config';
@@ -70,6 +71,8 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  // Below lg the sidebar is a drawer; at lg and up it is always shown.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [emailVerified, setEmailVerified] = useState<boolean>(true);
   const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(false);
@@ -320,6 +323,20 @@ export default function DashboardLayout({
     // Usage refresh functionality can be added here if needed
   }, [user]);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+    setShowUserMenu(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileNavOpen]);
+
   // Close user menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -360,16 +377,39 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="flex h-screen">
+      {/* dvh, not vh: on phones vh includes the space under the browser's toolbar,
+          which would hide the bottom of the sidebar and of every page. */}
+      <div className="flex h-screen supports-[height:100dvh]:h-dvh">
+        {mobileNavOpen && (
+          <div
+            aria-hidden
+            onClick={() => setMobileNavOpen(false)}
+            className="fixed inset-0 z-30 bg-gray-900/40 backdrop-blur-[1px] animate-pick-fade lg:hidden"
+          />
+        )}
+
         {/* Sidebar */}
-        <aside className="w-64 bg-white shadow-xl z-10 relative flex flex-col border-r border-gray-200">
+        <aside
+          id="dashboard-nav"
+          className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-gray-200 bg-white shadow-xl transition-transform duration-300 ease-out lg:relative lg:z-10 lg:w-64 lg:max-w-none lg:translate-x-0 ${
+            mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
           {/* Logo */}
-          <div className="p-4 border-b border-gray-200 flex justify-center items-center bg-white">
+          <div className="relative p-4 border-b border-gray-200 flex justify-center items-center bg-white">
             <Link href="/" className="block">
               <span className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
                 EnhanceMySEO
               </span>
             </Link>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label="Close menu"
+              className="absolute right-3 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
 
           {/* Navigation */}
@@ -500,7 +540,8 @@ export default function DashboardLayout({
                                 className={`px-2 py-1.5 transition-opacity duration-200 ease-out ${
                                   isPinned
                                     ? 'opacity-100'
-                                    : 'opacity-0 group-hover/item:opacity-100 focus:opacity-100'
+                                    : // Touch screens have no hover, so the star would never appear.
+                                      'opacity-0 group-hover/item:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-60'
                                 }`}
                               >
                                 <Star
@@ -627,12 +668,34 @@ export default function DashboardLayout({
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto bg-gray-50">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-gray-50">
+          <div className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-gray-200 bg-white/95 px-4 backdrop-blur lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              aria-controls="dashboard-nav"
+              aria-expanded={mobileNavOpen}
+              className="-ml-1.5 rounded-md p-1.5 text-gray-600 hover:bg-gray-100"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+            <Link
+              href="/dashboard"
+              className="text-lg font-semibold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent"
+            >
+              EnhanceMySEO
+            </Link>
+            <span className="ml-auto flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-sm font-medium text-blue-600">
+              {displayName[0].toUpperCase()}
+            </span>
+          </div>
+
           {/* ── Email verification banner ───────────────────────────────── */}
           {!emailVerified && !verifyBannerDismissed && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
               <MailWarning className="w-5 h-5 shrink-0 text-amber-500" />
-              <span className="flex-1">
+              <span className="min-w-[12rem] flex-1">
                 <strong>Verify your email</strong> to unlock article generation. Check your inbox for a link from us.
               </span>
               <button

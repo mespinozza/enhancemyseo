@@ -66,7 +66,7 @@ export default function Pagination({
   const hasNext = currentPage < totalPages;
 
   return (
-    <div className="flex items-center justify-center space-x-2 py-8">
+    <div className="flex flex-wrap items-center justify-center gap-2 py-8">
       {/* Previous Button */}
       <button
         onClick={() => onPageChange(currentPage - 1)}
@@ -77,12 +77,12 @@ export default function Pagination({
             : 'text-gray-400 bg-gray-100 border border-gray-200 cursor-not-allowed'
         }`}
       >
-        <ChevronLeft className="w-4 h-4 mr-1" />
-        Previous
+        <ChevronLeft className="w-4 h-4 sm:mr-1" />
+        <span className="sr-only sm:not-sr-only">Previous</span>
       </button>
 
       {/* Page Numbers */}
-      <div className="flex space-x-1">
+      <div className="flex gap-1">
         {pageNumbers.map((pageNum, index) => {
           if (pageNum === '...') {
             return (
@@ -126,12 +126,12 @@ export default function Pagination({
             : 'text-gray-400 bg-gray-100 border border-gray-200 cursor-not-allowed'
         }`}
       >
-        Next
-        <ChevronRight className="w-4 h-4 ml-1" />
+        <span className="sr-only sm:not-sr-only">Next</span>
+        <ChevronRight className="w-4 h-4 sm:ml-1" />
       </button>
 
       {/* Page Info */}
-      <div className="ml-4 text-sm text-gray-600">
+      <div className="w-full text-center text-sm text-gray-600 sm:ml-2 sm:w-auto">
         Page {currentPage} of {totalPages}
       </div>
     </div>

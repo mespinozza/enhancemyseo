@@ -292,7 +292,7 @@ export default function ProductsPage() {
   // Access denied for non-admin users
   if (subscription_status !== 'admin') {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="max-w-md mx-auto text-center">
           <ArrowLeft className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin Subscription Required</h1>
@@ -311,12 +311,12 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="p-8 min-h-screen bg-gray-50">
+    <div className="p-4 sm:p-6 lg:p-8 min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Product Optimization</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Product Optimization</h1>
             <p className="text-gray-600 mt-1">Select and optimize multiple products at once using AI-powered SEO recommendations.</p>
           </div>
           <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full">
@@ -326,7 +326,7 @@ export default function ProductsPage() {
 
         {/* Connection Status & Brand Selection */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Store Connection</h2>
             {isConnected && shopDomain && (
               <div className="flex items-center text-green-600">

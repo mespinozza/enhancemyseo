@@ -220,7 +220,7 @@ export default function DashboardHome() {
   const { subscription_status } = useAuth();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       <h1 className="text-2xl font-bold mb-6">
         Welcome to <span className="bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">EnhanceMySEO</span>
       </h1>
@@ -248,7 +248,7 @@ export default function DashboardHome() {
         {/* Generate Article Card */}
         <Link 
           href="/dashboard/articles"
-          className="block p-8 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group"
+          className="block p-5 sm:p-8 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group"
         >
           <div className="flex items-center mb-6">
             <ArrowRight className="w-8 h-8 text-blue-600 mr-4 group-hover:text-blue-700" />
@@ -286,7 +286,7 @@ export default function DashboardHome() {
         </Link>
 
         {/* Help Us Improve Card */}
-        <div className="p-8 bg-white rounded-lg border border-gray-200 hover:border-purple-500 transition-colors">
+        <div className="p-5 sm:p-8 bg-white rounded-lg border border-gray-200 hover:border-purple-500 transition-colors">
           <div className="flex items-center mb-6">
             <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
               <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -15,6 +15,8 @@ import {
   ListTree,
   Loader2,
   CheckCircle2,
+  PanelRight,
+  X,
 } from 'lucide-react';
 import { blogOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import {
@@ -119,6 +121,8 @@ export default function ArticleEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('links');
+  // Below lg the side panel is a slide-over; at lg and up it is always shown.
+  const [panelOpen, setPanelOpen] = useState(false);
   const [selection, setSelection] = useState<SelectionTarget | null>(null);
   const [blockRange, setBlockRange] = useState<BlockRange | null>(null);
   const [aiRequest, setAiRequest] = useState<AiEditRequest | null>(null);
@@ -459,6 +463,7 @@ export default function ArticleEditor({
   const focusBlock = (blockId: string) => {
     const node = document.querySelector(`[data-block-id="${blockId}"]`);
     if (!node) return;
+    setPanelOpen(false);
     node.scrollIntoView({ behavior: 'smooth', block: 'center' });
     node.classList.add('ring-2', 'ring-amber-400');
     setTimeout(() => node.classList.remove('ring-2', 'ring-amber-400'), 1600);
@@ -536,11 +541,10 @@ export default function ArticleEditor({
         ? `Saved ${savedAt.toLocaleTimeString()}`
         : 'No changes yet';
 
-  // The dashboard layout has no top bar and already sizes its main area to the
-  // viewport, so the editor fills its container instead of subtracting a chrome
-  // height that would leave dead space below it.
+  // The dashboard layout sizes its main area to the viewport and only has a top bar
+  // (h-14) below lg, so the editor fills its container minus that bar.
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-[calc(100%-3.5rem)] flex-col overflow-hidden lg:h-full">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
         <button
           type="button"
@@ -608,6 +612,16 @@ export default function ArticleEditor({
           </button>
           <button
             type="button"
+            onClick={() => setPanelOpen(true)}
+            className="p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800 rounded lg:hidden"
+            title="Links, history and outline"
+            aria-controls="editor-side-panel"
+            aria-expanded={panelOpen}
+          >
+            <PanelRight size={16} />
+          </button>
+          <button
+            type="button"
             onClick={() => persist(blocks, title, { source: 'manual', label: 'Manual edit' })}
             disabled={isSaving}
             className="ml-1 flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
@@ -620,7 +634,7 @@ export default function ArticleEditor({
 
       <div className="flex flex-1 overflow-hidden">
         <main
-          className="flex-1 overflow-y-auto bg-gray-50 px-4 py-6"
+          className="min-w-0 flex-1 overflow-y-auto bg-gray-50 px-2 py-4 sm:px-4 sm:py-6"
           onMouseUp={captureSelection}
           onKeyUp={captureSelection}
           onKeyDown={handleEditorKeyDown}
@@ -629,7 +643,7 @@ export default function ArticleEditor({
             Highlight text to rewrite a passage. Shift+click another block, or Shift+Arrow
             from a block edge, to edit several blocks together.
           </p>
-          <div className="mx-auto max-w-3xl rounded-lg bg-white p-6 shadow-sm">
+          <div className="mx-auto max-w-3xl rounded-lg bg-white p-4 shadow-sm sm:p-6">
             <div className="prose prose-sm max-w-none space-y-1">
               {blocks.map((block) => {
                 const baselineHtml = baseline.get(block.id);
@@ -655,8 +669,29 @@ export default function ArticleEditor({
           </div>
         </main>
 
-        <aside className="hidden w-80 shrink-0 flex-col border-l border-gray-200 bg-white lg:flex">
+        {panelOpen && (
+          <div
+            aria-hidden
+            onClick={() => setPanelOpen(false)}
+            className="fixed inset-0 z-30 bg-gray-900/40 animate-pick-fade lg:hidden"
+          />
+        )}
+
+        <aside
+          id="editor-side-panel"
+          className={`fixed inset-y-0 right-0 z-40 flex w-80 max-w-[90vw] shrink-0 flex-col border-l border-gray-200 bg-white shadow-xl transition-transform duration-300 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:shadow-none ${
+            panelOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
           <div className="flex border-b border-gray-200">
+            <button
+              type="button"
+              onClick={() => setPanelOpen(false)}
+              aria-label="Close panel"
+              className="px-3 text-gray-400 hover:text-gray-600 lg:hidden"
+            >
+              <X size={16} />
+            </button>
             {(
               [
                 { id: 'links' as const, label: 'Links', icon: Link2 },

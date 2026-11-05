@@ -1163,7 +1163,7 @@ ${blog.content || '<!-- No content available -->'}
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
@@ -1172,9 +1172,9 @@ ${blog.content || '<!-- No content available -->'}
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold mb-2">Content History</h1>
             <p className="text-gray-600">Your generated content organized by type</p>
@@ -1194,12 +1194,12 @@ ${blog.content || '<!-- No content available -->'}
       {/* Tabs */}
       <div className="mb-8">
         <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
+          <nav className="-mb-px flex gap-6 overflow-x-auto sm:gap-8">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabType)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                className={`shrink-0 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1275,8 +1275,8 @@ ${blog.content || '<!-- No content available -->'}
         
         {/* Bulk Action Bar - Show when a specific brand is selected */}
         {activeTab === 'blogs' && selectedBrandFilter !== 'all' && displayedBlogs.length > 0 && (
-          <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-4">
               <button
                 onClick={handleSelectAllBlogs}
                 className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
@@ -1339,7 +1339,7 @@ ${blog.content || '<!-- No content available -->'}
       {/* Shopify Push Modal */}
       {showShopifyModal && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-900">Push Articles to Shopify</h2>
               <button

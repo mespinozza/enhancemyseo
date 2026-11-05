@@ -66,7 +66,7 @@ export default function CollectionsPage() {
   // Show access denied for non-admin users
   if (subscription_status !== 'admin') {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="max-w-md mx-auto text-center">
           {/* Lock icon removed as per new imports */}
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Restricted</h1>
@@ -85,15 +85,15 @@ export default function CollectionsPage() {
   }
 
   return (
-    <div className="p-8 h-full">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8 h-full">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">Optimize Collections</h1>
         <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full">
           Admin Feature
         </span>
       </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-10rem)]">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 lg:h-[calc(100vh-10rem)]">
         {/* Left Column - Brand Selection and Optimization Controls */}
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow-sm p-6">
@@ -149,7 +149,7 @@ export default function CollectionsPage() {
 
         {/* Right Column - Optimization History */}
         <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col h-full">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
             <h2 className="text-lg font-semibold">Optimization History</h2>
             <span className="text-sm text-gray-500">
               {collectionHistory.length} collections optimized
@@ -173,7 +173,7 @@ export default function CollectionsPage() {
                       <span className="font-medium">Based on tags:</span> {item.basedOnTags.join(', ')}
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <h4 className="text-sm font-medium text-gray-500 mb-2">Before</h4>
                       <div className="space-y-2 text-sm">

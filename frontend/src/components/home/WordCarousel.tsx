@@ -22,7 +22,8 @@ export default function WordCarousel() {
 
   return (
     <span 
-      className={`inline-block min-w-[140px] transition-all duration-500 transform ${
+      // Sized to the longest word so the highlight does not jump as words change.
+      className={`inline-block min-w-[4.6em] text-center transition-all duration-500 transform ${
         isAnimating 
           ? 'opacity-0 -translate-y-2' 
           : 'opacity-100 translate-y-0'

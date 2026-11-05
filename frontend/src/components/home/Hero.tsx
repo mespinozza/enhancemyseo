@@ -24,15 +24,16 @@ export default function Hero() {
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8">
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Left Column - Main Content */}
-          <div className="max-w-xl flex items-center min-h-[calc(100vh-12rem)]">
+          {/* Full height only beside the panel; stacked on mobile it would leave a screen of blank space. */}
+          <div className="max-w-xl flex items-center pt-8 sm:pt-12 lg:pt-0 lg:min-h-[calc(100vh-12rem)]">
             <div>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6">
-                <span className="inline-flex items-baseline gap-3">
-                  <span className="relative">
+              <h1 className="text-[2.5rem] leading-[1.1] sm:text-5xl lg:text-6xl font-bold mb-6">
+                <span className="inline-flex items-baseline gap-2 sm:gap-3">
+                  <span className="relative px-2 -mx-1">
                     <span className="relative z-10 text-white">
                       <WordCarousel />
                     </span>
-                    <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-400 transform -skew-y-2 rounded-lg" />
+                    <span aria-hidden className="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-400 transform -skew-y-2 rounded-lg" />
                   </span>
                   your
                 </span>
@@ -41,11 +42,11 @@ export default function Hero() {
                 just a few clicks!
               </h1>
               
-              <p className="text-xl text-gray-600 mb-8">
+              <p className="text-lg sm:text-xl text-gray-600 mb-8">
                 Discover the power of our SEO tools for yourself
               </p>
               
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-3 sm:gap-4">
                 <Link
                   href={user ? '/dashboard' : '/login'}
                   className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200"
