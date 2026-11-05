@@ -6,12 +6,14 @@ import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { meterAs, meteredFetch } from '@/lib/ai/meter';
 
 // Initialize Firebase Admin if not already initialized
 initializeFirebaseAdmin();
 
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+  fetch: meteredFetch,
 });
 
 export async function POST(request: Request) {
@@ -31,6 +33,7 @@ export async function POST(request: Request) {
       console.error('Error verifying ID token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
+    meterAs(verifiedUser.uid);
 
     // CRITICAL: Admin access control - only admin users can generate keywords
     const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);

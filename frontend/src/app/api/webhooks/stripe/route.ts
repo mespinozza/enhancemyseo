@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { sendMetaCAPIEvent } from '@/lib/meta-capi';
 import { DONE_FOR_YOU } from '@/lib/stripe';
+import { CLEARED_BILLING, billingFromSubscription } from '@/lib/stripe/billing';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -95,6 +96,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     stripeCustomerId: subscription.customer,
     currentPeriodEnd: null,
     cancelAtPeriodEnd: false,
+    ...CLEARED_BILLING,
     updatedAt: new Date(),
   });
 
@@ -186,6 +188,7 @@ async function updateUserSubscription(subscription: Stripe.Subscription) {
     stripeCustomerId: subscription.customer,
     currentPeriodEnd: new Date(subscription.current_period_end * 1000),
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    ...billingFromSubscription(subscription),
     updatedAt: new Date(),
   });
 

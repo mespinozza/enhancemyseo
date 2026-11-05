@@ -4,6 +4,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { meterAs, meteredFetch } from '@/lib/ai/meter';
 import {
   buildBlockEditPrompt,
   buildSectionEditPrompt,
@@ -23,7 +24,7 @@ let anthropic: Anthropic | null = null;
 try {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY is not configured');
-  anthropic = new Anthropic({ apiKey: key });
+  anthropic = new Anthropic({ apiKey: key, fetch: meteredFetch });
 } catch (error) {
   console.error('Error initializing Anthropic for article edits:', error);
 }
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
+    meterAs(uid);
 
     const body = (await request.json()) as EditBlockBody;
     const { blogId, blockHtml, selectedText, presetId, brand } = body;

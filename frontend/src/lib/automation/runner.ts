@@ -18,6 +18,7 @@ import {
   type Firestore,
 } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { meterAs } from '@/lib/ai/meter';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
 import { RECENT_CONTENT_TYPES, allowedContentTypes, pickContentType } from './content-type';
@@ -659,6 +660,7 @@ function enqueueRun<T>(task: () => Promise<T>): Promise<T> {
  * Never throws: every failure becomes a recorded run so the user can see what happened.
  */
 export async function runAutomation(automation: Automation): Promise<RunOutcome[]> {
+  meterAs(automation.userId);
   const db = adminDb();
 
   // Opened up front so the dashboard has something to show immediately, even while this

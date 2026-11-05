@@ -8,6 +8,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { meteredFetch } from '@/lib/ai/meter';
 import type { ResearchResult, ResearchSource } from './types';
 
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
@@ -167,7 +168,7 @@ export async function researchTopic(
   if (!key) return fallback('PERPLEXITY_API_KEY is not configured');
 
   try {
-    const response = await fetch(PERPLEXITY_URL, {
+    const response = await meteredFetch(PERPLEXITY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({

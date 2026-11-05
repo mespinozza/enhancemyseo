@@ -13,6 +13,7 @@
  * discarded in favour of the topic, which is exactly the old behaviour.
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { meteredFetch } from '@/lib/ai/meter';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { textFromMessage } from '@/lib/ai/text';
 
@@ -141,7 +142,7 @@ function anthropic(): Anthropic {
   if (!client) {
     const key = process.env.ANTHROPIC_API_KEY?.trim();
     if (!key) throw new Error('ANTHROPIC_API_KEY is not configured');
-    client = new Anthropic({ apiKey: key });
+    client = new Anthropic({ apiKey: key, fetch: meteredFetch });
   }
   return client;
 }

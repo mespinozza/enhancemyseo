@@ -15,6 +15,7 @@ import {
   LIVE_PRODUCT_FIELDS,
 } from '@/lib/shopify/live';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { attributeTo, meteredFetch, meterTotals, runMetered } from '@/lib/ai/meter';
 import { textFromMessage } from '@/lib/ai/text';
 import { generateEnhancedArticle } from '@/lib/article/enhanced';
 import { blueprintFor, comparisonSubjects } from '@/lib/article/enhanced/blueprints';
@@ -229,6 +230,7 @@ try {
   }
   anthropic = new Anthropic({
     apiKey: anthropicKey,
+    fetch: meteredFetch,
   });
   console.log('Anthropic client initialized successfully');
 } catch (error) {
@@ -275,7 +277,7 @@ ${content}
 reply with the list ONLY, it should contain an issue + where in the content this information lies and if nothing looks inaccurate, unsupported, or misleading reply with good to go ONLY`;
 
   try {
-    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    const response = await meteredFetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
@@ -5550,7 +5552,7 @@ ${cleaned}`;
 
 
 export async function POST(request: Request) {
-  return requestLogStore.run([], () => generate(request));
+  return requestLogStore.run([], () => runMetered(() => generate(request)));
 }
 
 async function generate(request: Request) {
@@ -5662,6 +5664,7 @@ async function generate(request: Request) {
 
     // Check concurrent generation limit
     userId = verifiedUser.uid;
+    attributeTo(userId);
     if (!trackGenerationStart(userId)) {
       console.log(`⚠️ Concurrent generation limit reached for user: ${userId}`);
       return NextResponse.json({ 
@@ -6570,6 +6573,12 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
     if (typeof userId !== 'undefined') {
       trackGenerationEnd(userId);
       console.log(`✅ Released generation slot for user: ${userId}`);
+      const spend = meterTotals();
+      if (spend?.requests) {
+        console.log(
+          `💵 AI spend for this article: $${spend.costUsd.toFixed(3)} across ${spend.requests} calls`,
+        );
+      }
     }
   }
 }

@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { meterAs, meteredFetch } from '@/lib/ai/meter';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -17,6 +18,7 @@ try {
   }
   anthropic = new Anthropic({
     apiKey: anthropicKey,
+    fetch: meteredFetch,
   });
 } catch (error) {
   console.error('Error initializing Anthropic client:', error);
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
       console.error('Error verifying ID token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
+    meterAs(decodedToken.uid);
 
     // CRITICAL: Admin access control - only admin users can suggest keywords
     // Import the server subscription utils
