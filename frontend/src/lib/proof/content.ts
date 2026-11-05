@@ -313,20 +313,20 @@ export interface DemoProduct {
 /** Sample products for the demo. They illustrate the output; they aren't a real store. */
 export const DEMO_PRODUCTS: DemoProduct[] = [
   {
-    id: 'gasket',
-    name: 'Combi oven door gasket',
-    collection: 'Oven parts',
-    price: '$89.00',
+    id: 'backpack',
+    name: 'Waterproof hiking backpack',
+    collection: 'Outdoor gear',
+    price: '$129.00',
     article: {
-      title: 'How to Tell When Your Combi Oven Door Gasket Needs Replacing',
-      meta: 'Steam leaks, uneven cooking and rising energy bills? Here’s how to check your oven door gasket and choose the right replacement.',
+      title: 'How to Choose the Right Hiking Backpack for Day Hikes and Overnights',
+      meta: 'Capacity, fit and waterproofing explained, so you can pick a hiking backpack that stays comfortable and keeps your gear dry on any trail.',
       outline: [
-        'Five signs your gasket is failing',
-        'How to measure for the right replacement',
-        'Step-by-step: swapping the gasket in 15 minutes',
-        'How often should a gasket be replaced?',
+        'How many liters do you actually need?',
+        'Getting the right torso fit',
+        'Waterproof vs. water-resistant: what’s the difference?',
+        'What to pack for a day hike',
       ],
-      links: ['Combi oven door gasket', 'Oven parts collection', 'Gasket sizing guide'],
+      links: ['Waterproof hiking backpack', 'Outdoor gear collection', 'Trail packing checklist'],
     },
   },
   {
