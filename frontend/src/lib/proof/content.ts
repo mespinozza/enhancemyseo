@@ -236,6 +236,19 @@ export function heroCopy(angle: Angle, variants: Variants, stats: HeroStats): He
   return { ...HEADLINES[angle][variants.headline](stats), ...PRIMARY[angle] };
 }
 
+export interface SellingPoint {
+  icon: 'chart' | 'shopify' | 'schedule' | 'links' | 'free';
+  label: string;
+}
+
+/** Rotates in the hero pill after the angle's own eyebrow. Keep each one short: phones. */
+export const SELLING_POINTS: SellingPoint[] = [
+  { icon: 'shopify', label: 'Built from your Shopify products' },
+  { icon: 'links', label: 'Internal links to your products' },
+  { icon: 'schedule', label: 'Publishes on a schedule' },
+  { icon: 'free', label: '2 free articles · No card needed' },
+];
+
 /** The free-signup CTA is the one most worth testing, so its wording is an experiment. */
 export const FREE_CTA: Record<Variants['cta'], string> = {
   a: 'Start With 2 Free Articles',

@@ -3,7 +3,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import {
-  BarChart3,
   Boxes,
   Check,
   Clock,
@@ -27,7 +26,8 @@ import {
   type Angle,
   type Variants,
 } from '@/lib/proof/experiments';
-import { EVIDENCE, FREE_CTA, PROBLEMS, heroCopy, type Evidence } from '@/lib/proof/content';
+import { EVIDENCE, FREE_CTA, PROBLEMS, SELLING_POINTS, heroCopy, type Evidence } from '@/lib/proof/content';
+import PointsTicker from '@/components/proof/PointsTicker';
 import { CtaButton, ProofProvider, Reveal } from '@/components/proof/ProofProvider';
 import Demo from '@/components/proof/Demo';
 import Faq from '@/components/proof/Faq';
@@ -237,10 +237,7 @@ export default async function ProofPage({
           <div className="absolute inset-0 -z-10 bg-gradient-to-b from-white via-blue-50/80 to-white" />
           <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 pb-14 pt-10 sm:px-6 sm:pt-14 lg:grid-cols-2 lg:gap-12 lg:px-8 lg:pb-20 lg:pt-16">
             <div className="max-w-xl">
-              <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3.5 py-1.5 text-xs font-semibold text-blue-700">
-                <BarChart3 className="h-3.5 w-3.5" />
-                {hero.eyebrow}
-              </span>
+              <PointsTicker points={[{ icon: 'chart', label: hero.eyebrow }, ...SELLING_POINTS]} />
               <h1 className="mt-5 text-[2rem] font-bold leading-[1.15] text-gray-900 sm:text-5xl sm:leading-[1.1]">
                 {hero.headline}
               </h1>
