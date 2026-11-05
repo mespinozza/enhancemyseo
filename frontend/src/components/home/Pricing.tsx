@@ -161,12 +161,27 @@ export default function Pricing() {
 
         {/* Pricing Tiers */}
         {/* Below lg, stacked cards meant three screens of scrolling before every plan
-            had been seen. Instead a switcher compares the plans at a glance and one
-            full card shows beneath it. Three across from lg. */}
+            had been seen. Instead one card holds a switcher that compares the plans at
+            a glance, with the chosen plan's details beneath it. Three cards from lg. */}
+        <div
+          className="mx-auto mb-12 max-w-lg rounded-3xl bg-white/80 p-2 shadow-xl ring-1 ring-gray-100 backdrop-blur-sm lg:max-w-none lg:rounded-none lg:bg-transparent lg:p-0 lg:shadow-none lg:ring-0 lg:backdrop-blur-none"
+          onTouchStart={(event) => {
+            touchStartX.current = event.touches[0].clientX;
+          }}
+          onTouchEnd={(event) => {
+            if (touchStartX.current === null) return;
+            const delta = event.changedTouches[0].clientX - touchStartX.current;
+            touchStartX.current = null;
+            if (Math.abs(delta) < 50) return;
+            setActiveTier((current) =>
+              Math.min(pricingTiers.length - 1, Math.max(0, current + (delta < 0 ? 1 : -1))),
+            );
+          }}
+        >
         <div
           role="tablist"
           aria-label="Plans"
-          className="mx-auto mb-8 grid max-w-lg grid-cols-3 gap-2 rounded-2xl bg-gray-100/80 p-1.5 lg:hidden"
+          className="grid grid-cols-3 gap-2 rounded-2xl bg-gray-100/80 p-1.5 lg:hidden"
         >
           {pricingTiers.map((tier, index) => {
             const selected = index === activeTier;
@@ -205,29 +220,15 @@ export default function Pricing() {
           })}
         </div>
 
-        <div
-          className="mx-auto mb-12 grid max-w-lg gap-8 lg:max-w-none lg:grid-cols-3"
-          onTouchStart={(event) => {
-            touchStartX.current = event.touches[0].clientX;
-          }}
-          onTouchEnd={(event) => {
-            if (touchStartX.current === null) return;
-            const delta = event.changedTouches[0].clientX - touchStartX.current;
-            touchStartX.current = null;
-            if (Math.abs(delta) < 50) return;
-            setActiveTier((current) =>
-              Math.min(pricingTiers.length - 1, Math.max(0, current + (delta < 0 ? 1 : -1))),
-            );
-          }}
-        >
+        <div className="grid lg:grid-cols-3 lg:gap-8">
           {pricingTiers.map((tier, index) => (
             <div
               key={tier.name}
               id={`plan-card-${index}`}
               role="tabpanel"
               aria-labelledby={`plan-tab-${index}`}
-              className={`relative bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 sm:p-8 ${
-                tier.popular ? 'ring-2 ring-blue-600' : ''
+              className={`relative px-4 pb-4 pt-5 sm:px-6 sm:pb-6 lg:rounded-2xl lg:bg-white/80 lg:p-8 lg:shadow-xl lg:backdrop-blur-sm ${
+                tier.popular ? 'lg:ring-2 lg:ring-blue-600' : ''
               } ${index === activeTier ? 'animate-pick-fade lg:animate-none' : 'hidden lg:block'}`}
             >
               {tier.popular && (
@@ -237,7 +238,22 @@ export default function Pricing() {
                   </span>
                 </div>
               )}
-              <div className="mb-6">
+              {/* Below lg the switcher above already shows the name and price, so the
+                  panel opens with what it adds: the annual saving and who it's for. */}
+              <div className="mb-5 lg:hidden">
+                {isAnnual && tier.name !== "Free" && (
+                  <p className="mb-1.5 text-sm text-gray-500">
+                    <span className="mr-1.5 text-gray-400 line-through">
+                      ${getOriginalPrice(tier.name.toLowerCase().replace(' ', '_'))}/mo
+                    </span>
+                    <span className="font-medium text-blue-600">
+                      Billed ${getAnnualPrice(tier.name.toLowerCase().replace(' ', '_'))} per year
+                    </span>
+                  </p>
+                )}
+                <p className="font-semibold text-gray-900">{tier.description}</p>
+              </div>
+              <div className="mb-6 hidden lg:block">
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{tier.name}</h3>
                 <div className="flex flex-col mb-2">
                   <div className="flex flex-wrap items-baseline">
@@ -264,7 +280,7 @@ export default function Pricing() {
                 </div>
                 <p className="text-gray-600">{tier.description}</p>
               </div>
-              <ul className="space-y-3 mb-8 lg:space-y-4">
+              <ul className="space-y-3 mb-6 lg:mb-8 lg:space-y-4">
                 {tier.features.map((feature) => (
                   <li key={feature} className="flex items-start">
                     <Check className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0" />
@@ -274,16 +290,19 @@ export default function Pricing() {
               </ul>
               <button
                 onClick={() => handlePricingClick(tier)}
-                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+                // Below lg the button belongs to the plan the reader picked, so it is
+                // always the solid one there.
+                className={`w-full py-2.5 px-4 rounded-lg font-medium transition-colors lg:py-2 ${
                   tier.popular
                     ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                    : 'bg-blue-600 text-white hover:bg-blue-700 lg:bg-gray-100 lg:text-gray-900 lg:hover:bg-gray-200'
                 }`}
               >
                 {tier.buttonText}
               </button>
             </div>
           ))}
+        </div>
         </div>
 
         {/* Enterprise Section */}
