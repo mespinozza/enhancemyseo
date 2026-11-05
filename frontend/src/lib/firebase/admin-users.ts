@@ -1,4 +1,5 @@
 import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp, Timestamp, FieldValue } from 'firebase/firestore';
+import { readAttribution, track } from '@/lib/analytics';
 import { db } from './config';
 import { SubscriptionTier } from '@/config/navigation';
 
@@ -182,12 +183,16 @@ export const createOrUpdateUserProfile = async (
     } else {
       // Create new user with default free subscription
       console.log('🆕 Creating new user profile with free subscription:', email);
+      const acquisition = readAttribution();
       await setDoc(userDocRef, {
         ...userData,
         subscription_status: 'free',
         createdAt: serverTimestamp(),
+        ...(Object.keys(acquisition).length > 0 ? { acquisition } : {}),
         // Don't set subscriptionDate for free users
       });
+      // Here rather than in the signup form, so Google sign-ups are counted too.
+      track('sign_up', { angle: acquisition.angle });
     }
   } catch (error) {
     console.error('Error creating/updating user profile:', error);

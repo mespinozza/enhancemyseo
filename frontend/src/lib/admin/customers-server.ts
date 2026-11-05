@@ -60,6 +60,15 @@ export interface RowInputs {
   searchConsoleConnected: boolean;
 }
 
+function acquisitionLabel(acquisition: unknown): string | null {
+  if (!acquisition || typeof acquisition !== 'object') return null;
+  const a = acquisition as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === 'string' && value ? value : null);
+  const source = text(a.utm_source) ?? (text(a.fbclid) ? 'facebook' : text(a.gclid) ? 'google' : null);
+  const parts = [source, text(a.utm_campaign) ?? text(a.angle)].filter(Boolean);
+  return parts.length > 0 ? parts.join(' / ') : null;
+}
+
 export function buildCustomerRow(input: RowInputs): CustomerRow {
   const { uid, record, data, usage } = input;
   const plan = asPlan(data.subscription_status);
@@ -77,6 +86,7 @@ export function buildCustomerRow(input: RowInputs): CustomerRow {
     lastSignInAt: record?.metadata.lastSignInTime
       ? new Date(record.metadata.lastSignInTime).toISOString()
       : null,
+    source: acquisitionLabel(data.acquisition),
     emailVerified: record?.emailVerified ?? false,
     billingInterval: data.billingInterval ?? null,
     mrr: PAID_PLANS.has(plan) ? Number(data.mrr) || 0 : 0,

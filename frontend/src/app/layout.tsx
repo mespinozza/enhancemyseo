@@ -5,10 +5,13 @@ import { Providers } from './providers';
 import { Toaster } from 'react-hot-toast';
 import MainLayout from '@/components/layout/MainLayout';
 import Script from 'next/script';
+import { Suspense } from 'react';
+import Analytics from '@/components/analytics/Analytics';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://enhancemyseo.com'),
   title: 'EnhanceMySEO',
   description: 'AI-powered content generation for e-commerce',
   icons: {
@@ -37,6 +40,13 @@ export default function RootLayout({
             t.src=v;s=b.getElementsByTagName(e)[0];
             s.parentNode.insertBefore(t,s)}(window, document,'script',
             'https://connect.facebook.net/en_US/fbevents.js');
+            // The Pixel has no region setting, so a European time zone stands in for
+            // the opt-in regions until the visitor accepts.
+            try {
+              var consent = localStorage.getItem('ems_consent');
+              var europe = Intl.DateTimeFormat().resolvedOptions().timeZone.indexOf('Europe/') === 0;
+              if (consent === 'denied' || (consent !== 'granted' && europe)) fbq('consent', 'revoke');
+            } catch (e) {}
             fbq('init', '1623137655971546');
             fbq('track', 'PageView');
           `}
@@ -57,6 +67,9 @@ export default function RootLayout({
             {children}
           </MainLayout>
         </Providers>
+        <Suspense fallback={null}>
+          <Analytics />
+        </Suspense>
         <Toaster position="top-right" />
       </body>
     </html>

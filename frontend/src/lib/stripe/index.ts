@@ -2,6 +2,8 @@
  * Stripe integration for checkout sessions
  */
 
+import { readAttribution, rememberCheckout, track } from '@/lib/analytics';
+
 // Stripe Price Configuration
 export const STRIPE_PRICES = {
   free: {
@@ -92,6 +94,21 @@ export const getAnnualPrice = (plan: string): number => {
   return 0;
 };
 
+/** What a Stripe price ID buys, for analytics. The amount is what the first invoice charges. */
+export const describePrice = (
+  priceId: string
+): { plan: string; interval: 'month' | 'year'; value: number } | null => {
+  for (const plan of ['kickstart', 'seo_takeover'] as const) {
+    const prices = STRIPE_PRICES[plan];
+    if (prices.monthly.priceId === priceId) return { plan, interval: 'month', value: prices.monthly.price };
+    if (prices.annual.priceId === priceId) return { plan, interval: 'year', value: prices.annual.price };
+  }
+  if (DONE_FOR_YOU.priceId && DONE_FOR_YOU.priceId === priceId) {
+    return { plan: 'done_for_you', interval: 'month', value: DONE_FOR_YOU.monthlyPrice };
+  }
+  return null;
+};
+
 /**
  * Creates a checkout session for subscription payment
  * @param priceId - The Stripe price ID for the subscription plan
@@ -108,7 +125,9 @@ export const createCheckoutSession = async (priceId: string, userToken: string):
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${userToken}`,
       },
-      body: JSON.stringify({ priceId }),
+      // The ad that brought the visitor rides along into the Stripe metadata, so a
+      // subscription can be traced back to its campaign.
+      body: JSON.stringify({ priceId, attribution: readAttribution() }),
     });
 
     console.log('Response status:', response.status);
@@ -124,6 +143,17 @@ export const createCheckoutSession = async (priceId: string, userToken: string):
     
     // Redirect to Stripe checkout
     if (data.checkoutUrl) {
+      const price = describePrice(priceId);
+      if (price) {
+        const fromPlan = typeof data.currentPlan === 'string' ? data.currentPlan : null;
+        rememberCheckout({ priceId, ...price, fromPlan });
+        track(
+          'begin_checkout',
+          { currency: 'USD', value: price.value, plan: price.plan, interval: price.interval, from_plan: fromPlan },
+          // The pricing pages already send Meta's InitiateCheckout when the button is pressed.
+          { meta: false }
+        );
+      }
       console.log('Redirecting to:', data.checkoutUrl);
       window.location.href = data.checkoutUrl;
       return data.checkoutUrl;

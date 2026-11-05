@@ -19,7 +19,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { createCheckoutSession, DONE_FOR_YOU } from '@/lib/stripe';
 
-const INCLUDED: { icon: LucideIcon; title: string; body: string }[] = [
+export const INCLUDED: { icon: LucideIcon; title: string; body: string }[] = [
   { icon: Wrench, title: 'Technical SEO audit & fixes', body: 'Speed, indexing, schema and site structure, fixed for you.' },
   { icon: Search, title: 'Keyword & competitor strategy', body: 'The searches your buyers make, mapped to your pages.' },
   { icon: Gauge, title: 'Product & collection optimization', body: 'Titles, descriptions and meta rewritten to rank and convert.' },

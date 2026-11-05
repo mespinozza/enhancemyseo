@@ -1,7 +1,24 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
+import { ATTRIBUTION_FIELDS } from '@/lib/analytics';
+
+/**
+ * The browser sends whatever it stored, so only known campaign fields get through, as
+ * short strings: Stripe rejects metadata values over 500 characters.
+ */
+function attributionMetadata(input: unknown): Record<string, string> {
+  if (!input || typeof input !== 'object') return {};
+  const source = input as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const field of [...ATTRIBUTION_FIELDS, 'landing_page'] as const) {
+    const value = source[field];
+    if (typeof value === 'string' && value.trim()) out[field] = value.trim().slice(0, 100);
+  }
+  return out;
+}
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -39,6 +56,24 @@ export async function POST(request: Request) {
       );
     }
 
+    const attribution = attributionMetadata(body.attribution);
+
+    // A missing profile just means we can't tell an upgrade from a first purchase.
+    let currentPlan: string | null = null;
+    try {
+      const profile = await getFirestore().collection('users').doc(decodedToken.uid).get();
+      const status = profile.get('subscription_status');
+      currentPlan = typeof status === 'string' ? status : null;
+    } catch (error) {
+      console.error('Checkout: could not read current plan:', error);
+    }
+
+    const metadata = {
+      userId: decodedToken.uid,
+      ...attribution,
+      ...(currentPlan ? { from_plan: currentPlan } : {}),
+    };
+
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -51,16 +86,16 @@ export async function POST(request: Request) {
       ],
       success_url: `${request.headers.get('origin')}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${request.headers.get('origin')}/pricing?canceled=true`,
+      metadata,
       subscription_data: {
-        metadata: {
-          userId: decodedToken.uid,
-        },
+        metadata,
       },
       customer_email: decodedToken.email || undefined,
     });
 
     return NextResponse.json({
       checkoutUrl: session.url,
+      currentPlan,
     });
   } catch (error) {
     console.error('Error creating checkout session:', error);

@@ -49,6 +49,13 @@ export async function GET() {
   </url>
   
   <url>
+    <loc>${baseUrl}/proof</loc>
+    <lastmod>${currentDate}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+  <url>
     <loc>${baseUrl}/pricing</loc>
     <lastmod>${currentDate}</lastmod>
     <changefreq>weekly</changefreq>

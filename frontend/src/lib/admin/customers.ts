@@ -16,6 +16,8 @@ export interface CustomerRow {
   joinedAt: string | null;
   paidSince: string | null;
   lastSignInAt: string | null;
+  /** The ad campaign that brought them, e.g. "facebook / traffic-oct". */
+  source: string | null;
   emailVerified: boolean;
   billingInterval: string | null;
   mrr: number;

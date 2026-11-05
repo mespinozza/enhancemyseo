@@ -29,11 +29,26 @@ export default {
           '60%': { transform: 'scale(1.08) rotate(3deg)', opacity: '1' },
           '100%': { transform: 'scale(1) rotate(0)' },
         },
+        'demo-in': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'demo-progress': {
+          from: { transform: 'scaleX(0)' },
+          to: { transform: 'scaleX(1)' },
+        },
+        'demo-draw': {
+          from: { strokeDashoffset: '400' },
+          to: { strokeDashoffset: '0' },
+        },
       },
       animation: {
         'border-pan': 'border-pan 6s linear infinite',
         'pick-fade': 'pick-fade 250ms ease-out both',
         'pick-pop': 'pick-pop 350ms ease-out',
+        'demo-in': 'demo-in 300ms ease-out',
+        'demo-progress': 'demo-progress 4.5s linear',
+        'demo-draw': 'demo-draw 1.6s ease-out',
       },
     },
   },

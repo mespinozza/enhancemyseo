@@ -413,6 +413,11 @@ function Customers() {
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                           {shortDate(customer.joinedAt)}
+                          {customer.source && (
+                            <div className="mt-1 max-w-[10rem] truncate text-xs text-blue-600" title={customer.source}>
+                              {customer.source}
+                            </div>
+                          )}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                           {relative(customer.lastSignInAt)}

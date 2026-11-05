@@ -148,6 +148,11 @@ function LoginForm() {
     resolver: zodResolver(signupSchema),
   });
 
+  // Free-signup buttons link here with ?signup=1, so new visitors land on the right tab.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('signup') === '1') setIsLogin(false);
+  }, []);
+
   const activeForm = isLogin ? loginForm : signupForm;
   const { formState: { isSubmitting } } = activeForm;
 
@@ -177,14 +182,8 @@ function LoginForm() {
         setError('Please use a real email address. Temporary or disposable email services are not allowed.');
         return;
       }
+      // The sign_up / CompleteRegistration event fires when the profile is created.
       await registerUser(data.email, data.password);
-      // ── CompleteRegistration pixel event ──────────────────────────────
-      try {
-        (window as Window & { fbq?: (...args: unknown[]) => void }).fbq?.('track', 'CompleteRegistration', {
-          status: 'success',
-          content_name: 'Email Signup',
-        });
-      } catch { /* pixel not ready — safe to ignore */ }
     } catch (err: unknown) {
       if (err instanceof Error && err.message) setError(err.message);
     }

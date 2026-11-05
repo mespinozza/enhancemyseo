@@ -7,8 +7,10 @@ import { usePathname } from 'next/navigation';
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isDashboard = pathname?.startsWith('/dashboard');
+  // The ad landing page draws its own logo-only header and footer.
+  const isLanding = pathname === '/proof';
 
-  if (isDashboard) {
+  if (isDashboard || isLanding) {
     return <>{children}</>;
   }
 
