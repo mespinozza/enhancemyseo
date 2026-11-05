@@ -22,6 +22,7 @@ import {
   Mail,
 } from 'lucide-react';
 import Reviews from '@/components/home/Reviews';
+import DoneForYouOffer from '@/components/pricing/DoneForYouOffer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -334,19 +335,7 @@ export default function PricingPage() {
           })}
         </div>
 
-        {/* Enterprise row */}
-        <div className="mt-6 rounded-2xl bg-gray-900 p-8 flex flex-col sm:flex-row items-center justify-between gap-6 text-white">
-          <div>
-            <h3 className="text-xl font-bold mb-1">Agency / Enterprise</h3>
-            <p className="text-gray-400 text-sm">Unlimited content, custom integrations, and a dedicated success manager.</p>
-          </div>
-          <button
-            onClick={() => router.push('/contact')}
-            className="flex-shrink-0 inline-flex items-center gap-2 rounded-lg bg-white text-gray-900 px-6 py-3 text-sm font-semibold hover:bg-gray-100 transition-colors"
-          >
-            Talk to us <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
+        <DoneForYouOffer className="mt-8" />
       </section>
 
       {/* ── Feature comparison table ── */}

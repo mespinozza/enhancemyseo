@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { sendMetaCAPIEvent } from '@/lib/meta-capi';
+import { DONE_FOR_YOU } from '@/lib/stripe';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -106,6 +107,9 @@ const PRICE_TO_PLAN: Record<string, { name: string; value: number }> = {
   'price_1Rr1WhDAs3fJVx01CWG4O9c4': { name: 'Kickstart Annual',       value: 276 },
   'price_1Rr1UVDAs3fJVx01bM18CiAG': { name: 'SEO Takeover Monthly',   value: 99  },
   'price_1Rr1XuDAs3fJVx01cRt6Wosa': { name: 'SEO Takeover Annual',    value: 948 },
+  ...(DONE_FOR_YOU.priceId
+    ? { [DONE_FOR_YOU.priceId]: { name: 'Done-For-You SEO Monthly', value: DONE_FOR_YOU.monthlyPrice } }
+    : {}),
 };
 
 async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
@@ -167,6 +171,9 @@ async function updateUserSubscription(subscription: Stripe.Subscription) {
       'price_1Rr1WhDAs3fJVx01CWG4O9c4': 'kickstart', // Kickstart annual
       'price_1Rr1UVDAs3fJVx01bM18CiAG': 'seo_takeover', // SEO Takeover monthly
       'price_1Rr1XuDAs3fJVx01cRt6Wosa': 'seo_takeover', // SEO Takeover annual
+      // Done-for-you clients get the unlimited agency tier, so we can run their
+      // account without hitting caps.
+      ...(DONE_FOR_YOU.priceId ? { [DONE_FOR_YOU.priceId]: 'agency' } : {}),
     };
     
     subscriptionStatus = priceToTier[priceId] || 'free';

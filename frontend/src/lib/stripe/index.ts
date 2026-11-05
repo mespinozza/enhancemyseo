@@ -37,6 +37,17 @@ export const STRIPE_PRICES = {
   },
 };
 
+/**
+ * The done-for-you service. Its Stripe price must be a recurring monthly price, since
+ * checkout runs in subscription mode. Until NEXT_PUBLIC_STRIPE_DONE_FOR_YOU_PRICE_ID is
+ * set, the offer sends people to the contact form instead of checkout.
+ */
+export const DONE_FOR_YOU = {
+  priceId: process.env.NEXT_PUBLIC_STRIPE_DONE_FOR_YOU_PRICE_ID || null,
+  monthlyPrice: 3000,
+  name: 'Done-For-You SEO',
+};
+
 // Helper function to get price ID based on plan and billing interval
 export const getPriceId = (plan: string, isAnnual: boolean = false): string | null => {
   if (plan === 'free') return STRIPE_PRICES.free.priceId;

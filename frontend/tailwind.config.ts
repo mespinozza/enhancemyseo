@@ -16,6 +16,10 @@ export default {
         sans: ['var(--font-inter)'],
       },
       keyframes: {
+        'border-pan': {
+          from: { backgroundPosition: '0% 50%' },
+          to: { backgroundPosition: '200% 50%' },
+        },
         'pick-fade': {
           from: { opacity: '0', transform: 'translateY(4px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
@@ -27,6 +31,7 @@ export default {
         },
       },
       animation: {
+        'border-pan': 'border-pan 6s linear infinite',
         'pick-fade': 'pick-fade 250ms ease-out both',
         'pick-pop': 'pick-pop 350ms ease-out',
       },

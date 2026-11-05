@@ -2,9 +2,10 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { ArrowRight, Check, Image, BarChart3, FileText, Table, Link2, Search } from 'lucide-react';
+import { Check, Image, BarChart3, FileText, Table, Link2, Search } from 'lucide-react';
 import { createCheckoutSession, getPriceId, getDisplayPrice, getOriginalPrice, getAnnualPrice } from '@/lib/stripe';
 import { useRef, useState } from 'react';
+import DoneForYouOffer from '@/components/pricing/DoneForYouOffer';
 
 interface PricingTier {
   name: string;
@@ -113,10 +114,6 @@ export default function Pricing() {
       console.error('Detailed Error:', error);
       alert(`Payment Error: ${error instanceof Error ? error.message : 'Something went wrong. Please try again.'}`);
     }
-  };
-
-  const handleEnterpriseClick = () => {
-    router.push('/contact');
   };
 
   return (
@@ -305,35 +302,7 @@ export default function Pricing() {
         </div>
         </div>
 
-        {/* Enterprise Section */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-2xl shadow-xl p-6 sm:p-8 text-white relative overflow-hidden mb-12">
-          <div className="md:flex items-center justify-between">
-            <div className="mb-6 md:mb-0">
-              <h3 className="text-2xl font-bold mb-2">Agency / Enterprise</h3>
-              <ul className="space-y-2">
-                <li className="flex items-center">
-                  <Check className="w-5 h-5 mr-2" />
-                  <span>Unlimited content</span>
-                </li>
-                <li className="flex items-center">
-                  <Check className="w-5 h-5 mr-2" />
-                  <span>Custom integrations</span>
-                </li>
-                <li className="flex items-center">
-                  <Check className="w-5 h-5 mr-2" />
-                  <span>Built for scale</span>
-                </li>
-              </ul>
-            </div>
-            <button
-              onClick={handleEnterpriseClick}
-              className="bg-white text-blue-600 py-2 px-6 rounded-lg font-medium hover:bg-blue-50 transition-colors inline-flex w-full items-center justify-center md:w-auto"
-            >
-              Speak to someone!
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </button>
-          </div>
-        </div>
+        <DoneForYouOffer className="mb-12" />
 
         {/* Feature Showcase Section. No id="features" here: that anchor belongs to the
             section above, and a duplicate would be the one the browser jumps to. */}
