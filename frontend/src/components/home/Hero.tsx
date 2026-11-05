@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import WordCarousel from './WordCarousel';
 import HeroPanels from './HeroPanels';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown } from 'lucide-react';
 
 export default function Hero() {
   const { user } = useAuth();
@@ -43,25 +43,42 @@ export default function Hero() {
               </h1>
               
               <p className="text-lg sm:text-xl text-gray-600 mb-8">
-                Discover the power of our SEO tools for yourself
+                On-brand, fact-checked articles built around your products, published
+                to your Shopify blog on autopilot.
               </p>
               
-              <div className="flex flex-wrap gap-3 sm:gap-4">
+              <div className="flex gap-3 sm:gap-4">
                 <Link
                   href={user ? '/dashboard' : '/login'}
-                  className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200"
+                  className="group relative inline-flex flex-1 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3.5 text-[15px] font-semibold sm:text-base text-white shadow-lg shadow-blue-600/30 ring-1 ring-inset ring-white/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-600/40 active:translate-y-0 sm:flex-none sm:px-7"
                 >
+                  {/* A sheen that sweeps across on hover. */}
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-[300%] motion-reduce:hidden"
+                  />
                   Generate now
-                  <ArrowRight className="ml-2 h-5 w-5" />
+                  <ArrowRight className="ml-2 h-5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
                 </Link>
                 
                 <button
                   onClick={scrollToFeatures}
-                  className="bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors"
+                  className="group inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-xl bg-white/80 px-4 py-3.5 text-[15px] font-semibold sm:text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-200 backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:bg-white hover:shadow-md hover:ring-blue-200 active:translate-y-0 sm:flex-none sm:px-7"
                 >
-                  Learn More
+                  How it works
+                  <ChevronDown className="ml-1.5 h-5 w-5 text-blue-600 transition-transform duration-200 group-hover:translate-y-0.5" />
                 </button>
               </div>
+
+              {/* One row on phones: the third point only joins once there is room for it. */}
+              <ul className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-[13px] text-gray-500 sm:gap-x-5 sm:text-sm">
+                {['2 free articles a month', 'Connects to Shopify', 'Runs on a schedule'].map((item, index) => (
+                  <li key={item} className={`items-center gap-1.5 ${index === 2 ? 'hidden sm:flex' : 'flex'}`}>
+                    <Check className="h-4 w-4 text-green-500" strokeWidth={2.5} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
           

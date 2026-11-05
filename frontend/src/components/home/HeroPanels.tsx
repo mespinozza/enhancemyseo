@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, TrendingUp, XCircle } from 'lucide-react';
+import { ArrowDown, Check, Sparkles, TrendingUp, X, XCircle } from 'lucide-react';
 import {
   CHART_HEIGHT,
   CHART_SERIES,
@@ -32,13 +32,21 @@ export default function HeroPanels() {
   const clicks = chartValueAt(state.chart);
 
   return (
-    <div ref={containerRef} className="space-y-3">
+    <div ref={containerRef} className="flex flex-col gap-3">
       {/* The problem */}
-      <div className="rounded-xl bg-white p-5 shadow-lg transition-transform duration-200 hover:-translate-y-1">
-        <h3 className="mb-3 flex items-center text-lg font-semibold text-red-500">
-          <XCircle className="mr-2 h-5 w-5 flex-shrink-0" />
-          The problem with most SEO tools:
-        </h3>
+      <div className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-lg ring-1 ring-red-100 transition-transform duration-200 hover:-translate-y-1 sm:p-5">
+        <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-red-500 via-red-400 to-orange-300" />
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="flex items-center text-base font-semibold text-gray-900 sm:text-lg">
+            <span className="mr-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500">
+              <XCircle className="h-4 w-4" />
+            </span>
+            The problem with most SEO tools
+          </h3>
+          <span className="flex-shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-600">
+            Without us
+          </span>
+        </div>
         <ul className="space-y-1">
           {PROBLEMS.map((text, index) => {
             const { visible, flash } = state.problems[index];
@@ -52,12 +60,17 @@ export default function HeroPanels() {
                   opacity: visible ? 1 : 0,
                   transform: visible ? 'none' : 'translateY(4px)',
                 }}
-                className="flex items-start gap-3 rounded-md px-2 py-1 text-gray-700 transition-[opacity,transform] duration-500 motion-reduce:transform-none"
+                className="flex items-start gap-2.5 rounded-md px-2 py-1 text-sm text-gray-600 transition-[opacity,transform] duration-500 motion-reduce:transform-none sm:text-base"
               >
                 <span
-                  className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full transition-colors duration-300"
-                  style={{ backgroundColor: flash > 0.05 ? '#ef4444' : '#9ca3af' }}
-                />
+                  className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-300"
+                  style={{
+                    backgroundColor: flash > 0.05 ? '#ef4444' : '#fee2e2',
+                    color: flash > 0.05 ? '#ffffff' : '#ef4444',
+                  }}
+                >
+                  <X className="h-3 w-3" strokeWidth={3} />
+                </span>
                 {text}
               </li>
             );
@@ -65,13 +78,32 @@ export default function HeroPanels() {
         </ul>
       </div>
 
+      {/* Links the two cards into a before and after. Negative margins sit it in the
+          gap without adding to it. */}
+      <div aria-hidden className="relative z-10 -my-[1.375rem] flex justify-center">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-blue-600 shadow-md ring-1 ring-gray-200">
+          <ArrowDown className="h-4 w-4 animate-bounce motion-reduce:animate-none" />
+        </span>
+      </div>
+
       {/* The answer */}
-      <div className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 p-5 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1">
-        <h3 className="mb-3 flex items-center text-lg font-semibold">
-          <Check className="mr-2 h-5 w-5 flex-shrink-0" />
-          Our tool does this on auto-pilot:
-        </h3>
-        <ul className="space-y-1">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-500 p-4 text-white shadow-lg shadow-blue-600/25 transition-transform duration-200 hover:-translate-y-1 sm:p-5">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/15 blur-2xl"
+        />
+        <div className="relative mb-3 flex items-center justify-between gap-3">
+          <h3 className="flex items-center text-base font-semibold sm:text-lg">
+            <span className="mr-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/20">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            Our tool does this on autopilot
+          </h3>
+          <span className="flex-shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+            With us
+          </span>
+        </div>
+        <ul className="relative space-y-1">
           {SOLUTIONS.map((text, index) => {
             const { visible, flash } = state.solutions[index];
             return (
@@ -82,7 +114,7 @@ export default function HeroPanels() {
                   opacity: visible ? 1 : 0,
                   transform: visible ? 'none' : 'translateY(4px)',
                 }}
-                className="flex items-start gap-3 rounded-md px-2 py-1 transition-[opacity,transform] duration-500 motion-reduce:transform-none"
+                className="flex items-start gap-2.5 rounded-md px-2 py-1 text-sm transition-[opacity,transform] duration-500 motion-reduce:transform-none sm:text-base"
               >
                 <span
                   className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-300"
@@ -101,7 +133,7 @@ export default function HeroPanels() {
       </div>
 
       {/* The result */}
-      <div className="rounded-xl bg-gray-900 p-5 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1">
+      <div className="rounded-2xl bg-gray-900 p-4 text-white shadow-lg transition-transform duration-200 hover:-translate-y-1 sm:p-5">
         <div className="mb-3 flex items-start justify-between gap-4">
           <h3 className="flex items-center text-lg font-semibold">
             <TrendingUp className="mr-2 h-5 w-5 flex-shrink-0 text-green-400" />
