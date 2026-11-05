@@ -3,6 +3,7 @@
 import { ArrowDown, Check, Sparkles, TrendingUp, X, XCircle } from 'lucide-react';
 import {
   CHART_HEIGHT,
+  CHART_FINAL_LABEL,
   CHART_SERIES,
   CHART_WIDTH,
   chartAreaPath,
@@ -29,7 +30,8 @@ export default function HeroPanels() {
   const state = animated ? heroStateAt(elapsed) : heroRestState();
 
   const head = pointAtProgress(state.chart, POINTS);
-  const clicks = chartValueAt(state.chart);
+  const impressions = chartValueAt(state.chart);
+  const finalValue = CHART_SERIES[CHART_SERIES.length - 1].value;
 
   return (
     <div ref={containerRef} className="flex flex-col gap-3">
@@ -142,10 +144,10 @@ export default function HeroPanels() {
           <div className="text-right">
             {/* Tabular figures: a counter that changes width jitters the whole row. */}
             <div className="text-xl font-semibold tabular-nums text-green-400">
-              {clicks.toLocaleString()}
+              {impressions >= finalValue ? CHART_FINAL_LABEL : impressions.toLocaleString()}
             </div>
             <div className="whitespace-nowrap text-[11px] text-gray-400">
-              clicks generated organically
+              organic impressions generated
             </div>
           </div>
         </div>
@@ -156,7 +158,7 @@ export default function HeroPanels() {
           // both ends, because the viewBox keeps its own aspect ratio.
           className="w-full"
           role="img"
-          aria-label={`Organic clicks generated, rising from ${CHART_SERIES[0].value.toLocaleString()} in ${CHART_SERIES[0].label} to ${CHART_SERIES[CHART_SERIES.length - 1].value.toLocaleString()} in ${CHART_SERIES[CHART_SERIES.length - 1].label}`}
+          aria-label={`Organic impressions generated, rising from ${CHART_SERIES[0].value.toLocaleString()} in ${CHART_SERIES[0].label} to ${CHART_FINAL_LABEL} in ${CHART_SERIES[CHART_SERIES.length - 1].label}`}
         >
           <defs>
             <linearGradient id="hero-chart-fill" x1="0" y1="0" x2="0" y2="1">

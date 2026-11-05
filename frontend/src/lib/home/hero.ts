@@ -95,23 +95,26 @@ export const CHART_WIDTH = 440;
 export const CHART_HEIGHT = 70;
 
 /**
- * Organic clicks generated, counted cumulatively so the line and the figure beside it
+ * Organic search impressions, counted cumulatively so the line and the figure beside it
  * are telling the same story. A plausible ramp rather than a straight diagonal: the old
  * drawing was a single smooth curve to the corner, which reads as an illustration.
  */
 export const CHART_SERIES = [
   // A cumulative count starts from nothing, so the series is anchored at zero. Without
   // it the readout opened on the first month's figure and every loop restarted by
-  // snapping backwards to 38,200 rather than counting up from scratch.
+  // snapping backwards to the first month's figure rather than counting up from scratch.
   { label: 'Mar', value: 0 },
-  { label: 'Apr', value: 38_200 },
-  { label: 'May', value: 71_600 },
-  { label: 'Jun', value: 121_900 },
-  { label: 'Jul', value: 193_400 },
-  { label: 'Aug', value: 287_500 },
-  { label: 'Sep', value: 401_800 },
-  { label: 'Oct', value: 528_400 },
+  { label: 'Apr', value: 216_900 },
+  { label: 'May', value: 406_500 },
+  { label: 'Jun', value: 692_100 },
+  { label: 'Jul', value: 1_098_000 },
+  { label: 'Aug', value: 1_632_300 },
+  { label: 'Sep', value: 2_281_200 },
+  { label: 'Oct', value: 3_000_000 },
 ];
+
+/** How the counter reads once it reaches the last month. */
+export const CHART_FINAL_LABEL = '3M+';
 
 export interface ChartPoint {
   x: number;
