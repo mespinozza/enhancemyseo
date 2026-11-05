@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
@@ -5561,6 +5561,7 @@ async function generate(request: Request) {
   
   // Track userId for cleanup in finally block
   let userId: string | undefined;
+  let costBlogId: string | undefined;
   
   try {
     log('📥 Received article generation request');
@@ -5688,6 +5689,7 @@ async function generate(request: Request) {
       brandColor,
       brandGuidelines,
     } = body;
+    if (typeof blogId === 'string' && blogId) costBlogId = blogId;
     // Shopify credentials are resolved here rather than taken from the request, so a
     // store on a Dev Dashboard app (whose tokens last a day and are minted on demand)
     // works the same as one with a legacy permanent token. A store that cannot be
@@ -6578,6 +6580,14 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
         console.log(
           `💵 AI spend for this article: $${spend.costUsd.toFixed(3)} across ${spend.requests} calls`,
         );
+        if (costBlogId) {
+          // update, not set: a draft deleted mid-generation must stay deleted.
+          await getFirestore()
+            .collection('blogs')
+            .doc(costBlogId)
+            .update({ aiCostUsd: FieldValue.increment(spend.costUsd) })
+            .catch(() => {});
+        }
       }
     }
   }

@@ -20,35 +20,8 @@ import {
   type CustomersResponse,
   type Plan,
 } from '@/lib/admin/customers';
-
-const PLAN_STYLES: Record<Plan, string> = {
-  free: 'bg-gray-100 text-gray-700',
-  kickstart: 'bg-blue-100 text-blue-800',
-  seo_takeover: 'bg-indigo-100 text-indigo-800',
-  agency: 'bg-amber-100 text-amber-800',
-  admin: 'bg-gray-900 text-white',
-};
-
-const money = (value: number, digits = 0) =>
-  value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-
-const shortDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-
-function relative(iso: string | null): string {
-  if (!iso) return 'Never';
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 30) return `${days}d ago`;
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return `${Math.floor(days / 365)}y ago`;
-}
+import DailyCostChart from '@/components/admin/DailyCostChart';
+import { PLAN_STYLES, money, relative, shortDate } from '@/components/admin/format';
 
 function monthLabel(key: string) {
   const [year, month] = key.split('-').map(Number);
@@ -309,6 +282,16 @@ function Customers() {
               </div>
             </div>
 
+            <div className="mb-6 rounded-lg bg-white p-5 shadow">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">AI cost per day, this month</h2>
+                <span className="text-sm tabular-nums text-gray-500">
+                  {money(summary.aiCostThisMonth, 2)} total
+                </span>
+              </div>
+              <DailyCostChart data={summary.dailyCost} />
+            </div>
+
             <div className="overflow-hidden rounded-lg bg-white shadow">
               <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center">
                 <div className="relative flex-1">
@@ -373,9 +356,12 @@ function Customers() {
                     {rows.map((customer) => (
                       <tr key={customer.uid} className="hover:bg-gray-50">
                         <td className="max-w-[16rem] px-4 py-3">
-                          <div className="truncate font-medium text-gray-900">
+                          <Link
+                            href={`/admin/customers/${customer.uid}`}
+                            className="block truncate font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                          >
                             {customer.email ?? customer.uid}
-                          </div>
+                          </Link>
                           <div className="truncate text-xs text-gray-500">
                             {customer.name ?? '—'}
                             {!customer.emailVerified && ' · unverified'}

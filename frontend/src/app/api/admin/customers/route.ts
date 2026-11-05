@@ -1,42 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { getAuth, type UserRecord } from 'firebase-admin/auth';
 import { getFirestore, type DocumentData } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { requireAdmin } from '@/lib/results/api-auth';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
-import { USAGE_LIMITS } from '@/lib/usage-limits';
-import { billingFromSubscription } from '@/lib/stripe/billing';
 import { AUTOMATIONS_COLLECTION } from '@/lib/automation/types';
 import { SHOPIFY_CONNECTIONS_COLLECTION } from '@/lib/shopify/oauth';
 import { GSC_CONNECTIONS_COLLECTION } from '@/lib/gsc/client';
-import type {
-  CustomerRow,
-  CustomersResponse,
-  Plan,
-  PlanSummary,
-} from '@/lib/admin/customers';
+import {
+  PAID_PLANS,
+  PLANS,
+  backfillBilling,
+  buildCustomerRow,
+  dailySeries,
+  parseUsageId,
+} from '@/lib/admin/customers-server';
+import type { CustomerRow, CustomersResponse, PlanSummary } from '@/lib/admin/customers';
 
 export const dynamic = 'force-dynamic';
-
-const PLANS: Plan[] = ['free', 'kickstart', 'seo_takeover', 'agency', 'admin'];
-const PAID_PLANS = new Set<Plan>(['kickstart', 'seo_takeover', 'agency']);
-/** Stripe lookups per request, so one page load can't stall on a long backfill. */
-const BACKFILL_LIMIT = 25;
-
-function toIso(value: unknown): string | null {
-  if (!value) return null;
-  if (typeof value === 'string') return value;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof (value as { toDate?: () => Date }).toDate === 'function') {
-    return (value as { toDate: () => Date }).toDate().toISOString();
-  }
-  return null;
-}
-
-function asPlan(value: unknown): Plan {
-  return PLANS.includes(value as Plan) ? (value as Plan) : 'free';
-}
 
 async function listAllAuthUsers(): Promise<UserRecord[]> {
   const users: UserRecord[] = [];
@@ -56,40 +37,6 @@ function countBy(docs: DocumentData[], field: string): Map<string, number> {
     if (typeof key === 'string') counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;
-}
-
-/**
- * Fills in the price and billing interval for subscribers who signed up before the
- * webhook started storing them, and writes them back so each user is looked up once.
- */
-async function backfillBilling(userDocs: Map<string, DocumentData>): Promise<number> {
-  const missing = [...userDocs.entries()].filter(
-    ([, data]) =>
-      typeof data.subscriptionId === 'string' &&
-      data.subscriptionId &&
-      data.stripePriceId === undefined &&
-      PAID_PLANS.has(asPlan(data.subscription_status)),
-  );
-  if (missing.length === 0 || !process.env.STRIPE_SECRET_KEY) return missing.length;
-
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' });
-  const firestore = getFirestore();
-  const batch = missing.slice(0, BACKFILL_LIMIT);
-
-  await Promise.all(
-    batch.map(async ([uid, data]) => {
-      try {
-        const subscription = await stripe.subscriptions.retrieve(data.subscriptionId);
-        const billing = billingFromSubscription(subscription);
-        await firestore.collection('users').doc(uid).set(billing, { merge: true });
-        Object.assign(data, billing);
-      } catch (error) {
-        console.error(`Billing backfill failed for ${uid}:`, error);
-      }
-    }),
-  );
-
-  return missing.length - batch.length;
 }
 
 export async function GET(request: NextRequest) {
@@ -119,15 +66,14 @@ export async function GET(request: NextRequest) {
     const usageThisMonth = new Map<string, DocumentData>();
     const totals = new Map<string, { articles: number; cost: number }>();
     for (const doc of usageSnap.docs) {
-      const separator = doc.id.lastIndexOf('_');
-      if (separator < 0) continue;
-      const uid = doc.id.slice(0, separator);
+      const parsed = parseUsageId(doc.id);
+      if (!parsed) continue;
       const data = doc.data();
-      if (doc.id.slice(separator + 1) === month) usageThisMonth.set(uid, data);
-      const total = totals.get(uid) ?? { articles: 0, cost: 0 };
+      if (parsed.month === month) usageThisMonth.set(parsed.uid, data);
+      const total = totals.get(parsed.uid) ?? { articles: 0, cost: 0 };
       total.articles += Number(data.articles) || 0;
       total.cost += Number(data.aiCostUsd) || 0;
-      totals.set(uid, total);
+      totals.set(parsed.uid, total);
     }
 
     const brandCounts = countBy(brandsSnap.docs.map((doc) => doc.data()), 'userId');
@@ -143,43 +89,21 @@ export async function GET(request: NextRequest) {
     const authById = new Map(authUsers.map((user) => [user.uid, user]));
     const uids = new Set([...authById.keys(), ...userDocs.keys()]);
 
-    const customers: CustomerRow[] = [...uids].map((uid) => {
-      const record = authById.get(uid);
-      const data = userDocs.get(uid) ?? {};
-      const usage = usageThisMonth.get(uid) ?? {};
-      const plan = asPlan(data.subscription_status);
-      const limit = USAGE_LIMITS[plan]?.articles ?? 0;
-
-      return {
+    const customers: CustomerRow[] = [...uids].map((uid) =>
+      buildCustomerRow({
         uid,
-        email: record?.email ?? data.email ?? null,
-        name: record?.displayName ?? data.displayName ?? null,
-        plan,
-        joinedAt: record?.metadata.creationTime
-          ? new Date(record.metadata.creationTime).toISOString()
-          : toIso(data.createdAt),
-        paidSince: PAID_PLANS.has(plan) ? toIso(data.subscriptionDate) : null,
-        lastSignInAt: record?.metadata.lastSignInTime
-          ? new Date(record.metadata.lastSignInTime).toISOString()
-          : null,
-        emailVerified: record?.emailVerified ?? false,
-        billingInterval: data.billingInterval ?? null,
-        mrr: PAID_PLANS.has(plan) ? Number(data.mrr) || 0 : 0,
-        cancelAtPeriodEnd: Boolean(data.cancelAtPeriodEnd),
-        renewsAt: toIso(data.currentPeriodEnd),
-        articlesThisMonth: Number(usage.articles) || 0,
+        record: authById.get(uid),
+        data: userDocs.get(uid) ?? {},
+        usage: usageThisMonth.get(uid) ?? {},
         articlesTotal: totals.get(uid)?.articles ?? 0,
-        articleLimit: typeof limit === 'number' || limit === 'unlimited' ? limit : 0,
-        keywordsThisMonth: Number(usage.keywords) || 0,
-        aiCostThisMonth: Number(usage.aiCostUsd) || 0,
         aiCostTotal: totals.get(uid)?.cost ?? 0,
         brands: brandCounts.get(uid) ?? 0,
         automations: automationCounts.get(uid) ?? 0,
         activeAutomations: activeAutomationCounts.get(uid) ?? 0,
         shopifyConnected: shopifyOwners.has(uid),
         searchConsoleConnected: gscOwners.has(uid),
-      };
-    });
+      }),
+    );
 
     customers.sort((a, b) => (b.joinedAt ?? '').localeCompare(a.joinedAt ?? ''));
 
@@ -231,6 +155,7 @@ export async function GET(request: NextRequest) {
         aiCostThisMonth: customers.reduce((sum, customer) => sum + customer.aiCostThisMonth, 0),
         byPlan,
         signupsByMonth,
+        dailyCost: dailySeries([...usageThisMonth.values()]),
       },
     };
 

@@ -108,11 +108,10 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Reset all usage documents by deleting them (they will be recreated with 0 usage when needed)
+      // Zero the counters rather than deleting, so AI cost history survives a reset.
       const batch = adminFirestore.batch();
       userUsageDocuments.forEach(doc => {
-        console.log(`Marking usage document for deletion: ${doc.id}`);
-        batch.delete(doc.ref);
+        batch.update(doc.ref, { articles: 0, keywords: 0, thumbnails: 0 });
       });
       
       await batch.commit();

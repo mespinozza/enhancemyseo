@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
+import { requireAdmin } from '@/lib/results/api-auth';
 
 // Initialize Anthropic client
 let anthropic: Anthropic | null = null;
@@ -17,7 +18,10 @@ try {
   console.error('Error initializing Anthropic:', error);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+
   try {
     if (!anthropic) {
       return NextResponse.json({ 

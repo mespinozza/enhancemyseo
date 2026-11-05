@@ -145,12 +145,14 @@ function record(scope: MeterScope, url: string, body: unknown): void {
   // part-way (a timeout, a crash in a later step) is still counted.
   initializeFirebaseAdmin();
   const docId = `${scope.uid}_${serverSideUsageUtils.getCurrentMonth()}`;
+  const day = String(new Date().getDate()).padStart(2, '0');
   getFirestore()
     .collection('usage')
     .doc(docId)
     .set(
       {
         aiCostUsd: FieldValue.increment(spend.costUsd),
+        aiCostDaily: { [day]: FieldValue.increment(spend.costUsd) },
         aiInputTokens: FieldValue.increment(spend.inputTokens),
         aiOutputTokens: FieldValue.increment(spend.outputTokens),
         aiWebSearches: FieldValue.increment(spend.webSearches),

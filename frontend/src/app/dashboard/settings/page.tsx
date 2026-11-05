@@ -12,11 +12,6 @@ import { auth } from '@/lib/firebase/config';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { createCustomerPortalSession } from '@/lib/stripe';
 
-// Interface for debug functions attached to window
-interface WindowWithDebug extends Window {
-  setMeAsAdmin?: () => Promise<void>;
-}
-
 const profileSchema = z.object({
   displayName: z.string().min(1, 'Display name is required'),
   email: z.string().email('Invalid email address'),
@@ -665,28 +660,6 @@ export default function SettingsPage() {
                       className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                     >
                       Debug
-                    </button>
-                    <button
-                      onClick={async () => {
-                        try {
-                          // Use the browser debug function to set admin status
-                          if (typeof (window as WindowWithDebug).setMeAsAdmin === 'function') {
-                            await (window as WindowWithDebug).setMeAsAdmin!();
-                            setTimeout(() => {
-                              handleRefreshSubscriptionStatus();
-                            }, 1000);
-                          } else {
-                            toast.error('Admin setter function not available');
-                          }
-                        } catch (error: unknown) {
-                          console.error('Error fixing admin status:', error);
-                          const errorMessage = error instanceof Error ? error.message : 'Failed to fix admin status';
-                          toast.error(errorMessage);
-                        }
-                      }}
-                      className="px-3 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                    >
-                      Fix Admin
                     </button>
                     <button
                       onClick={handleRefreshSubscriptionStatus}

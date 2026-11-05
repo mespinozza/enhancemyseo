@@ -5,28 +5,44 @@ service cloud.firestore {
     //
     // `blogs` is excluded because rules are a union: without this, the owner-only test
     // below would grant writes that the stricter publishing rule in the blogs block is
-    // there to refuse. Anything excluded here needs its own match block.
+    // there to refuse. `users` and `usage` are excluded for the same reason: a client
+    // creating its own user document with a `userId` field would otherwise get past the
+    // plan protection below. `adminActions` is server-only. Anything excluded here needs
+    // its own match block, or is denied outright.
     match /{collection}/{document} {
       allow read, write, create, delete: if 
-        collection != 'blogs' &&
+        !(collection in ['blogs', 'users', 'usage', 'adminActions']) &&
         request.auth != null && 
         request.auth.uid == resource.data.userId;
       
       allow create: if 
-        collection != 'blogs' &&
+        !(collection in ['blogs', 'users', 'usage', 'adminActions']) &&
         request.auth != null && 
         request.auth.uid == request.resource.data.userId;
     }
     
-    // Specific rules for important collections
+    // Plan and billing fields are written only by the Stripe webhook and the admin
+    // portal, through the Admin SDK. A client that could set its own
+    // subscription_status could make itself an admin.
+    function billingFields() {
+      return ['subscription_status', 'subscriptionDate', 'subscriptionId', 'stripeCustomerId',
+              'currentPeriodEnd', 'cancelAtPeriodEnd', 'stripePriceId', 'billingInterval',
+              'priceAmount', 'mrr', 'planSetByAdmin'];
+    }
+
     match /users/{userId} {
-      // Allow read and write if the authenticated user's UID matches the document ID
-      allow read, write, update: if request.auth != null && request.auth.uid == userId;
-      
-      // Allow user profile creation - critical fix for the permission error
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      allow update: if request.auth != null &&
+                      request.auth.uid == userId &&
+                      !request.resource.data.diff(resource.data).affectedKeys().hasAny(billingFields());
+
+      // New profiles start on the free plan with no billing details.
       allow create: if request.auth != null && 
                       request.auth.uid == userId &&
-                      request.auth.uid == request.resource.data.uid;
+                      request.auth.uid == request.resource.data.uid &&
+                      request.resource.data.get('subscription_status', 'free') == 'free' &&
+                      !request.resource.data.keys().hasAny(billingFields().removeAll(['subscription_status']));
       
       // Subscription lookup falls back to finding the user document by email when the
       // UID lookup misses (see checkUserSubscriptionStatus in lib/firebase/admin-users).
@@ -43,9 +59,20 @@ service cloud.firestore {
       allow read: if request.auth != null && 
                      usageId.split('_')[0] == request.auth.uid;
       
-      // Allow users to create and update their own usage documents (simplified for troubleshooting)
-      allow create, update: if request.auth != null && 
-                               usageId.split('_')[0] == request.auth.uid;
+      // Article and keyword counts and AI spend are written by the server. The browser
+      // only counts thumbnails, and may only add to that count, so a user can't lift
+      // their own limits by zeroing a counter.
+      allow create: if request.auth != null && 
+                       usageId.split('_')[0] == request.auth.uid &&
+                       request.resource.data.keys().hasOnly(['articles', 'keywords', 'thumbnails', 'lastReset']) &&
+                       request.resource.data.articles == 0 &&
+                       request.resource.data.keys().hasAll(['articles', 'keywords', 'thumbnails']) &&
+                       request.resource.data.keywords == 0 &&
+                       request.resource.data.thumbnails <= 1;
+      allow update: if request.auth != null && 
+                       usageId.split('_')[0] == request.auth.uid &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['thumbnails', 'lastReset']) &&
+                       request.resource.data.get('thumbnails', 0) >= resource.data.get('thumbnails', 0);
       
       // Never allow deletes from client
       allow delete: if false;
