@@ -301,7 +301,7 @@ export default async function ProofPage({
                       </div>
                     ))}
                   </div>
-                  <p className="mt-4 text-xs text-gray-500">From Google Search Console.</p>
+                  <p className="mt-4 text-xs text-gray-500">Live numbers from Google Search Console</p>
                 </div>
               )}
             </div>
