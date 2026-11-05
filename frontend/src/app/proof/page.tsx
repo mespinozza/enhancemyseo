@@ -42,7 +42,7 @@ export const dynamic = 'force-dynamic';
 
 const TITLE = 'Real Shopify SEO Results From AI Blog Content | EnhanceMySEO';
 const DESCRIPTION =
-  'See the actual Google Search Console numbers a Shopify store earned by turning its products into SEO articles with EnhanceMySEO — then try it with 2 free articles.';
+  'See the actual Google Search Console numbers a client’s Shopify store earned from the SEO articles EnhanceMySEO built from its products — then try it with 2 free articles.';
 
 // One canonical URL for every ad variant: ?angle=, UTM tags and test arms all collapse to /proof.
 export const metadata: Metadata = {
@@ -177,7 +177,7 @@ export default async function ProofPage({
 
   const { study, evidence } = await loadProof();
   const metrics = study?.metrics;
-  const storeName = study?.storeName ?? 'our store';
+  const storeName = study?.storeName ?? 'our client';
 
   // Search Console's own tiles beat the rounded case study figures when we have them.
   const clicks = evidence?.totals.clicks ?? (metrics?.clicksAfter ? formatCompact(metrics.clicksAfter) : null);
@@ -317,8 +317,8 @@ export default async function ProofPage({
             <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
               <Reveal>
                 <SectionHeading eyebrow="The proof" title="These Aren't Predictions. They're Actual Search Results.">
-                  Straight from the Google Search Console of {storeName}, a {evidence.platform} store
-                  whose blog is written with EnhanceMySEO. {evidence.range}.
+                  Straight from the Google Search Console of {storeName}, an EnhanceMySEO client
+                  whose {evidence.platform} blog we write. {evidence.range}.
                 </SectionHeading>
               </Reveal>
 
@@ -361,10 +361,10 @@ export default async function ProofPage({
                 <div>
                   <h3 className="text-2xl font-bold text-gray-900">The articles doing the work</h3>
                   <p className="mt-3 text-gray-600">
-                    The ten blog posts with the most clicks, from the Search Console pages report.
-                    They’re built around the equipment brands the store sells parts for, and rank
-                    for the replacement-part searches buyers make. Titles are hidden at the
-                    store’s request.
+                    The ten blog posts we wrote for {storeName} with the most clicks, from their
+                    Search Console pages report. They’re built around the equipment brands the
+                    client sells parts for, and rank for the replacement-part searches buyers
+                    make. Titles are hidden to protect the client’s content strategy.
                   </p>
                   <div className="mt-6 grid grid-cols-2 gap-3">
                     <div className="rounded-xl bg-blue-50 p-4">
@@ -421,7 +421,7 @@ export default async function ProofPage({
 
               <p className="mx-auto mt-10 flex max-w-3xl gap-2.5 rounded-xl border border-gray-200 bg-gray-50 p-4 text-xs leading-relaxed text-gray-500">
                 <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" />
-                These results come from one specific Shopify store and its Google Search Console
+                These results come from one client’s Shopify store and its Google Search Console
                 account, over the dates shown. Organic traffic depends on your niche,
                 competition, products and how consistently you publish. They are not a guarantee
                 of the results you will get.
@@ -483,7 +483,7 @@ export default async function ProofPage({
           <section id="case-study" className="scroll-mt-20 bg-white py-16 sm:py-24">
             <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
               <Reveal>
-                <SectionHeading eyebrow="The case study" title="Here's What Happened When We Started Publishing Consistently." />
+                <SectionHeading eyebrow="The case study" title="Here's What Happened When We Started Publishing Consistently for a Client." />
                 {study && (
                   <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-sm">
                     <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">{study.storeName}</span>

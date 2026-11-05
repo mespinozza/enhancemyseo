@@ -100,12 +100,12 @@ export const EVIDENCE: Record<string, Evidence> = {
       {
         when: 'May – Sep 2025',
         title: 'The starting line',
-        body: 'Where the Search Console window opens, the store was getting roughly 50 to 150 organic clicks a day, with almost no educational content on its blog.',
+        body: 'Where the Search Console window opens, the client’s store was getting roughly 50 to 150 organic clicks a day, with almost no educational content on its blog.',
       },
       {
         when: 'From Aug 2025',
         title: 'Publishing every week',
-        body: 'Articles were generated from the store’s own product catalog, each linking back to the products and collections it covers, then published straight to the Shopify blog. 250 articles over 16 months — about 15 a month.',
+        body: 'We generated articles from the client’s own product catalog, each linking back to the products and collections it covers, and published them straight to their Shopify blog. 250 articles over 16 months — about 15 a month.',
       },
       {
         when: 'Oct 2025',
@@ -115,7 +115,7 @@ export const EVIDENCE: Record<string, Evidence> = {
       {
         when: 'Feb 2026',
         title: 'The peak',
-        body: 'The best day reached about 430 clicks and 26K impressions. Articles built around the equipment brands the store sells parts for (Rational, Angelo Po, Avanti and others) led the way.',
+        body: 'The best day reached about 430 clicks and 26K impressions. Articles built around the equipment brands the client sells parts for (Rational, Angelo Po, Avanti and others) led the way.',
       },
       {
         when: 'Mar – Jul 2026',
@@ -165,63 +165,62 @@ export interface HeroCopy {
 }
 
 const SUBHEADLINE =
-  'See how we transformed existing product information into SEO-optimized articles that generated Google impressions, clicks, and organic traffic — without writing every article manually.';
+  'See how we turned a client’s existing product information into SEO-optimized articles that generated Google impressions, clicks, and organic traffic — without anyone writing every article by hand.';
 
 type HeroFactory = (stats: HeroStats) => Omit<HeroCopy, 'primary' | 'featured'>;
 
+/**
+ * The store is a client, not ours: "we" is EnhanceMySEO doing the work, and the
+ * traffic always belongs to the client.
+ */
 const HEADLINES: Record<Angle, Record<Variants['headline'], HeroFactory>> = {
   traffic: {
     a: () => ({
-      eyebrow: 'Real Google Search Console data',
-      headline: 'We Used AI-Powered Blog Content to Drive Thousands of Organic Visitors to Our Shopify Store.',
+      eyebrow: 'Client results · Real Search Console data',
+      headline: 'We Used AI-Powered Blog Content to Drive Thousands of Organic Visitors to a Client’s Shopify Store.',
       subheadline: SUBHEADLINE,
     }),
     b: (s) => ({
-      eyebrow: 'Real Google Search Console data',
-      headline: `Our Shopify Blog Earned ${s.impressions} Google Impressions. Here’s the Proof.`,
+      eyebrow: 'Client results · Real Search Console data',
+      headline: `Our Articles Earned a Client’s Shopify Store ${s.impressions} Google Impressions. Here’s the Proof.`,
       subheadline: SUBHEADLINE,
     }),
   },
   automation: {
     a: (s) => ({
-      eyebrow: 'Automated publishing, real results',
-      headline: `We Published ${s.articles} SEO Articles Without Writing Them One by One.`,
-      subheadline:
-        'EnhanceMySEO turned our product catalog into a steady stream of SEO articles, published to Shopify on a schedule — while we ran the store.',
+      eyebrow: 'Client results · Automated publishing',
+      headline: `We Published ${s.articles} SEO Articles for a Client — Without Writing Them One by One.`,
+      subheadline: `EnhanceMySEO turned ${s.store}’s product catalog into a steady stream of SEO articles, published to Shopify on a schedule while their team ran the store.`,
     }),
-    b: () => ({
-      eyebrow: 'Automated publishing, real results',
-      headline: 'Our Shopify Blog Runs on Autopilot. Here’s What It Did for Our Traffic.',
-      subheadline:
-        'Pick the products, set a schedule, and articles generate and publish themselves. These are the Search Console numbers that followed.',
+    b: (s) => ({
+      eyebrow: 'Client results · Automated publishing',
+      headline: 'A Client’s Shopify Blog, Running on Autopilot. Here’s What It Did for Their Traffic.',
+      subheadline: `Pick the products, set a schedule, and articles generate and publish themselves. These are the Search Console numbers ${s.store} saw next.`,
     }),
   },
   cost: {
-    a: () => ({
-      eyebrow: 'Traffic you own',
-      headline: 'Ads Stop When the Budget Does. These Articles Kept Bringing Visitors.',
-      subheadline:
-        'Every click below came from organic search, not ads. Articles keep working after they’re published — here’s what that looked like for our store.',
+    a: (s) => ({
+      eyebrow: 'Client results · Traffic they own',
+      headline: 'Ads Stop When the Budget Does. These Articles Kept Bringing Our Client Visitors.',
+      subheadline: `Every click below came from organic search, not ads. Articles keep working after they’re published — here’s what that looked like for ${s.store}.`,
     }),
     b: (s) => ({
-      eyebrow: 'Traffic you own',
-      headline: `${s.clicks} Organic Clicks We Didn’t Pay Per Click For.`,
-      subheadline:
-        'We built SEO articles from our existing products instead of renting traffic from ad platforms. These are the actual Search Console results.',
+      eyebrow: 'Client results · Traffic they own',
+      headline: `${s.clicks} Organic Clicks Our Client Didn’t Pay Per Click For.`,
+      subheadline: `We built SEO articles from ${s.store}’s existing products instead of renting traffic from ad platforms. These are their actual Search Console results.`,
     }),
   },
   'case-study': {
     a: (s) => ({
-      eyebrow: `Case study · ${s.store}`,
-      headline: `How a Shopify Parts Store Reached ${s.impressions} Google Impressions With Blog Content.`,
+      eyebrow: `Client case study · ${s.store}`,
+      headline: `How a Client’s Shopify Parts Store Reached ${s.impressions} Google Impressions With Blog Content.`,
       subheadline:
-        'The full timeline — what we published, when traffic moved, and what we learned — with the Search Console screenshots to back it up.',
+        'The full timeline — what we published for them, when traffic moved, and what we learned — with the Search Console screenshots to back it up.',
     }),
     b: (s) => ({
-      eyebrow: `Case study · ${s.store}`,
-      headline: `${s.articles} Articles. ${s.clicks} Organic Clicks. One Shopify Store.`,
-      subheadline:
-        'A month-by-month look at publishing consistently with EnhanceMySEO, straight from Google Search Console.',
+      eyebrow: `Client case study · ${s.store}`,
+      headline: `${s.articles} Articles. ${s.clicks} Organic Clicks. One Client’s Shopify Store.`,
+      subheadline: `A month-by-month look at ${s.store} publishing consistently with EnhanceMySEO, straight from their Google Search Console.`,
     }),
   },
 };
