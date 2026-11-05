@@ -4,11 +4,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { ArrowRight, Check, Image, BarChart3, FileText, Table, Link2, Search } from 'lucide-react';
 import { createCheckoutSession, getPriceId, getDisplayPrice, getOriginalPrice, getAnnualPrice } from '@/lib/stripe';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 interface PricingTier {
   name: string;
   price: string;
+  articles: number;
   description: string;
   features: string[];
   buttonText: string;
@@ -20,11 +21,15 @@ export default function Pricing() {
   const router = useRouter();
   const { user } = useAuth();
   const [isAnnual, setIsAnnual] = useState(true);
+  // Below lg only one card shows at a time, picked from the plan switcher.
+  const [activeTier, setActiveTier] = useState(1);
+  const touchStartX = useRef<number | null>(null);
 
   const pricingTiers: PricingTier[] = [
     {
       name: "Free",
       price: "0",
+      articles: 2,
       description: "Perfect for trying out our platform",
       features: [
         "2 article generations per month",
@@ -38,6 +43,7 @@ export default function Pricing() {
     {
       name: "Kickstart",
       price: getDisplayPrice('kickstart', isAnnual).toString(),
+      articles: 25,
       description: "Ideal for growing businesses",
       features: [
         "25 article generations per month",
@@ -53,6 +59,7 @@ export default function Pricing() {
     {
       name: "SEO Takeover",
       price: getDisplayPrice('seo_takeover', isAnnual).toString(),
+      articles: 90,
       description: "For serious content creators",
       features: [
         "90 article generations per month",
@@ -153,17 +160,78 @@ export default function Pricing() {
         </div>
 
         {/* Pricing Tiers */}
-        {/* Three across only from lg: at tablet width each card is too narrow for its price row. */}
-        <div className="mx-auto mb-12 grid max-w-lg gap-8 lg:max-w-none lg:grid-cols-3">
-          {pricingTiers.map((tier) => (
+        {/* Below lg, stacked cards meant three screens of scrolling before every plan
+            had been seen. Instead a switcher compares the plans at a glance and one
+            full card shows beneath it. Three across from lg. */}
+        <div
+          role="tablist"
+          aria-label="Plans"
+          className="mx-auto mb-8 grid max-w-lg grid-cols-3 gap-2 rounded-2xl bg-gray-100/80 p-1.5 lg:hidden"
+        >
+          {pricingTiers.map((tier, index) => {
+            const selected = index === activeTier;
+            return (
+              <button
+                key={tier.name}
+                type="button"
+                role="tab"
+                id={`plan-tab-${index}`}
+                aria-selected={selected}
+                aria-controls={`plan-card-${index}`}
+                onClick={() => setActiveTier(index)}
+                className={`relative flex flex-col items-center rounded-xl px-1 pb-2.5 pt-3 text-center transition-all duration-200 ${
+                  selected
+                    ? 'bg-white shadow-md ring-2 ring-blue-600'
+                    : 'text-gray-600 hover:bg-white/60'
+                }`}
+              >
+                {tier.popular && (
+                  <span className="absolute -top-2 rounded-full bg-blue-600 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-white">
+                    Popular
+                  </span>
+                )}
+                <span className={`text-xs font-semibold ${selected ? 'text-blue-600' : 'text-gray-700'}`}>
+                  {tier.name}
+                </span>
+                <span className="mt-0.5 text-xl font-bold text-gray-900">
+                  ${tier.price}
+                  <span className="text-[11px] font-normal text-gray-500">/mo</span>
+                </span>
+                <span className="mt-0.5 text-[11px] text-gray-500">
+                  {tier.articles} articles
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="mx-auto mb-12 grid max-w-lg gap-8 lg:max-w-none lg:grid-cols-3"
+          onTouchStart={(event) => {
+            touchStartX.current = event.touches[0].clientX;
+          }}
+          onTouchEnd={(event) => {
+            if (touchStartX.current === null) return;
+            const delta = event.changedTouches[0].clientX - touchStartX.current;
+            touchStartX.current = null;
+            if (Math.abs(delta) < 50) return;
+            setActiveTier((current) =>
+              Math.min(pricingTiers.length - 1, Math.max(0, current + (delta < 0 ? 1 : -1))),
+            );
+          }}
+        >
+          {pricingTiers.map((tier, index) => (
             <div
               key={tier.name}
+              id={`plan-card-${index}`}
+              role="tabpanel"
+              aria-labelledby={`plan-tab-${index}`}
               className={`relative bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 sm:p-8 ${
                 tier.popular ? 'ring-2 ring-blue-600' : ''
-              }`}
+              } ${index === activeTier ? 'animate-pick-fade lg:animate-none' : 'hidden lg:block'}`}
             >
               {tier.popular && (
-                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                <div className="absolute -top-4 left-1/2 hidden -translate-x-1/2 transform lg:block">
                   <span className="bg-blue-600 text-white text-sm font-medium px-3 py-1 rounded-full">
                     Most Popular
                   </span>
@@ -196,7 +264,7 @@ export default function Pricing() {
                 </div>
                 <p className="text-gray-600">{tier.description}</p>
               </div>
-              <ul className="space-y-4 mb-8">
+              <ul className="space-y-3 mb-8 lg:space-y-4">
                 {tier.features.map((feature) => (
                   <li key={feature} className="flex items-start">
                     <Check className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0" />
