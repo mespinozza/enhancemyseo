@@ -102,15 +102,20 @@ setInterval(() => {
 // ============================================================================
 const activeGenerations = new Map<string, number>(); // userId -> count
 const MAX_CONCURRENT_GENERATIONS = 3; // Max simultaneous generations per user
+/**
+ * Free accounts get no bulk generation, and one at a time also stops two parallel
+ * requests both passing the monthly limit check before either is counted.
+ */
+const MAX_CONCURRENT_FREE_GENERATIONS = 1;
 const API_RETRY_MAX_ATTEMPTS = 3;
 const API_RETRY_BASE_DELAY = 1000; // 1 second
 
 /**
  * Track active generation for a user
  */
-function trackGenerationStart(userId: string): boolean {
+function trackGenerationStart(userId: string, limit = MAX_CONCURRENT_GENERATIONS): boolean {
   const current = activeGenerations.get(userId) || 0;
-  if (current >= MAX_CONCURRENT_GENERATIONS) {
+  if (current >= limit) {
     return false; // Limit reached
   }
   activeGenerations.set(userId, current + 1);
@@ -5631,10 +5636,12 @@ async function generate(request: Request) {
 
     // CRITICAL: Server-side usage verification
     console.log('Verifying usage limits for user:', verifiedUser.uid);
+    let isFreePlan = true;
     try {
       // Get user's subscription status from Firestore
       const subscriptionStatus = await getServerUserSubscriptionStatus(verifiedUser.uid, verifiedUser.email || null);
       console.log('User subscription status:', subscriptionStatus);
+      isFreePlan = subscriptionStatus === 'free';
       
       // Get Firestore admin instance
       const adminFirestore = getFirestore();
@@ -5666,10 +5673,15 @@ async function generate(request: Request) {
     // Check concurrent generation limit
     userId = verifiedUser.uid;
     attributeTo(userId);
-    if (!trackGenerationStart(userId)) {
+    const concurrencyLimit = isFreePlan ? MAX_CONCURRENT_FREE_GENERATIONS : MAX_CONCURRENT_GENERATIONS;
+    if (!trackGenerationStart(userId, concurrencyLimit)) {
       console.log(`⚠️ Concurrent generation limit reached for user: ${userId}`);
+      // Cleared so the finally block doesn't release a slot this request never took.
+      userId = undefined;
       return NextResponse.json({ 
-        error: `You have reached the maximum of ${MAX_CONCURRENT_GENERATIONS} simultaneous article generations. Please wait for one to complete before starting another.`,
+        error: isFreePlan
+          ? 'The free plan generates one article at a time. Upgrade to generate articles in bulk.'
+          : `You have reached the maximum of ${MAX_CONCURRENT_GENERATIONS} simultaneous article generations. Please wait for one to complete before starting another.`,
         code: 'concurrency_limit'
       }, { status: 429 });
     }

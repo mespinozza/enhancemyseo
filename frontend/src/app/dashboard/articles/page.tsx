@@ -8,7 +8,8 @@ import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
 import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { Download, Copy, Plus, Sparkles, X, Check, Pencil, Star } from 'lucide-react';
+import { Download, Copy, Plus, Sparkles, X, Check, Pencil, Star, Lock } from 'lucide-react';
+import Link from 'next/link';
 import {
   getFavoriteBrands,
   setFavoriteBrands,
@@ -38,6 +39,8 @@ interface BulkGenerationStatus {
 
 export default function ArticlesPage() {
   const { user, subscription_status } = useAuth();
+  // Free accounts get 2 articles a month, so generating several at once isn't offered.
+  const canBulkGenerate = Boolean(subscription_status) && subscription_status !== 'free';
   const { refreshUsage, refreshSidebar } = useUsageRefresh();
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
@@ -592,6 +595,11 @@ export default function ArticlesPage() {
       return;
     }
 
+    if (!canBulkGenerate && validKeywords.length > 1) {
+      toast.error('The free plan generates one article at a time. Upgrade to generate in bulk.');
+      return;
+    }
+
     // Check usage limits before generating (support bulk)
     try {
       const currentUsage = await getUserUsage(user.uid);
@@ -783,9 +791,15 @@ export default function ArticlesPage() {
     setShowBrandForm(false);
   };
 
+  useEffect(() => {
+    if (subscription_status === 'free' && keywords.length > 1) {
+      setKeywords([keywords.find((keyword) => keyword.trim()) ?? '']);
+    }
+  }, [subscription_status, keywords]);
+
   // Helper functions for bulk keyword management
   const addKeywordField = () => {
-    if (keywords.length < 10) {
+    if (canBulkGenerate && keywords.length < 10) {
       setKeywords([...keywords, '']);
     }
   };
@@ -1642,7 +1656,9 @@ export default function ArticlesPage() {
                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
                       {bulkMode 
                         ? 'Enter keywords for articles (one per line). No limit for admin users.'
-                        : 'Enter keywords for articles you want to generate. You can add up to 10 keywords for bulk generation.'}
+                        : canBulkGenerate
+                          ? 'Enter keywords for articles you want to generate. You can add up to 10 keywords for bulk generation.'
+                          : 'Enter the keyword your article should rank for. Paid plans can generate up to 10 articles at once.'}
                     </div>
                   </div>
                 </div>
@@ -1741,7 +1757,7 @@ export default function ArticlesPage() {
                   </div>
 
                   {/* Add keyword button */}
-                  {keywords.length < 10 && (
+                  {canBulkGenerate && keywords.length < 10 && (
                     <button
                       onClick={addKeywordField}
                       className="mt-2 flex items-center space-x-1 text-sm text-gray-500 hover:text-blue-600 transition-colors"
@@ -1749,6 +1765,17 @@ export default function ArticlesPage() {
                       <Plus size={16} className="opacity-60" />
                       <span>Add another keyword</span>
                     </button>
+                  )}
+                  {subscription_status === 'free' && (
+                    <p className="mt-2 flex items-center gap-1.5 text-sm text-gray-500">
+                      <Lock size={14} className="flex-shrink-0 opacity-60" />
+                      <span>
+                        Bulk generation (up to 10 at once) is on paid plans.{' '}
+                        <Link href="/pricing" className="font-medium text-blue-600 hover:underline">
+                          Upgrade
+                        </Link>
+                      </span>
+                    </p>
                   )}
 
                   {/* Error message for required first keyword */}
