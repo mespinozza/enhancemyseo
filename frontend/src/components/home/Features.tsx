@@ -17,6 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   cardStatesAt,
   DEMO_CARDS,
+  DEMO_SCRIPT,
   LOOP_MS,
   restStates,
   REST_FRAME,
@@ -53,6 +54,16 @@ export default function Features() {
     : 0;
   const midWord = animated && elapsed % WORD_MS > WORD_MS - 400;
 
+  // The card the run is working on right now: the last one the script switched on.
+  // On phones only this card shows its checklist, so the grid stays short.
+  const position = elapsed % LOOP_MS;
+  const focusedId = animated
+    ? DEMO_SCRIPT.reduce<string>(
+        (current, step) => (step.active && step.at <= position ? step.card : current),
+        DEMO_CARDS[0].id,
+      )
+    : DEMO_CARDS[0].id;
+
   const handleGenerateClick = () => {
     router.push(user ? '/dashboard' : '/register');
   };
@@ -88,7 +99,7 @@ export default function Features() {
 
         <div
           ref={containerRef}
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+          className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4"
         >
           {DEMO_CARDS.map((card, index) => {
             const state = states[card.id];
@@ -103,6 +114,7 @@ export default function Features() {
                 locked={card.locked}
                 done={state.done}
                 active={state.active}
+                focused={card.id === focusedId}
                 // Without motion the line is shown whole rather than mid-keystroke.
                 status={animated ? typeOut(state.status, state.statusSince) : state.status}
               />

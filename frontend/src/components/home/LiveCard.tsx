@@ -11,6 +11,8 @@ export interface LiveCardProps {
   /** Bullet ids finished so far in this pass of the demo. */
   done: string[];
   active: boolean;
+  /** Below sm, only the focused card opens its checklist; the rest are one-line rows. */
+  focused?: boolean;
   status: string;
   featured?: boolean;
   /** Shows a lock in place of the indicator. The card still links through to pricing. */
@@ -32,6 +34,7 @@ export default function LiveCard({
   bullets,
   done,
   active,
+  focused = false,
   status,
   featured = false,
   locked = false,
@@ -39,22 +42,23 @@ export default function LiveCard({
 }: LiveCardProps) {
   // A locked tool should not also be pulsing away as though it were running.
   const live = active && !locked;
+  const statusText = locked ? 'Available on higher plans' : status;
   return (
     // A plain anchor rather than a router link: every card sends the reader to pricing,
     // and the global `scroll-behavior: smooth` makes that work before hydration.
     <a
       href="#pricing"
       style={{ animationDelay: `${index * 70}ms` }}
-      className={`group home-card flex flex-col rounded-2xl border p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
+      className={`group home-card flex flex-col rounded-2xl border p-3 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg sm:p-5 ${
         locked ? 'border-gray-200 bg-gray-50/70' : 'bg-white'
       } ${live ? 'border-blue-300 shadow-blue-100' : 'border-gray-200'} ${
         featured ? 'sm:col-span-2' : ''
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3 sm:items-start">
+        <div className="flex min-w-0 items-center gap-3">
           <span
-            className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-300 ${
+            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg transition-colors duration-300 ${
               locked
                 ? 'bg-gray-200 text-gray-500'
                 : live
@@ -64,7 +68,18 @@ export default function LiveCard({
           >
             <Icon className="h-5 w-5" />
           </span>
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+            {/* On phones the status rides under the title instead of in a footer row. */}
+            <p
+              aria-hidden={!locked}
+              className={`h-4 truncate text-[11px] leading-4 sm:hidden ${
+                live ? 'text-gray-600' : 'text-gray-400'
+              }`}
+            >
+              {statusText}
+            </p>
+          </div>
         </div>
 
         {locked ? (
@@ -88,32 +103,43 @@ export default function LiveCard({
         )}
       </div>
 
-      <ul className={`mt-4 flex-1 space-y-2 ${featured ? 'sm:columns-2 sm:space-y-0' : ''}`}>
-        {bullets.map((bullet) => {
-          const complete = done.includes(bullet.id);
-          return (
-            <li
-              key={bullet.id}
-              className={`flex items-start gap-2 text-xs leading-5 transition-colors duration-500 ${
-                featured ? 'sm:mb-2 sm:break-inside-avoid' : ''
-              } ${complete ? 'text-gray-900' : 'text-gray-500'}`}
-            >
-              <span
-                className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-500 ${
-                  complete ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-300'
-                }`}
-              >
-                <Check className="h-3 w-3" strokeWidth={3} />
-              </span>
-              {bullet.label}
-            </li>
-          );
-        })}
-      </ul>
+      {/* Phones: a grid-rows reveal so the checklist eases open and shut as the run
+          moves on. The list is held at four rows' height so cards with three bullets
+          don't shift the page when they open. */}
+      <div
+        className={`grid flex-1 transition-[grid-template-rows] duration-500 ease-out sm:grid-rows-[1fr] ${
+          focused ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden sm:overflow-visible">
+          <ul className={`mt-3 min-h-[6.5rem] space-y-2 sm:mt-4 sm:min-h-0 ${featured ? 'sm:columns-2 sm:space-y-0' : ''}`}>
+            {bullets.map((bullet) => {
+              const complete = done.includes(bullet.id);
+              return (
+                <li
+                  key={bullet.id}
+                  className={`flex items-start gap-2 text-xs leading-5 transition-colors duration-500 ${
+                    featured ? 'sm:mb-2 sm:break-inside-avoid' : ''
+                  } ${complete ? 'text-gray-900' : 'text-gray-500'}`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-500 ${
+                      complete ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-300'
+                    }`}
+                  >
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </span>
+                  {bullet.label}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
 
       {/* Fixed height and truncation: a status line that grows would reflow the whole
           grid every few hundred milliseconds. */}
-      <div className="mt-4 flex h-5 items-center gap-2 border-t border-gray-100 pt-3 text-xs">
+      <div className="mt-4 hidden h-5 items-center gap-2 border-t border-gray-100 pt-3 text-xs sm:flex">
         {locked ? (
           <span className="font-medium text-gray-500">Available on higher plans</span>
         ) : (
