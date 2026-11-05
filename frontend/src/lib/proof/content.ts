@@ -98,9 +98,9 @@ export const EVIDENCE: Record<string, Evidence> = {
     topPages: MALACHY_TOP_PAGES,
     timeline: [
       {
-        when: 'May – Sep 2025',
+        when: 'Before Aug 2025',
         title: 'The starting line',
-        body: 'Where the Search Console window opens, the client’s store was getting roughly 50 to 150 organic clicks a day, with almost no educational content on its blog.',
+        body: 'The client’s store started out on an old URL that brought in 10 to 15 organic clicks a day at most — and some days none at all — with almost no educational content on its blog.',
       },
       {
         when: 'From Aug 2025',
