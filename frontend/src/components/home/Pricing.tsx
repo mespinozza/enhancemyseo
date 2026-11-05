@@ -7,6 +7,39 @@ import { createCheckoutSession, getPriceId, getDisplayPrice, getOriginalPrice, g
 import { useRef, useState } from 'react';
 import DoneForYouOffer from '@/components/pricing/DoneForYouOffer';
 
+const FEATURES = [
+  {
+    icon: Image,
+    title: 'Embedded product images & links',
+    description: 'Your products are placed in the article as images and links, pointing to the right pages.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Interactive charts & graphs',
+    description: 'Data found while researching becomes clean charts readers can actually scan.',
+  },
+  {
+    icon: FileText,
+    title: 'Uses your own content',
+    description: 'It reads your website and knows when your pages, policies and products are relevant.',
+  },
+  {
+    icon: Table,
+    title: 'Tables & infographics',
+    description: 'Comparisons and key facts are turned into visuals instead of walls of text.',
+  },
+  {
+    icon: Link2,
+    title: 'Internal links that build authority',
+    description: 'Every article links to the right pages on your site to build topical authority.',
+  },
+  {
+    icon: Search,
+    title: 'Built for SEO, AEO & GEO',
+    description: 'Written for people, structured for Google and the AI answer engines.',
+  },
+];
+
 interface PricingTier {
   name: string;
   price: string;
@@ -325,73 +358,28 @@ export default function Pricing() {
               </h2>
             </div>
 
-            {/* Features Grid */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-              {/* Feature 1 */}
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-blue-50 rounded-lg">
-                    <Image className="w-6 h-6 text-blue-600" aria-label="Product images and text feature" />
+            {/* Two compact columns on phones, so six features fit in three short rows
+                instead of six tall cards; the descriptions join in from sm up. */}
+            <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3 lg:gap-6">
+              {FEATURES.map(({ icon: Icon, title, description }) => (
+                <div
+                  key={title}
+                  className="group relative overflow-hidden rounded-xl border border-gray-100 bg-white p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg sm:p-6"
+                >
+                  <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 opacity-0 transition-opacity group-hover:opacity-100" />
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm shadow-blue-500/30 sm:h-11 sm:w-11">
+                      <Icon className="h-[18px] w-[18px] sm:h-5 sm:w-5" aria-hidden />
+                    </div>
+                    <h3 className="text-[13px] font-semibold leading-snug text-gray-900 sm:text-base">
+                      {title}
+                    </h3>
                   </div>
-                  <h3 className="ml-3 font-semibold text-gray-900">Embedded products images & text</h3>
+                  <p className="mt-3 hidden text-sm leading-relaxed text-gray-600 sm:block">
+                    {description}
+                  </p>
                 </div>
-                <p className="text-gray-600">Our tool will accurately embed product links within images and text for you</p>
-              </div>
-
-              {/* Feature 2 */}
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-blue-50 rounded-lg">
-                    <BarChart3 className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <h3 className="ml-3 font-semibold text-gray-900">Interactive charts and graphs</h3>
-                </div>
-                <p className="text-gray-600">Our tool takes any relevant data found for your article to create beautiful graphs and charts</p>
-              </div>
-
-              {/* Feature 3 */}
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-blue-50 rounded-lg">
-                    <FileText className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <h3 className="ml-3 font-semibold text-gray-900">Uses your content</h3>
-                </div>
-                <p className="text-gray-600">Our tool researches your website and understand when to use relevant information</p>
-              </div>
-
-              {/* Feature 4 */}
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-blue-50 rounded-lg">
-                    <Table className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <h3 className="ml-3 font-semibold text-gray-900">Custom tables and infographics</h3>
-                </div>
-                <p className="text-gray-600">Our tool uses meaningful information to create stunning visuals</p>
-              </div>
-
-              {/* Feature 5 */}
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-blue-50 rounded-lg">
-                    <Link2 className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <h3 className="ml-3 font-semibold text-gray-900">Internal links that boost your content</h3>
-                </div>
-                <p className="text-gray-600">Our tool is trained to create topical authority and internally link to the correct pages</p>
-              </div>
-
-              {/* Feature 6 */}
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-blue-50 rounded-lg">
-                    <Search className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <h3 className="ml-3 font-semibold text-gray-900">Built for SEO</h3>
-                </div>
-                <p className="text-gray-600">Our tool generates content designed for humans and search engines</p>
-              </div>
+              ))}
             </div>
           </div>
         </div>
