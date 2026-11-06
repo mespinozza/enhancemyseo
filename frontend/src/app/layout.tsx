@@ -14,11 +14,6 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://enhancemyseo.com'),
   title: 'EnhanceMySEO',
   description: 'AI-powered content generation for e-commerce',
-  icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon.ico',
-    apple: '/apple-touch-icon.png',
-  },
 };
 
 export default function RootLayout({
