@@ -174,21 +174,39 @@ function toSitemapUrl(input: string): string {
   return `${scheme}${host}/sitemap.xml`;
 }
 
-function WebsiteStep({ user, onDone }: { user: Authed; onDone: (analysis: AnalyzeResponse) => void }) {
+function WebsiteStep({
+  user,
+  state,
+  brand,
+  connections,
+  onConnect,
+  onDone,
+}: {
+  user: Authed;
+  state: OnboardingState;
+  brand: BrandProfile | null;
+  connections: Connections;
+  onConnect: (provider: 'shopify' | 'gsc', shopDomain?: string) => Promise<void>;
+  onDone: (analysis: AnalyzeResponse) => void;
+}) {
   const [mode, setMode] = useState<'url' | 'manual'>('url');
   const [url, setUrl] = useState('');
   const [manual, setManual] = useState({ brandName: '', description: '', kind: 'ecommerce' as 'ecommerce' | 'service' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [shopifyOpen, setShopifyOpen] = useState(false);
+  const [shopDomain, setShopDomain] = useState('');
+  const [connecting, setConnecting] = useState<'shopify' | 'gsc' | null>(null);
+  const autoScannedRef = useRef(false);
 
-  const submit = async (event?: React.FormEvent) => {
+  const submit = async (event?: React.FormEvent, siteOverride?: string) => {
     event?.preventDefault();
     setError('');
     setBusy(true);
     try {
       const response = await authedFetch(user, '/api/onboarding/analyze', {
         method: 'POST',
-        body: JSON.stringify(mode === 'url' ? { url: toSitemapUrl(url) } : { manual }),
+        body: JSON.stringify(siteOverride || mode === 'url' ? { url: toSitemapUrl(siteOverride || url) } : { manual }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'We could not read that website.');
@@ -205,6 +223,44 @@ function WebsiteStep({ user, onDone }: { user: Authed; onDone: (analysis: Analyz
       track('onboarding_scan_fail', { source: mode, reason: message.slice(0, 90) });
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Back from connecting an account on this step: read the site that account belongs to.
+  useEffect(() => {
+    const via = state.connectVia;
+    if (!via || autoScannedRef.current || !connections.loaded || !state.brandId) return;
+    autoScannedRef.current = true;
+    (async () => {
+      let site = '';
+      if (via === 'shopify' && connections.shopify) site = brand?.shopifyStoreUrl || '';
+      if (via === 'gsc' && connections.gsc) {
+        const status = await authedFetch(user, `/api/gsc/status?brandId=${state.brandId}`).then((r) => r.json());
+        const property = (status.sites as { siteUrl: string }[] | undefined)?.[0]?.siteUrl;
+        if (property) site = siteFromGscProperty(property);
+      }
+      if (!site) {
+        setError(
+          via === 'gsc' && connections.gsc
+            ? 'Search Console is connected, but it has no websites on that Google account. Enter your website instead.'
+            : 'That account did not finish connecting. Enter your website, or try again.'
+        );
+        return;
+      }
+      setUrl(site);
+      await submit(undefined, site);
+    })().catch(() => setError('We could not read your account. Enter your website instead.'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.connectVia, state.brandId, connections.loaded, connections.shopify, connections.gsc, brand?.shopifyStoreUrl]);
+
+  const connect = async (provider: 'shopify' | 'gsc') => {
+    setConnecting(provider);
+    setError('');
+    try {
+      await onConnect(provider, shopDomain);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not start the connection.');
+      setConnecting(null);
     }
   };
 
@@ -275,6 +331,67 @@ function WebsiteStep({ user, onDone }: { user: Authed; onDone: (analysis: Analyz
             >
               I don&apos;t have a website yet
             </button>
+          </div>
+
+          <div className="mt-8 border-t border-gray-100 pt-6">
+            <p className="text-sm font-medium text-gray-700">Or connect an account and we&apos;ll find your site from it</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setShopifyOpen((open) => !open)}
+                aria-expanded={shopifyOpen}
+                disabled={connecting !== null}
+                className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-semibold transition disabled:opacity-60 ${
+                  shopifyOpen ? 'border-[#5E8E3E] bg-[#95BF47]/10 text-[#3f6a26]' : 'border-gray-300 text-gray-800 hover:border-gray-400'
+                }`}
+              >
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#95BF47]/15 text-[#5E8E3E]">
+                  <ShoppingBag className="h-4 w-4" />
+                </span>
+                Connect Shopify store
+              </button>
+              <button
+                type="button"
+                onClick={() => connect('gsc')}
+                disabled={connecting !== null}
+                className="flex items-center gap-3 rounded-xl border border-gray-300 px-4 py-3 text-left text-sm font-semibold text-gray-800 transition hover:border-gray-400 disabled:opacity-60"
+              >
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  {connecting === 'gsc' ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+                </span>
+                Connect Google Search Console
+              </button>
+            </div>
+
+            {shopifyOpen && (
+              <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <label htmlFor="shop" className="mb-2 block text-sm font-medium text-gray-700">
+                  Your Shopify store address
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    id="shop"
+                    autoFocus
+                    value={shopDomain}
+                    onChange={(e) => setShopDomain(e.target.value)}
+                    placeholder="your-store.myshopify.com"
+                    className={`${inputClass} py-2 text-sm`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => connect('shopify')}
+                    disabled={!shopDomain.trim() || connecting !== null}
+                    className="inline-flex flex-shrink-0 items-center justify-center gap-2 rounded-lg bg-[#5E8E3E] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4f7a33] disabled:opacity-50"
+                  >
+                    {connecting === 'shopify' && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Connect
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Find it in your Shopify admin under Settings → Domains. It ends in .myshopify.com.
+                </p>
+              </div>
+            )}
           </div>
         </form>
       ) : (
@@ -479,6 +596,31 @@ interface Connections {
   loaded: boolean;
 }
 
+/** Returns the provider's sign-in URL; the provider sends the user back to `returnTo`. */
+async function beginConnection(
+  user: Authed,
+  provider: 'shopify' | 'gsc',
+  brandId: string,
+  returnTo: string,
+  shopDomain = ''
+): Promise<string> {
+  const response = await authedFetch(user, `/api/${provider}/connect`, {
+    method: 'POST',
+    body: JSON.stringify({ brandId, returnTo, ...(provider === 'shopify' && { shopDomain: shopDomain.trim() }) }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.url) throw new Error(data.error || 'Could not start the connection.');
+  if (provider === 'shopify') {
+    await brandProfileOperations.update(user.uid, brandId, { shopifyStoreUrl: shopDomain.trim() }).catch(() => {});
+  }
+  return data.url;
+}
+
+/** Search Console names properties `sc-domain:example.com` or by URL; both reduce to a site. */
+function siteFromGscProperty(property: string): string {
+  return property.replace(/^sc-domain:/, '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
+}
+
 function useConnections(user: Authed, brandId: string | undefined) {
   const [connections, setConnections] = useState<Connections>({ shopify: false, gsc: false, loaded: false });
   const refresh = useCallback(async () => {
@@ -515,22 +657,9 @@ function ConnectStep({
   const start = async (provider: 'shopify' | 'gsc') => {
     if (!state.brandId) return;
     setPending(provider);
-    track('onboarding_connect_start', { provider });
+    track('onboarding_connect_start', { provider, from_step: 3 });
     try {
-      const response = await authedFetch(user, `/api/${provider}/connect`, {
-        method: 'POST',
-        body: JSON.stringify({
-          brandId: state.brandId,
-          returnTo: RETURN_TO,
-          ...(provider === 'shopify' && { shopDomain }),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.url) throw new Error(data.error || 'Could not start the connection.');
-      if (provider === 'shopify') {
-        await brandProfileOperations.update(user.uid, state.brandId, { shopifyStoreUrl: shopDomain.trim() }).catch(() => {});
-      }
-      window.location.assign(data.url);
+      window.location.assign(await beginConnection(user, provider, state.brandId, RETURN_TO, shopDomain));
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : 'Could not start the connection.');
       setPending(null);
@@ -1202,7 +1331,7 @@ function WelcomeFlow() {
   const handledReturnRef = useRef(false);
 
   const step = state?.step ?? 1;
-  const connections = useConnections(user as Authed, step >= 3 ? state?.brandId : undefined);
+  const connections = useConnections(user as Authed, state?.brandId);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -1309,6 +1438,33 @@ function WelcomeFlow() {
     }
   };
 
+  /**
+   * Connections hang off a brand profile, so connecting before the business step needs a
+   * placeholder one. The scan on return fills it in, and step two lets the user correct it.
+   */
+  const connectFirst = async (provider: 'shopify' | 'gsc', shopDomain = '') => {
+    if (!user) return;
+    track('onboarding_connect_start', { provider, from_step: 1 });
+    let brandId = state?.brandId;
+    if (!brandId) {
+      const placeholder = provider === 'shopify' ? shopDomain.trim().split('.')[0] || 'My store' : 'My business';
+      brandId = await brandProfileOperations.create(user.uid, {
+        userId: user.uid,
+        brandName: placeholder,
+        businessType: '',
+        citeSources: true,
+      } as Omit<BrandProfile, 'id'>);
+      // Saved before connecting, so a failed attempt is retried on this profile, not a new one.
+      const created = brandId;
+      setState((prev) => ({ ...(prev as OnboardingState), brandId: created }));
+      await saveOnboarding(user.uid, { brandId: created });
+    }
+    const target = await beginConnection(user as Authed, provider, brandId, '/dashboard/welcome?step=1', shopDomain);
+    // Awaited, unlike other progress saves: the page is about to unload.
+    await saveOnboarding(user.uid, { brandId, step: 1, connectVia: provider });
+    window.location.assign(target);
+  };
+
   const skipTutorial = async () => {
     if (!user) return;
     track('onboarding_skip', { from: 'tutorial', step });
@@ -1324,10 +1480,14 @@ function WelcomeFlow() {
         return (
           <WebsiteStep
             user={authed}
+            state={state}
+            brand={brand}
+            connections={connections}
+            onConnect={connectFirst}
             onDone={(result) => {
               setAnalysis(result);
               track('onboarding_step_complete', { step: 1, step_name: 'Website', source: result.source });
-              update({ step: 2 });
+              update({ step: 2, connectVia: null });
             }}
           />
         );

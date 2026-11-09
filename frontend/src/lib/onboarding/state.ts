@@ -21,6 +21,8 @@ export interface OnboardingState {
   kind?: 'ecommerce' | 'service';
   topics?: { keyword: string; why: string }[];
   keyword?: string;
+  /** Set when step one sent the user to connect an account instead of typing a site. */
+  connectVia?: 'shopify' | 'gsc' | null;
   blogId?: string;
 }
 

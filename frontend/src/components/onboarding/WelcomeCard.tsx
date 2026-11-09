@@ -53,7 +53,7 @@ export default function WelcomeCard() {
     setBusy(true);
     track(resuming ? 'onboarding_resume' : 'onboarding_start');
     try {
-      if (!resuming) await saveOnboarding(user.uid, { status: 'in_progress', step: 1, startedAtMs: Date.now() });
+      if (!resuming) await saveOnboarding(user.uid, { status: 'in_progress', step: 1, startedAtMs: Date.now(), connectVia: null });
     } catch (error) {
       console.warn('Could not save tutorial state:', error);
     }
