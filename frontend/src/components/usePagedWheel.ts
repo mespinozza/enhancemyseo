@@ -12,8 +12,9 @@ export const OPTIONS_PER_PAGE = 3;
  * 6rem rows plus padding. `!` beats the max-height the anchor sets inline; the
  * anchor's own limit still keeps it inside the viewport.
  */
+// Above the z-[60] welcome modal: anchored panels are portaled to the body, outside any dialog.
 export const PANEL_CLASS =
-  'z-50 !max-h-[min(18.75rem,var(--anchor-max-height,100vh))] w-[var(--button-width)] min-w-[20rem] overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 transition duration-150 ease-out focus:outline-none data-[closed]:-translate-y-1 data-[closed]:scale-[0.98] data-[closed]:opacity-0';
+  'z-[70] !max-h-[min(18.75rem,var(--anchor-max-height,100vh))] w-[var(--button-width)] min-w-[20rem] overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 transition duration-150 ease-out focus:outline-none data-[closed]:-translate-y-1 data-[closed]:scale-[0.98] data-[closed]:opacity-0';
 export const OPTION_CLASS =
   'group flex h-24 shrink-0 cursor-pointer gap-3 overflow-hidden rounded-lg px-2.5 py-2 transition-colors duration-150 data-[focus]:bg-gray-50 data-[selected]:bg-blue-50/70';
 
