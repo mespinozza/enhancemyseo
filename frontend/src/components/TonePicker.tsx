@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react';
+import PeekPanel from './PeekPanel';
 import {
   Briefcase,
   Check,
@@ -215,19 +216,20 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
         </div>
       </div>
 
-      <div key={selected} className={`animate-pick-fade rounded-lg border-l-4 px-3 py-2 ${style.accent}`}>
-        {profile ? (
-          <>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Sounds like</p>
-            <p className="mt-0.5 text-sm italic leading-relaxed text-gray-700">&ldquo;{profile.sample}&rdquo;</p>
-            <p className="mt-1 text-xs text-gray-500">Written for: {profile.reader}</p>
-          </>
-        ) : (
-          <p className="text-xs text-gray-600">
-            Your voice is applied to every part of the article: wording, sentence length, formality, the FAQ, quiz and call to action.
-          </p>
-        )}
-      </div>
+      <PeekPanel id="tone-sample" title={profile ? 'Sounds like' : 'Your voice'} peekKey={selected} accent={style.accent}>
+        <div key={selected} className="animate-pick-fade">
+          {profile ? (
+            <>
+              <p className="mt-0.5 text-sm italic leading-relaxed text-gray-700">&ldquo;{profile.sample}&rdquo;</p>
+              <p className="mt-1 text-xs text-gray-500">Written for: {profile.reader}</p>
+            </>
+          ) : (
+            <p className="mt-0.5 text-xs text-gray-600">
+              Your voice is applied to every part of the article: wording, sentence length, formality, the FAQ, quiz and call to action.
+            </p>
+          )}
+        </div>
+      </PeekPanel>
     </div>
   );
 }

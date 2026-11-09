@@ -1,6 +1,7 @@
 'use client';
 
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react';
+import PeekPanel from './PeekPanel';
 import {
   BookOpen,
   Check,
@@ -286,9 +287,9 @@ export default function ContentTypePicker({ id, value, onChange, invalid = false
         </ListboxOptions>
       </Listbox>
 
-      {chosen && style && (
-        <div key={value} className={`animate-pick-fade rounded-lg border-l-4 px-3 py-2 ${style.accent}`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">What you&apos;ll get</p>
+      <PeekPanel id="content-type-outline" title="What you’ll get" peekKey={value} accent={style?.accent ?? ''} show={Boolean(chosen && style)}>
+        {chosen && style && (
+        <div key={value} className="animate-pick-fade">
           <ol className="mt-1 space-y-0.5">
             {style.outline.map((line, index) => (
               <li
@@ -305,7 +306,8 @@ export default function ContentTypePicker({ id, value, onChange, invalid = false
             Plus the quick answer, key takeaways and FAQ every article gets.
           </p>
         </div>
-      )}
+        )}
+      </PeekPanel>
     </div>
   );
 }

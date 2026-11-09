@@ -41,6 +41,10 @@ export default {
           from: { strokeDashoffset: '400' },
           to: { strokeDashoffset: '0' },
         },
+        'peek-countdown': {
+          from: { transform: 'scaleX(1)' },
+          to: { transform: 'scaleX(0)' },
+        },
       },
       animation: {
         'border-pan': 'border-pan 6s linear infinite',
@@ -49,6 +53,7 @@ export default {
         'demo-in': 'demo-in 300ms ease-out',
         'demo-progress': 'demo-progress 4.5s linear',
         'demo-draw': 'demo-draw 1.6s ease-out',
+        'peek-countdown': 'peek-countdown 5s linear forwards',
       },
     },
   },
