@@ -901,7 +901,7 @@ function TopicStep({
       )}
 
       <label htmlFor="custom" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">
-        Or write your own
+        Or write your own article keyword
       </label>
       <input
         id="custom"
