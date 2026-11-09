@@ -114,7 +114,7 @@ export const CHART_SERIES = [
 ];
 
 /** How the counter reads once it reaches the last month. */
-export const CHART_FINAL_LABEL = '3M+';
+export const CHART_FINAL_LABEL = '3,000,000+';
 
 export interface ChartPoint {
   x: number;
