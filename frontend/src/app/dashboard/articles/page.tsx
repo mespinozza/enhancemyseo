@@ -24,6 +24,7 @@ import { getIntegrationCapabilities } from '@/lib/firebase/firestore';
 import type { ArticleSeo } from '@/lib/article/enhanced/types';
 import ContentTypePicker from '@/components/ContentTypePicker';
 import TonePicker from '@/components/TonePicker';
+import StorefrontPreview from '@/components/article-preview/StorefrontPreview';
 
 interface BlogPost {
   id: string;
@@ -2229,25 +2230,26 @@ export default function ArticlesPage() {
                             Edit article
                           </button>
                           
-                          <div className="bg-white rounded p-3 flex-1 overflow-auto max-h-96">
+                          <div
+                            className="flex-1 max-h-[75vh] cursor-auto overflow-auto rounded-lg"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {viewMode === 'preview' ? (
-                              <div
-                                className="prose prose-sm max-w-none"
-                                dangerouslySetInnerHTML={{ 
-                                  __html: article.content.replace(
-                                    /<img[^>]*>/g, 
-                                    (match) => {
-                                      // Remove problematic images or add error handling
-                                      if (match.includes('plato-hospitality-robot') || match.includes('robot.jpg')) {
-                                        return ''; // Remove problematic images
-                                      }
-                                      return match.replace(/>$/, ' onerror="this.style.display=\'none\'" style="max-width: 100%; height: auto;">')
-                                    }
-                                  )
-                                }}
-                              />
+                              (() => {
+                                const brand = brandProfiles.find((p) => p.id === selectedBrandId);
+                                return (
+                                  <StorefrontPreview
+                                    title={article.title}
+                                    html={article.content}
+                                    seo={article.seo}
+                                    domain={brand?.shopifyStoreUrl || brand?.websiteUrl}
+                                    author={brand?.brandName}
+                                    date={article.createdAt instanceof Date ? article.createdAt : undefined}
+                                  />
+                                );
+                              })()
                             ) : (
-                              <pre className="whitespace-pre-wrap break-words text-xs text-gray-800">
+                              <pre className="whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-gray-800">
                                 {article.content}
                               </pre>
                             )}

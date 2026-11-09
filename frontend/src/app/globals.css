@@ -215,3 +215,120 @@ body {
   font-weight: 600;
   color: #111827;
 }
+
+/*
+ * The article preview, styled the way a Shopify theme (Dawn) sets a blog post: a narrow
+ * reading column, generous line height and spaced headings. Same reason as above for not
+ * using `prose`. Article blocks carry inline styles, which win over these.
+ */
+.storefront-article {
+  color: #1f2937;
+  font-size: 1.0625rem;
+  line-height: 1.8;
+  overflow-wrap: break-word;
+}
+
+.storefront-article > *:first-child {
+  margin-top: 0;
+}
+
+.storefront-article h2 {
+  margin: 3rem 0 1rem;
+  font-size: 1.6rem;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #111827;
+}
+
+.storefront-article h3 {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.25rem;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #111827;
+}
+
+.storefront-article h4 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.storefront-article p {
+  margin: 0 0 1.25rem;
+}
+
+.storefront-article ul,
+.storefront-article ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.5rem;
+}
+
+.storefront-article ul {
+  list-style: disc;
+}
+
+.storefront-article ol {
+  list-style: decimal;
+}
+
+.storefront-article li {
+  margin: 0.4rem 0;
+  padding-left: 0.25rem;
+}
+
+.storefront-article a {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.storefront-article a:hover {
+  color: #1e3a8a;
+}
+
+.storefront-article strong {
+  font-weight: 600;
+  color: #111827;
+}
+
+.storefront-article blockquote {
+  margin: 1.5rem 0;
+  border-left: 3px solid #d1d5db;
+  padding-left: 1.25rem;
+  color: #4b5563;
+  font-style: italic;
+}
+
+.storefront-article img {
+  margin: 2rem auto;
+  border-radius: 0.375rem;
+  max-width: 100%;
+  height: auto;
+}
+
+.storefront-article table {
+  width: 100%;
+  margin: 0 0 1.25rem;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.storefront-article th,
+.storefront-article td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.storefront-article hr {
+  margin: 2.5rem 0;
+  border-color: #e5e7eb;
+}
+
+.storefront-article details summary {
+  cursor: pointer;
+}

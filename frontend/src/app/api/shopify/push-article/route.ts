@@ -8,6 +8,7 @@ import {
 import { findDuplicateArticle } from '@/lib/shopify/duplicates';
 import { escapeHtml } from '@/lib/article/enhanced/render';
 import type { ArticleSeo } from '@/lib/article/enhanced/types';
+import { storefrontBody } from '@/lib/article/storefront';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -165,7 +166,7 @@ export async function POST(request: Request) {
     const articleData = {
       article: {
         title: article.title,
-        body_html: article.content, // Use body_html instead of content for Shopify
+        body_html: storefrontBody(article.content),
         published: article.status === 'published',
         summary: article.content.replace(/<[^>]*>/g, '').substring(0, 160) + '...', // Create summary from content
         ...(article.author && { author: article.author }), // Include author if provided
