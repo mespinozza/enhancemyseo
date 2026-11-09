@@ -10,7 +10,7 @@ import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
 import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { Download, Copy, Plus, Sparkles, X, Check, Pencil, Star, Lock } from 'lucide-react';
+import { Download, Copy, Plus, Sparkles, X, Check, Pencil, Star, Lock, LayoutGrid, List, ShoppingBag } from 'lucide-react';
 import Link from 'next/link';
 import {
   getFavoriteBrands,
@@ -26,6 +26,7 @@ import ContentTypePicker from '@/components/ContentTypePicker';
 import TonePicker from '@/components/TonePicker';
 import StorefrontPreview from '@/components/article-preview/StorefrontPreview';
 import GenerationProgress, { type LiveProgress } from '@/components/article-generation/GenerationProgress';
+import GeneratedArticleCard, { type ArticleLayout } from '@/components/article-generation/GeneratedArticleCard';
 import { PROGRESS_STREAM_HEADER, readGeneration, readLogLine, stageIndex } from '@/lib/article/progress';
 
 interface BlogPost {
@@ -62,6 +63,14 @@ export default function ArticlesPage() {
   const [generatedArticles, setGeneratedArticles] = useState<BlogPost[]>([]);
   const [bulkGenerationStatus, setBulkGenerationStatus] = useState<BulkGenerationStatus>({});
   const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
+  const [articleLayout, setArticleLayout] = useState<ArticleLayout>('grid');
+  useEffect(() => {
+    if (window.localStorage.getItem('generated-articles-layout') === 'list') setArticleLayout('list');
+  }, []);
+  const chooseArticleLayout = (layout: ArticleLayout) => {
+    setArticleLayout(layout);
+    window.localStorage.setItem('generated-articles-layout', layout);
+  };
   const [expandedArticle, setExpandedArticle] = useState<number | null>(null);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   
@@ -2131,49 +2140,85 @@ export default function ArticlesPage() {
 
               {/* Header with actions - show when articles exist */}
               {generatedArticles.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                  <h3 className="text-xl font-bold">
-                    Generated Articles ({generatedArticles.length})
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="flex items-center gap-2 text-xl font-bold text-gray-900">
+                    Generated articles
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{generatedArticles.length}</span>
                   </h3>
-                  {!isGenerating && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={handleDownloadAll}
-                        className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                      >
-                        <Download size={16} />
-                        <span>Download All</span>
-                      </button>
-                      <button
-                        onClick={async () => {
-                          setShowShopifyModal(true);
-                          if (selectedBrandId) {
-                            await fetchShopifyBlogs(selectedBrandId);
-                          }
-                        }}
-                        className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
-                      >
-                        📤 Push to Shopify
-                      </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="Layout">
+                      {([['grid', LayoutGrid, 'Grid view'], ['list', List, 'List view']] as const).map(([value, Icon, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => chooseArticleLayout(value)}
+                          aria-pressed={articleLayout === value}
+                          title={label}
+                          className={`rounded-md p-1.5 transition-colors ${
+                            articleLayout === value ? 'bg-white text-blue-600 shadow-sm ring-1 ring-gray-200' : 'text-gray-400 hover:text-gray-700'
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          <span className="sr-only">{label}</span>
+                        </button>
+                      ))}
                     </div>
-                  )}
+                    {!isGenerating && (
+                      <>
+                        <button
+                          onClick={handleDownloadAll}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <Download className="h-4 w-4" />
+                          Download all
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setShowShopifyModal(true);
+                            if (selectedBrandId) {
+                              await fetchShopifyBlogs(selectedBrandId);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                        >
+                          <ShoppingBag className="h-4 w-4" />
+                          Push to Shopify
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
               
               {/* Articles Grid - Shows completed articles during generation */}
               {generatedArticles.length > 0 && (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:flex-1 md:overflow-y-auto md:pr-2 mb-4">
-                  {generatedArticles.map((article, index) => (
+                <div
+                  className={`mb-4 content-start md:flex-1 md:overflow-y-auto md:pr-2 ${
+                    articleLayout === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3' : 'flex flex-col gap-2'
+                  }`}
+                >
+                  {generatedArticles.map((article, index) => expandedArticle !== index ? (
+                    <GeneratedArticleCard
+                      key={article.id}
+                      article={article}
+                      layout={articleLayout}
+                      showLog={subscription_status === 'admin'}
+                      onOpen={() => setExpandedArticle(index)}
+                      onEdit={() => router.push(`/dashboard/articles/${article.id}/edit`)}
+                      onCopy={() => handleCopyHTML(article)}
+                      onDownload={() => handleDownloadHTML(article)}
+                      onCopyLog={() => {
+                        navigator.clipboard.writeText(article.generationLog?.join('\n') || 'No log available');
+                        toast.success('Generation log copied to clipboard!');
+                      }}
+                    />
+                  ) : (
                     <div
                       key={article.id}
-                      className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
-                        expandedArticle === index
-                          ? 'border-blue-500 bg-blue-50 lg:col-span-2'
-                          : 'border-gray-200 hover:border-blue-300 hover:shadow-md'
-                      }`}
-                      onClick={() => setExpandedArticle(expandedArticle === index ? null : index)}
+                      className="col-span-full cursor-pointer rounded-xl border border-blue-200 bg-blue-50/50 p-4 shadow-sm"
+                      onClick={() => setExpandedArticle(null)}
                     >
-                      {expandedArticle === index ? (
+                      {(
                         /* Expanded Article View */
                         <div className="h-full flex flex-col">
                           <div className="flex items-center justify-between mb-4">
@@ -2249,43 +2294,6 @@ export default function ArticlesPage() {
                                 {article.content}
                               </pre>
                             )}
-                          </div>
-                        </div>
-                      ) : (
-                        /* Compact Article Card */
-                        <div className="flex flex-col h-[120px]">
-                          <h4 className="font-semibold text-gray-900 mb-1 line-clamp-2 text-sm">
-                            {article.title}
-                          </h4>
-                          <p className="text-xs text-gray-500 mb-2">
-                            Created {article.createdAt instanceof Date 
-                              ? article.createdAt.toLocaleDateString() 
-                              : (article.createdAt as any)?.toDate?.()?.toLocaleDateString() || 'Unknown'}
-                          </p>
-                          <div className="mt-auto flex items-center justify-between">
-                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                              ✓ Generated
-                            </span>
-                            <div className="flex items-center space-x-2">
-                              {/* Admin-only Copy Log button */}
-                              {subscription_status === 'admin' && article.generationLog && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const logText = article.generationLog?.join('\n') || 'No log available';
-                                    navigator.clipboard.writeText(logText);
-                                    toast.success('Generation log copied to clipboard!');
-                                  }}
-                                  className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full hover:bg-purple-200 transition-colors"
-                                  title="Copy generation log"
-                                >
-                                  📋 Copy Log
-                                </button>
-                              )}
-                              <span className="text-xs text-blue-600 font-medium">
-                                Click to expand
-                              </span>
-                            </div>
                           </div>
                         </div>
                       )}
