@@ -4,7 +4,15 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Clock, Sparkles, X } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { getOnboarding, saveOnboarding, shouldOfferOnboarding } from '@/lib/onboarding/state';
+import { auth } from '@/lib/firebase/config';
+import {
+  dismissPreview,
+  getOnboarding,
+  isOnboardingPreview,
+  isPreviewDismissed,
+  saveOnboarding,
+  shouldOfferOnboarding,
+} from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
 
 const PREVIEW_STEPS = ['Add your website', 'Confirm your business', 'Pick a topic', 'Get your article'];
@@ -16,6 +24,8 @@ export default function WelcomeCard() {
   const [visible, setVisible] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const signInTime = auth.currentUser?.metadata.lastSignInTime;
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -23,9 +33,11 @@ export default function WelcomeCard() {
     shouldOfferOnboarding(user.uid)
       .then(async (offer) => {
         if (cancelled || !offer) return;
-        const state = await getOnboarding(user.uid);
-        if (cancelled) return;
-        setResuming(state?.status === 'in_progress');
+        const [state, isPreview] = await Promise.all([getOnboarding(user.uid), isOnboardingPreview(user.uid)]);
+        if (cancelled || (isPreview && isPreviewDismissed(user.uid, signInTime))) return;
+        setPreview(isPreview);
+        // A preview always starts over, so the card offers a fresh run rather than a resume.
+        setResuming(!isPreview && state?.status === 'in_progress');
         setVisible(true);
         track('onboarding_offer_view', { resuming: state?.status === 'in_progress' });
       })
@@ -33,7 +45,7 @@ export default function WelcomeCard() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [user?.uid, signInTime]);
 
   if (!visible || !user) return null;
 
@@ -50,6 +62,10 @@ export default function WelcomeCard() {
 
   const skip = async () => {
     setVisible(false);
+    if (preview) {
+      dismissPreview(user.uid, signInTime);
+      return;
+    }
     track('onboarding_skip', { from: 'dashboard_card' });
     await saveOnboarding(user.uid, { status: 'skipped' }).catch(() => {});
   };

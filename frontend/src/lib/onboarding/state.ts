@@ -49,10 +49,40 @@ export async function saveOnboarding(uid: string, patch: Partial<OnboardingState
 }
 
 /**
+ * Testing switch, set by hand on a user document: the tutorial is offered at every
+ * sign-in whatever the account's history, and dismissing it lasts only for the session.
+ * Harmless if a user sets it on themselves; the free article is enforced server-side.
+ */
+export async function isOnboardingPreview(uid: string): Promise<boolean> {
+  const snapshot = await getDoc(doc(db, 'users', uid));
+  return snapshot.data()?.onboardingPreview === true;
+}
+
+const previewDismissKey = (uid: string) => `onboarding:previewDismissed:${uid}`;
+
+/** Keyed on the sign-in time, so a dismissal lasts until the next login. */
+export function isPreviewDismissed(uid: string, signInTime: string | undefined): boolean {
+  try {
+    return Boolean(signInTime) && window.localStorage.getItem(previewDismissKey(uid)) === signInTime;
+  } catch {
+    return false;
+  }
+}
+
+export function dismissPreview(uid: string, signInTime: string | undefined): void {
+  try {
+    if (signInTime) window.localStorage.setItem(previewDismissKey(uid), signInTime);
+  } catch {
+    // non-critical
+  }
+}
+
+/**
  * Whether to offer the tutorial. Accounts from before it existed have no state, so
  * "has never made a brand or an article" stands in for "new" rather than a sign-up date.
  */
 export async function shouldOfferOnboarding(uid: string): Promise<boolean> {
+  if (await isOnboardingPreview(uid)) return true;
   const state = await getOnboarding(uid);
   if (state) return state.status === 'in_progress';
   const [brands, blogs] = await Promise.all([
