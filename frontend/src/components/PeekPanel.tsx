@@ -127,7 +127,8 @@ export default function PeekPanel({ id, title, peekKey, accent, holdMs = 5000, s
             setAuto(false);
             setOpen(true);
           }}
-          className="flex animate-pick-fade items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-gray-500 transition-colors hover:text-gray-800"
+          // Pulled up so it sits as close under the picker as the label sits above it.
+          className="-mt-1.5 flex animate-pick-fade items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-gray-500 transition-colors hover:text-gray-800"
           aria-expanded={false}
         >
           {title}

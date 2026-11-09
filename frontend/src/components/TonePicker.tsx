@@ -200,7 +200,7 @@ export default function TonePicker({ id, value, onChange }: TonePickerProps) {
 
       <div
         aria-hidden={!customMode}
-        className={`grid transition-all duration-300 ease-out ${customMode ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+        className={`grid transition-all duration-300 ease-out ${customMode ? 'grid-rows-[1fr] opacity-100' : '!mt-0 grid-rows-[0fr] opacity-0'}`}
       >
         <div className="-m-1 overflow-hidden p-1">
           <input
