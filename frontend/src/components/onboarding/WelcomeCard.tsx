@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Clock, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, Clock, Sparkles, TrendingUp, X } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { auth } from '@/lib/firebase/config';
 import {
@@ -15,7 +15,7 @@ import {
 } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
 
-const PREVIEW_STEPS = ['Add your website', 'Confirm your business', 'Pick a topic', 'Get your article'];
+const REMAINING_STEPS = ['Add your website', 'Confirm your business', 'Pick a topic', 'Get your article'];
 
 /**
  * Offers the first-article tutorial to accounts that have not made anything yet, as a
@@ -29,6 +29,7 @@ export default function WelcomeCard() {
   const [resuming, setResuming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [bonusAvailable, setBonusAvailable] = useState(false);
   const signInTime = auth.currentUser?.metadata.lastSignInTime;
 
   useEffect(() => {
@@ -37,9 +38,18 @@ export default function WelcomeCard() {
     shouldOfferOnboarding(user.uid)
       .then(async (offer) => {
         if (cancelled || !offer || isDismissedThisSignIn(user.uid, signInTime)) return;
-        const [state, isPreview] = await Promise.all([getOnboarding(user.uid), isOnboardingPreview(user.uid)]);
+        const [state, isPreview, bonus] = await Promise.all([
+          getOnboarding(user.uid),
+          isOnboardingPreview(user.uid),
+          user
+            .getIdToken()
+            .then((token) => fetch('/api/onboarding/bonus', { headers: { Authorization: `Bearer ${token}` } }))
+            .then((r) => (r.ok ? r.json() : { available: false }))
+            .catch(() => ({ available: false })),
+        ]);
         if (cancelled) return;
         setPreview(isPreview);
+        setBonusAvailable(Boolean(bonus.available));
         // A preview always starts over, so the card offers a fresh run rather than a resume.
         setResuming(!isPreview && state?.status === 'in_progress');
         setVisible(true);
@@ -49,6 +59,8 @@ export default function WelcomeCard() {
     return () => {
       cancelled = true;
     };
+    // Keyed on the uid: the user object is replaced on every token refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, signInTime]);
 
   useEffect(() => {
@@ -61,6 +73,8 @@ export default function WelcomeCard() {
   }, [visible]);
 
   if (!visible || !user) return null;
+
+  const firstName = user.displayName?.trim().split(/\s+/)[0] || '';
 
   const start = async () => {
     setBusy(true);
@@ -114,57 +128,87 @@ export default function WelcomeCard() {
         <div className="relative overflow-y-auto overflow-x-hidden overscroll-contain p-5 [scrollbar-width:none] sm:p-8 [&::-webkit-scrollbar]:hidden [@media(max-height:720px)]:sm:p-6">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
             <Sparkles className="h-3.5 w-3.5" />
-            {resuming ? 'Pick up where you left off' : 'Welcome to EnhanceMySEO'}
+            {firstName ? `Welcome, ${firstName}` : 'Welcome to EnhanceMySEO'}
           </span>
           <h2
             id="welcome-title"
             className="mt-3 pr-6 text-xl font-bold leading-tight sm:mt-4 sm:text-3xl [@media(max-height:720px)]:sm:text-2xl"
           >
-            {resuming ? 'Finish your first article' : 'Generate your first article in the next few minutes'}
+            {resuming
+              ? 'Your first article is a few clicks away'
+              : 'See a ready-to-publish article for your business in about 3 minutes'}
           </h2>
           <p className="mt-2 text-sm text-blue-100 sm:mt-3 sm:text-base [@media(max-height:720px)]:sm:text-sm">
-            Enter your website and we&apos;ll read it, set up your brand, and write an article that links to your real
-            product or service pages. Your first one is on us, and it doesn&apos;t count toward your monthly articles.
+            {resuming
+              ? 'You’re partway there. Pick up where you left off and we’ll write it for you now.'
+              : `Just enter your website. We’ll learn what you sell and write an SEO article that links to your own product or service pages.${
+                  bonusAvailable ? ' Your first one is free and doesn’t use your monthly articles.' : ''
+                }`}
           </p>
 
-          <ol className="mt-4 grid grid-cols-2 gap-2 sm:mt-6 sm:gap-2.5 [@media(max-height:720px)]:sm:mt-4">
-            {PREVIEW_STEPS.map((step, index) => (
+          {/* Account creation is genuinely done, and a card that starts part-filled gets finished more often. */}
+          <div className="mt-4 sm:mt-6 [@media(max-height:720px)]:sm:mt-4">
+            <div className="flex items-center justify-between text-xs font-medium">
+              <span className="flex items-center gap-1.5 text-white">
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-400 text-green-950">
+                  <Check className="h-3 w-3" strokeWidth={3} />
+                </span>
+                Account created
+              </span>
+              <span className="text-blue-200">1 of 5 done</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
+              <div className="h-full w-1/5 rounded-full bg-green-400" />
+            </div>
+          </div>
+
+          <ol className="mt-3 grid grid-cols-2 gap-2 sm:gap-2.5">
+            {REMAINING_STEPS.map((step, index) => (
               <li
                 key={step}
                 className="flex items-center gap-2 rounded-xl bg-white/10 px-2.5 py-2 text-xs sm:gap-3 sm:px-3 sm:py-2.5 sm:text-sm"
               >
                 <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-blue-700 sm:h-6 sm:w-6 sm:text-xs">
-                  {index + 1}
+                  {index + 2}
                 </span>
                 <span className="min-w-0">{step}</span>
               </li>
             ))}
           </ol>
 
-          <div className="mt-5 flex flex-col gap-2.5 sm:mt-8 sm:gap-3 [@media(max-height:720px)]:sm:mt-5">
+          <p className="mt-4 flex items-start gap-2 text-xs text-blue-100 sm:text-sm">
+            <TrendingUp className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-300" />
+            <span>
+              The same writer behind <strong className="text-white">3,000,000+ organic impressions</strong> for our clients.
+            </span>
+          </p>
+
+          <div className="mt-5 sm:mt-6 [@media(max-height:720px)]:sm:mt-4">
             <button
               type="button"
               onClick={start}
               disabled={busy}
               autoFocus
-              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-semibold sm:py-3.5 text-blue-700 shadow-lg transition-all duration-300 hover:bg-blue-50 hover:shadow-xl motion-safe:hover:-translate-y-0.5 disabled:opacity-70"
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-semibold text-blue-700 shadow-lg transition-all duration-300 hover:bg-blue-50 hover:shadow-xl motion-safe:hover:-translate-y-0.5 disabled:opacity-70 sm:py-3.5"
             >
-              {resuming ? 'Continue the tutorial' : 'Show me how'}
+              {resuming ? 'Finish my first article' : bonusAvailable ? 'Write my first article, free' : 'Write my first article'}
               <ArrowRight className="h-4 w-4 transition-transform duration-300 motion-safe:group-hover:translate-x-1" />
             </button>
-            <button
-              type="button"
-              onClick={skip}
-              className="rounded-xl border border-white/30 px-6 py-2.5 text-sm font-medium sm:py-3 text-white transition hover:bg-white/10"
-            >
-              I already know how to use the tool
-            </button>
+            <p className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-blue-200">
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" /> About 3 minutes
+              </span>
+              <span aria-hidden>·</span>
+              <span>No credit card</span>
+              <span aria-hidden>·</span>
+              <span>Nothing on your site changes</span>
+            </p>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-blue-200 sm:mt-4">
-            <span className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5" /> About 3 minutes
-            </span>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3 text-xs text-blue-200 sm:text-sm">
+            <button type="button" onClick={skip} className="font-medium text-blue-100 underline-offset-4 hover:text-white hover:underline">
+              I already know how to use the tool
+            </button>
             <button type="button" onClick={remindLater} className="underline-offset-4 hover:text-white hover:underline">
               Remind me next time
             </button>

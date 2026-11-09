@@ -290,8 +290,8 @@ function WebsiteStep({
         <form onSubmit={submit}>
           <StepHeader
             eyebrow="Step 1 of 5"
-            title="What's your website?"
-            body="We'll read it to learn what you sell and which pages to link to. Nothing on your site gets changed."
+            title="Where can we find your business?"
+            body="Enter your website and we'll learn what you sell and which pages to link to. Takes about 15 seconds, and nothing on your site changes."
           />
           <label htmlFor="site" className="mb-2 block text-sm font-medium text-gray-700">
             Website address
@@ -319,7 +319,7 @@ function WebsiteStep({
           {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <PrimaryButton type="submit" disabled={url.trim().length < 4}>
-              Scan my site <ArrowRight className="h-4 w-4" />
+              Scan my website <ArrowRight className="h-4 w-4" />
             </PrimaryButton>
             <button
               type="button"
@@ -527,7 +527,7 @@ function BusinessStep({
       <StepHeader
         eyebrow="Step 2 of 5"
         title={analysis?.source === 'website' ? 'Here’s what we found' : 'Check your business details'}
-        body="Every article is written from this, so fix anything that's off. You can change it later in Settings."
+        body="Every article is written from this. Fix anything that's off, or continue if it looks good. You can change it later."
       />
 
       {analysis?.source === 'website' && (
@@ -581,7 +581,7 @@ function BusinessStep({
           disabled={!draft.brandName.trim() || !draft.businessType.trim()}
           onClick={() => onSave(draft)}
         >
-          Looks right <ArrowRight className="h-4 w-4" />
+          Looks good, continue <ArrowRight className="h-4 w-4" />
         </PrimaryButton>
       </div>
     </div>
@@ -753,14 +753,14 @@ function ConnectStep({
     <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
       <StepHeader
         eyebrow="Step 3 of 5 · Optional"
-        title="Make your first article even better"
-        body="Both take about 20 seconds and you'll come right back here. Skip them if you'd rather; your website is enough to start."
+        title="Want an even better first article?"
+        body="Optional. Each takes about 20 seconds and brings you right back here. Your website is already enough to write a great one."
       />
       <div className="space-y-4">{showShopifyFirst ? [shopifyCard, gscCard] : [gscCard, shopifyCard]}</div>
       <div className="mt-6 flex items-center justify-between gap-3">
         <BackButton onClick={onBack} />
         <PrimaryButton onClick={onNext}>
-          {anyConnected ? 'Continue' : 'Skip for now'} <ArrowRight className="h-4 w-4" />
+          {anyConnected ? 'Continue to my topic' : 'Skip, pick my topic'} <ArrowRight className="h-4 w-4" />
         </PrimaryButton>
       </div>
     </div>
@@ -865,8 +865,8 @@ function TopicStep({
     <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
       <StepHeader
         eyebrow="Step 4 of 5"
-        title="Pick what your first article is about"
-        body="These are phrases your customers search for. Pick one, or type your own."
+        title="What should your first article be about?"
+        body="We picked these from what your customers search for on Google. Choose one, or type your own."
       />
 
       {gscConnected && (loading || wins.length > 0) && (
@@ -914,7 +914,7 @@ function TopicStep({
       <div className="mt-6 flex items-center justify-between gap-3">
         <BackButton onClick={onBack} />
         <PrimaryButton disabled={keyword.length < 3} onClick={() => onNext(keyword, custom.trim() ? 'custom' : selected?.source || 'suggested')}>
-          Use this topic <ArrowRight className="h-4 w-4" />
+          Write about this <ArrowRight className="h-4 w-4" />
         </PrimaryButton>
       </div>
     </div>
@@ -965,6 +965,14 @@ function GenerateStep({
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<'ready' | 'writing' | 'done' | 'error'>('ready');
+  const [bonusAvailable, setBonusAvailable] = useState(false);
+
+  useEffect(() => {
+    authedFetch(user, '/api/onboarding/bonus')
+      .then((r) => (r.ok ? r.json() : { available: false }))
+      .then((data) => setBonusAvailable(Boolean(data.available)))
+      .catch(() => {});
+  }, [user]);
   const [error, setError] = useState<{ message: string; upgrade?: boolean } | null>(null);
   const [article, setArticle] = useState<GeneratedArticle | null>(null);
   const [verified, setVerified] = useState(auth.currentUser?.emailVerified ?? true);
@@ -1273,7 +1281,7 @@ function GenerateStep({
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-      <StepHeader eyebrow="Step 5 of 5" title="Ready to write" body="Here's what goes into your article." />
+      <StepHeader eyebrow="Step 5 of 5" title="Everything's ready" body="One click and your article is written, about 2 to 3 minutes from now." />
       <ul className="space-y-3 text-sm text-gray-700">
         <li className="flex gap-3">
           <Check className="h-5 w-5 flex-shrink-0 text-green-600" />
@@ -1326,6 +1334,9 @@ function GenerateStep({
           <ArrowRight className="relative h-4 w-0 opacity-0 transition-all duration-300 group-hover:w-4 group-hover:opacity-100 motion-safe:group-hover:translate-x-0.5" />
         </button>
       </div>
+      {bonusAvailable && (
+        <p className="mt-3 text-right text-xs text-gray-500">Free: this one doesn&apos;t use your monthly articles.</p>
+      )}
     </div>
   );
 }
