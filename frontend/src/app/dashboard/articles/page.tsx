@@ -423,8 +423,20 @@ export default function ArticlesPage() {
       setSelectedBrandId(tutorial.brandId);
       markFieldAsTouched('brandProfile');
     }
-    setTimeout(() => generateButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
   }, [tutorial?.brandId, isLoadingProfiles, brandProfiles]);
+
+  // The tutorial already collected everything, so the article starts as soon as the form holds it.
+  const tutorialStartedRef = useRef(false);
+  useEffect(() => {
+    if (!tutorial || tutorialStartedRef.current || isGenerating) return;
+    if (selectedBrandId !== tutorial.brandId || keywords[0] !== tutorial.keyword || contentType !== 'default') return;
+    tutorialStartedRef.current = true;
+    generateButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    track('onboarding_generate_auto');
+    handleBulkGenerate();
+    // handleBulkGenerate is recreated every render; this fires once, when the form is ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tutorial, selectedBrandId, keywords, contentType, isGenerating]);
 
   // Debounced search effects for real-time search
   useEffect(() => {
@@ -1954,26 +1966,37 @@ export default function ArticlesPage() {
               </div>
             )}
 
-            {tutorial && !isGenerating && (
+            {tutorial && (
               <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-                  <Sparkles className="h-4 w-4 text-blue-600" /> Last step: generate your first article
+                  {isGenerating ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 text-blue-600" />
+                  )}
+                  {isGenerating ? 'Writing your first article…' : 'Last step: your first article'}
                 </p>
                 <p className="mt-1 text-sm text-blue-800">
-                  We&apos;ve filled in your brand and your topic, &ldquo;{tutorial.keyword}&rdquo;. Press the button below and
-                  it&apos;s written in about 2 to 3 minutes. Everything above can be changed first if you like.
+                  {isGenerating ? (
+                    <>
+                      We&apos;re writing &ldquo;{tutorial.keyword}&rdquo; for your brand now. It takes about 2 to 3 minutes,
+                      so keep this page open and it&apos;ll appear below when it&apos;s ready.
+                    </>
+                  ) : (
+                    <>
+                      We&apos;ve filled in your brand and your topic, &ldquo;{tutorial.keyword}&rdquo;. If it didn&apos;t start on
+                      its own, press the button below and it&apos;s written in about 2 to 3 minutes.
+                    </>
+                  )}
                 </p>
               </div>
             )}
 
-            <div ref={generateButtonRef} className="relative">
-            {tutorial && !isGenerating && (
-              <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-lg bg-blue-400/40 motion-safe:animate-ping" />
-            )}
+            <div ref={generateButtonRef}>
             <button
               onClick={handleBulkGenerate}
               disabled={isGenerating || (bulkMode ? !bulkKeywordsText.trim() : !keywords[0]?.trim()) || !selectedBrandId || !contentType}
-              className={`relative w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
+              className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
                 ${
                   isGenerating || (bulkMode ? !bulkKeywordsText.trim() : !keywords[0]?.trim()) || !selectedBrandId || !contentType
                     ? 'bg-gray-400 cursor-not-allowed'
