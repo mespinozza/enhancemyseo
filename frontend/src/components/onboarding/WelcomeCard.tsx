@@ -179,7 +179,7 @@ export default function WelcomeCard() {
           <p className="mt-4 flex items-start gap-2 text-xs text-blue-100 sm:text-sm">
             <TrendingUp className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-300" />
             <span>
-              The same writer behind <strong className="text-white">3,000,000+ organic impressions</strong> for our clients.
+              The same <strong className="text-white">tool</strong> behind <strong className="text-white">3,000,000+ organic impressions</strong> for our clients.
             </span>
           </p>
 
