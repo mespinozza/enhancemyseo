@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getOnboarding, saveOnboarding, type OnboardingState } from '@/lib/onboarding/state';
+import { track } from '@/lib/analytics';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { brandProfileOperations, BrandProfile, blogOperations, Blog } from '@/lib/firebase/firestore';
@@ -398,6 +400,32 @@ export default function ArticlesPage() {
     loadBrandProfiles();
   }, [loadBrandProfiles]);
 
+  // Arriving from the welcome tutorial: its answers fill the form, and the first article
+  // is sent as the tutorial's bonus.
+  const [tutorial, setTutorial] = useState<OnboardingState | null>(null);
+  const generateButtonRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!user?.uid || !new URLSearchParams(window.location.search).has('tutorial')) return;
+    getOnboarding(user.uid)
+      .then((state) => {
+        if (state?.status !== 'in_progress' || !state.brandId || !state.keyword) return;
+        setTutorial(state);
+        setKeywords([state.keyword]);
+        setContentType('default');
+        track('onboarding_handoff_articles');
+      })
+      .catch(() => {});
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!tutorial?.brandId || isLoadingProfiles) return;
+    if (brandProfiles.some((profile) => profile.id === tutorial.brandId)) {
+      setSelectedBrandId(tutorial.brandId);
+      markFieldAsTouched('brandProfile');
+    }
+    setTimeout(() => generateButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+  }, [tutorial?.brandId, isLoadingProfiles, brandProfiles]);
+
   // Debounced search effects for real-time search
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -600,8 +628,9 @@ export default function ArticlesPage() {
       return;
     }
 
-    // Check usage limits before generating (support bulk)
-    try {
+    // Check usage limits before generating (support bulk). The tutorial's article may be
+    // the free bonus, which only the server can see, so it decides that one.
+    if (!tutorial) try {
       const currentUsage = await getUserUsage(user.uid);
       const { canPerform, reason } = await canPerformAction(user.uid, subscription_status, 'articles', currentUsage, validKeywords.length);
       
@@ -683,6 +712,7 @@ export default function ArticlesPage() {
               websiteUrl: selectedProfile.websiteUrl || '',
               brandColor: selectedProfile.brandColor || '#000000',
               ...(contentType === 'versus' && !bulkMode && { comparisonSubjects: versusSubjects }),
+              ...(tutorial && { onboardingBonus: true }),
             }),
           });
 
@@ -729,6 +759,22 @@ export default function ArticlesPage() {
 
             setGeneratedArticles(prev => [...prev, newArticle]);
             setBulkGenerationStatus(prev => ({ ...prev, [i]: 'completed' }));
+
+            if (tutorial) {
+              track('first_article_generated', {
+                seconds_since_start: tutorial.startedAtMs ? Math.round((Date.now() - tutorial.startedAtMs) / 1000) : undefined,
+                bonus: Boolean(generatedContent.onboardingBonus),
+                has_website: Boolean(selectedProfile.websiteUrl),
+              });
+              saveOnboarding(user.uid, { status: 'completed', blogId: blog }).catch(() => {});
+              setTutorial(null);
+              setExpandedArticle(0);
+              toast.success(
+                generatedContent.onboardingBonus
+                  ? 'Your first article is ready, and it was on us!'
+                  : 'Your first article is ready!'
+              );
+            }
             
             // Refresh usage display after each successful generation
             await refreshUsage('articles');
@@ -1908,10 +1954,26 @@ export default function ArticlesPage() {
               </div>
             )}
 
+            {tutorial && !isGenerating && (
+              <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+                  <Sparkles className="h-4 w-4 text-blue-600" /> Last step: generate your first article
+                </p>
+                <p className="mt-1 text-sm text-blue-800">
+                  We&apos;ve filled in your brand and your topic, &ldquo;{tutorial.keyword}&rdquo;. Press the button below and
+                  it&apos;s written in about 2 to 3 minutes. Everything above can be changed first if you like.
+                </p>
+              </div>
+            )}
+
+            <div ref={generateButtonRef} className="relative">
+            {tutorial && !isGenerating && (
+              <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-lg bg-blue-400/40 motion-safe:animate-ping" />
+            )}
             <button
               onClick={handleBulkGenerate}
               disabled={isGenerating || (bulkMode ? !bulkKeywordsText.trim() : !keywords[0]?.trim()) || !selectedBrandId || !contentType}
-              className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
+              className={`relative w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
                 ${
                   isGenerating || (bulkMode ? !bulkKeywordsText.trim() : !keywords[0]?.trim()) || !selectedBrandId || !contentType
                     ? 'bg-gray-400 cursor-not-allowed'
@@ -1926,6 +1988,8 @@ export default function ArticlesPage() {
                 ? 'Enter Article Keywords'
                 : !contentType
                 ? 'Select Content Type'
+                : tutorial
+                ? 'Generate my first article'
                 : (() => {
                     const validKeywords = bulkMode 
                       ? parseBulkKeywords(bulkKeywordsText).length
@@ -1933,6 +1997,7 @@ export default function ArticlesPage() {
                     return `Generate ${validKeywords} Article${validKeywords !== 1 ? 's' : ''}`;
                   })()}
             </button>
+            </div>
             
             {((!selectedBrandId && touchedFields.brandProfile) || ((bulkMode ? !bulkKeywordsText.trim() : !keywords[0]?.trim()) && touchedFields.keyword) || (!contentType && touchedFields.contentType)) && (
               <p className="text-sm text-red-600 text-center">
