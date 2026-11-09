@@ -136,7 +136,7 @@ export default function WelcomeCard() {
           >
             {resuming
               ? 'Your first article is a few clicks away'
-              : 'See a ready-to-publish article for your business in about 3 minutes'}
+              : 'Get a ready-to-publish article for your business in about 3 minutes'}
           </h2>
           <p className="mt-2 text-sm text-blue-100 sm:mt-3 sm:text-base [@media(max-height:720px)]:sm:text-sm">
             {resuming
