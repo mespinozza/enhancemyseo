@@ -52,7 +52,7 @@ export async function saveOnboarding(uid: string, patch: Partial<OnboardingState
 
 /**
  * Testing switch, set by hand on a user document: the tutorial is offered at every
- * sign-in whatever the account's history, and dismissing it lasts only for the session.
+ * sign-in whatever the account's history, and dismissing it lasts only until the next login.
  * Harmless if a user sets it on themselves; the free article is enforced server-side.
  */
 export async function isOnboardingPreview(uid: string): Promise<boolean> {
@@ -62,8 +62,8 @@ export async function isOnboardingPreview(uid: string): Promise<boolean> {
 
 const previewDismissKey = (uid: string) => `onboarding:previewDismissed:${uid}`;
 
-/** Keyed on the sign-in time, so a dismissal lasts until the next login. */
-export function isPreviewDismissed(uid: string, signInTime: string | undefined): boolean {
+/** Keyed on the sign-in time, so "remind me later" lasts until the next login. */
+export function isDismissedThisSignIn(uid: string, signInTime: string | undefined): boolean {
   try {
     return Boolean(signInTime) && window.localStorage.getItem(previewDismissKey(uid)) === signInTime;
   } catch {
@@ -71,7 +71,7 @@ export function isPreviewDismissed(uid: string, signInTime: string | undefined):
   }
 }
 
-export function dismissPreview(uid: string, signInTime: string | undefined): void {
+export function dismissForThisSignIn(uid: string, signInTime: string | undefined): void {
   try {
     if (signInTime) window.localStorage.setItem(previewDismissKey(uid), signInTime);
   } catch {
