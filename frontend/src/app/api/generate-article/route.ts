@@ -5804,8 +5804,9 @@ async function generate(request: Request) {
         (contentSelection.manualSelections.products.length > 0 || contentSelection.manualSelections.collections.length > 0 || contentSelection.manualSelections.pages.length > 0);
       
       // Check if website content is included
+      // Unset counts as on: selections saved before the option existed should still link the site.
       const hasWebsiteContent = contentSelection.mode === 'automatic' ? 
-        contentSelection.automaticOptions.includeWebsiteContent :
+        contentSelection.automaticOptions.includeWebsiteContent !== false :
         (contentSelection.manualSelections.websiteContent && contentSelection.manualSelections.websiteContent.length > 0);
       
       // Handle Shopify integration
@@ -6061,7 +6062,7 @@ async function generate(request: Request) {
       let websitePages: any[] = [];
       
       // Search based on unified website content structure
-      if (contentSelection.automaticOptions.includeWebsiteContent) {
+      if (contentSelection.automaticOptions.includeWebsiteContent !== false) {
         // ============================================================================
         // 🚀 TRY PUPPETEER FIRST - Better product discovery with headless browser
         // ============================================================================

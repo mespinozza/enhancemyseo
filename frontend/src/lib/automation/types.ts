@@ -208,6 +208,7 @@ export function defaultContentSelection(): ContentSelection {
       includeProducts: true,
       includeCollections: true,
       includePages: true,
+      includeWebsiteContent: true,
     },
     manualSelections: {
       products: [],

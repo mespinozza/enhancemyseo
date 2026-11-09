@@ -77,7 +77,8 @@ export default function ArticlesPage() {
     automaticOptions: {
       includeProducts: true,
       includeCollections: true,
-      includePages: true
+      includePages: true,
+      includeWebsiteContent: true
     },
     manualSelections: {
       products: [],
@@ -1381,7 +1382,7 @@ export default function ArticlesPage() {
                               <label className="flex items-center">
                                 <input
                                   type="checkbox"
-                                  checked={contentSelection.automaticOptions.includeWebsiteContent || false}
+                                  checked={contentSelection.automaticOptions.includeWebsiteContent !== false}
                                   onChange={(e) => setContentSelection(prev => ({
                                     ...prev,
                                     automaticOptions: {
