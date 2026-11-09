@@ -2,9 +2,8 @@
  * Where a customer is in the first-article tutorial, kept on their user document so it
  * follows them across devices and survives the Shopify and Google sign-in redirects.
  */
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
-import { blogOperations, brandProfileOperations } from '@/lib/firebase/firestore';
 
 export type OnboardingStatus = 'in_progress' | 'skipped' | 'completed';
 
@@ -24,6 +23,8 @@ export interface OnboardingState {
   /** Set when step one sent the user to connect an account instead of typing a site. */
   connectVia?: 'shopify' | 'gsc' | null;
   blogId?: string;
+  /** Epoch ms of the last skip, which only holds for a while if nothing gets written. */
+  skippedAtMs?: number;
 }
 
 const FIELD = 'onboarding';
@@ -79,17 +80,32 @@ export function dismissForThisSignIn(uid: string, signInTime: string | undefined
   }
 }
 
+/** How long "I already know how to use the tool" holds while the account still has no article. */
+const SKIP_COOLDOWN_MS = 7 * 24 * 60 * 60_000;
+
 /**
- * Whether to offer the tutorial. Accounts from before it existed have no state, so
- * "has never made a brand or an article" stands in for "new" rather than a sign-up date.
+ * Whether to offer the tutorial: to any account that has never generated an article,
+ * whether or not it has a brand. Skipping holds for a week; after that an account that
+ * still has nothing written is offered it again.
  */
 export async function shouldOfferOnboarding(uid: string): Promise<boolean> {
   if (await isOnboardingPreview(uid)) return true;
+
+  // Queried directly rather than through the shared helper, which returns an empty list on
+  // error: a failed read must not put the tutorial in front of an active customer.
+  let hasArticle: boolean;
+  try {
+    const snapshot = await getDocs(query(collection(db, 'blogs'), where('userId', '==', uid), limit(1)));
+    hasArticle = !snapshot.empty;
+  } catch {
+    return false;
+  }
+  if (hasArticle) return false;
+
   const state = await getOnboarding(uid);
-  if (state) return state.status === 'in_progress';
-  const [brands, blogs] = await Promise.all([
-    brandProfileOperations.getAll(uid).catch(() => []),
-    blogOperations.getRecent(uid, 1).catch(() => []),
-  ]);
-  return brands.length === 0 && blogs.length === 0;
+  if (state?.status === 'completed') return false;
+  if (state?.status === 'skipped') {
+    return Date.now() - (state.skippedAtMs ?? 0) > SKIP_COOLDOWN_MS;
+  }
+  return true;
 }

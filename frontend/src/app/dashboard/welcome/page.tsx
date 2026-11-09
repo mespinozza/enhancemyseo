@@ -1491,7 +1491,7 @@ function WelcomeFlow() {
   const skipTutorial = async () => {
     if (!user) return;
     track('onboarding_skip', { from: 'tutorial', step });
-    await saveOnboarding(user.uid, { status: 'skipped' }).catch(() => {});
+    await saveOnboarding(user.uid, { status: 'skipped', skippedAtMs: Date.now() }).catch(() => {});
     router.push('/dashboard');
   };
 

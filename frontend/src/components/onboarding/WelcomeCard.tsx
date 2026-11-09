@@ -98,7 +98,7 @@ export default function WelcomeCard() {
     if (preview) return remindLater();
     setVisible(false);
     track('onboarding_skip', { from: 'dashboard_modal' });
-    await saveOnboarding(user.uid, { status: 'skipped' }).catch(() => {});
+    await saveOnboarding(user.uid, { status: 'skipped', skippedAtMs: Date.now() }).catch(() => {});
   };
 
   return (
