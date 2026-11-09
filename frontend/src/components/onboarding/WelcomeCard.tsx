@@ -145,7 +145,6 @@ export default function WelcomeCard() {
         <TutorialFlow
           fresh={fresh}
           returnInfo={returnInfo}
-          onClose={remindLater}
           onSkip={() => skip('tutorial')}
         />
       ) : (
@@ -271,12 +270,10 @@ export default function WelcomeCard() {
 function TutorialFlow({
   fresh,
   returnInfo,
-  onClose,
   onSkip,
 }: {
   fresh: boolean;
   returnInfo: ReturnType<typeof readReturn>;
-  onClose: () => void;
   onSkip: () => void;
 }) {
   const { user } = useAuth();
@@ -479,15 +476,6 @@ function TutorialFlow({
         <div className="min-w-0 flex-1">{state && <Progress step={step} />}</div>
         <button type="button" onClick={onSkip} className="flex-shrink-0 text-xs text-gray-500 hover:text-gray-800 sm:text-sm">
           Skip tutorial
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close for now, your progress is saved"
-          title="Close for now, your progress is saved"
-          className="flex-shrink-0 rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-        >
-          <X className="h-5 w-5" />
         </button>
       </div>
 
