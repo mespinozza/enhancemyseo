@@ -32,6 +32,7 @@ import { fetchProductDetails, type ProductDetails } from '@/lib/shopify/product-
 import { filterSources } from '@/lib/article/enhanced/sources';
 import type { CatalogProduct, LinkTarget, ResearchResult } from '@/lib/article/enhanced/types';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { PROGRESS_STREAM_HEADER, type GenerationEvent } from '@/lib/article/progress';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -5562,7 +5563,50 @@ ${cleaned}`;
 
 
 export async function POST(request: Request) {
-  return requestLogStore.run([], () => runMetered(() => generate(request)));
+  if (request.headers.get(PROGRESS_STREAM_HEADER) !== '1') {
+    return requestLogStore.run([], () => runMetered(() => generate(request)));
+  }
+
+  // Streams each log line as it is written, then the response generate() returns. Those
+  // lines already go back to the same user in `generationLog`, so nothing new is exposed.
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  let open = true;
+  const send = (event: GenerationEvent) => {
+    if (open) writer.write(encoder.encode(`${JSON.stringify(event)}\n`)).catch(() => (open = false));
+  };
+  const lines: string[] = [];
+  const append = lines.push.bind(lines);
+  lines.push = (...messages: string[]) => {
+    messages.forEach((message) => send({ type: 'log', message }));
+    return append(...messages);
+  };
+  // Keeps proxies from closing a connection that is quiet during a long model call.
+  const heartbeat = setInterval(() => send({ type: 'ping' }), 15_000);
+
+  requestLogStore
+    .run(lines, () => runMetered(() => generate(request)))
+    .then(async (response) => {
+      send({ type: 'result', status: response.status, body: await response.json().catch(() => ({})) });
+    })
+    .catch((error) => {
+      console.error('Article generation failed while streaming:', error);
+      send({ type: 'result', status: 500, body: { error: 'Article generation failed. Please try again.' } });
+    })
+    .finally(() => {
+      clearInterval(heartbeat);
+      open = false;
+      writer.close().catch(() => {});
+    });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }
 
 async function generate(request: Request) {

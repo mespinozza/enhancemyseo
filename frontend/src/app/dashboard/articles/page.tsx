@@ -25,6 +25,8 @@ import type { ArticleSeo } from '@/lib/article/enhanced/types';
 import ContentTypePicker from '@/components/ContentTypePicker';
 import TonePicker from '@/components/TonePicker';
 import StorefrontPreview from '@/components/article-preview/StorefrontPreview';
+import GenerationProgress, { type LiveProgress } from '@/components/article-generation/GenerationProgress';
+import { PROGRESS_STREAM_HEADER, readGeneration, readLogLine, stageIndex } from '@/lib/article/progress';
 
 interface BlogPost {
   id: string;
@@ -59,6 +61,7 @@ export default function ArticlesPage() {
   const [keywords, setKeywords] = useState<string[]>(['']);
   const [generatedArticles, setGeneratedArticles] = useState<BlogPost[]>([]);
   const [bulkGenerationStatus, setBulkGenerationStatus] = useState<BulkGenerationStatus>({});
+  const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
   const [expandedArticle, setExpandedArticle] = useState<number | null>(null);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   
@@ -706,12 +709,31 @@ export default function ArticlesPage() {
           // Create the initial blog post
           const blog = await blogOperations.create(user.uid, blogData);
 
-          // Generate the content
+          // Generate the content, following the server's progress as it streams in
+          const articleStart = Date.now();
+          setLiveProgress({ keyword: currentKeyword, stage: 'start', stageAt: articleStart, startedAt: articleStart, notes: [] });
+          const onLog = (message: string) => {
+            const { stage, note } = readLogLine(message);
+            if (!stage && !note) return;
+            setLiveProgress((prev) => {
+              if (!prev) return prev;
+              const next = { ...prev };
+              if (stage && stageIndex(stage) > stageIndex(prev.stage)) {
+                next.stage = stage;
+                next.stageAt = Date.now();
+              }
+              if (note && prev.notes[prev.notes.length - 1]?.text !== note) {
+                next.notes = [...prev.notes, { text: note, at: Date.now() }].slice(-6);
+              }
+              return next;
+            });
+          };
           const response = await fetch('/api/generate-article', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${await user.getIdToken()}`,
+              [PROGRESS_STREAM_HEADER]: '1',
             },
             body: JSON.stringify({
               blogId: blog,
@@ -732,12 +754,13 @@ export default function ArticlesPage() {
             }),
           });
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to generate article');
+          const outcome = await readGeneration(response, onLog);
+          if (!outcome.ok) {
+            throw new Error(String(outcome.body.error || 'Failed to generate article'));
           }
-
-          const generatedContent = await response.json();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same untyped payload response.json() gave before
+          const generatedContent = outcome.body as any;
+          setLiveProgress((prev) => (prev ? { ...prev, stage: 'saving', stageAt: Date.now() } : prev));
 
           // Check for generation issues and show popup if detected
           if (generatedContent.hasGenerationIssues) {
@@ -2049,38 +2072,11 @@ export default function ArticlesPage() {
             <div className="flex flex-col md:h-full">
               {/* Sticky Progress Bar - Only during generation */}
               {isGenerating && (
-                <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg mb-4 shadow-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-3">
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                      <span className="font-semibold">
-                        Generating: {Object.values(bulkGenerationStatus).filter(s => s === 'completed').length}/{Object.keys(bulkGenerationStatus).length}
-                      </span>
-                    </div>
-                    <span className="text-sm text-blue-100">
-                      {Math.round((Object.values(bulkGenerationStatus).filter(s => s === 'completed').length / Object.keys(bulkGenerationStatus).length) * 100)}% complete
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="w-full bg-blue-800 rounded-full h-2 mb-2">
-                    <div 
-                      className="bg-white rounded-full h-2 transition-all duration-500 ease-out"
-                      style={{ 
-                        width: `${(Object.values(bulkGenerationStatus).filter(s => s === 'completed').length / Object.keys(bulkGenerationStatus).length) * 100}%` 
-                      }}
-                    />
-                  </div>
-                  {/* Currently generating keyword */}
-                  {(() => {
-                    const currentIndex = keywords.filter(k => k.trim().length > 0).findIndex((_, idx) => bulkGenerationStatus[idx] === 'generating');
-                    const currentKeyword = currentIndex >= 0 ? keywords.filter(k => k.trim().length > 0)[currentIndex] : null;
-                    return currentKeyword ? (
-                      <p className="text-sm text-blue-100 truncate">
-                        <span className="text-blue-200">Currently writing:</span> {currentKeyword}
-                      </p>
-                    ) : null;
-                  })()}
-                </div>
+                <GenerationProgress
+                  live={liveProgress}
+                  completed={Object.values(bulkGenerationStatus).filter((s) => s === 'completed' || s === 'error').length}
+                  total={Object.keys(bulkGenerationStatus).length}
+                />
               )}
 
               {/* Collapsible Pending Queue - Right below progress bar */}
