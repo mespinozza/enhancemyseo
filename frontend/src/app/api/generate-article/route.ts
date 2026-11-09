@@ -6,6 +6,11 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
+import {
+  consumeOnboardingBonus,
+  releaseOnboardingBonus,
+  reserveOnboardingBonus,
+} from '@/lib/onboarding/bonus';
 import { resolveShopifyCredentials } from '@/lib/shopify/credentials';
 import {
   activeProductsOnly,
@@ -5567,6 +5572,9 @@ async function generate(request: Request) {
   // Track userId for cleanup in finally block
   let userId: string | undefined;
   let costBlogId: string | undefined;
+  // Set while this request holds the tutorial's free first article.
+  let bonusUid: string | undefined;
+  let bonusUsed = false;
   
   try {
     log('📥 Received article generation request');
@@ -5634,6 +5642,9 @@ async function generate(request: Request) {
       );
     }
 
+    // Read before the usage check, which the tutorial's bonus article bypasses.
+    const body = await request.json();
+
     // CRITICAL: Server-side usage verification
     console.log('Verifying usage limits for user:', verifiedUser.uid);
     let isFreePlan = true;
@@ -5646,20 +5657,28 @@ async function generate(request: Request) {
       // Get Firestore admin instance
       const adminFirestore = getFirestore();
       
-      // Check if user can perform this action
-      const usageCheck = await serverSideUsageUtils.canPerformAction(
-        verifiedUser.uid,
-        subscriptionStatus,
-        'articles',
-        adminFirestore
-      );
-      
-      if (!usageCheck.canPerform) {
-        console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
-        return NextResponse.json({
-          error: usageCheck.reason || 'Usage limit exceeded',
-          code: 'usage_limit'
-        }, { status: 429 });
+      if (isFreePlan && body?.onboardingBonus === true && !isAutomationCall(request)) {
+        if (await reserveOnboardingBonus(adminFirestore, verifiedUser.uid)) {
+          bonusUid = verifiedUser.uid;
+          log('🎁 Tutorial bonus article: this one does not count toward the monthly allowance');
+        }
+      }
+
+      if (!bonusUid) {
+        const usageCheck = await serverSideUsageUtils.canPerformAction(
+          verifiedUser.uid,
+          subscriptionStatus,
+          'articles',
+          adminFirestore
+        );
+
+        if (!usageCheck.canPerform) {
+          console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
+          return NextResponse.json({
+            error: usageCheck.reason || 'Usage limit exceeded',
+            code: 'usage_limit'
+          }, { status: 429 });
+        }
       }
       
       console.log('Usage verification passed for user:', verifiedUser.uid);
@@ -5686,7 +5705,6 @@ async function generate(request: Request) {
       }, { status: 429 });
     }
 
-    const body = await request.json();
     console.log('Request body:', { ...body, keyword: body.keyword }); // Log everything except sensitive data
 
     const {
@@ -5702,6 +5720,16 @@ async function generate(request: Request) {
       brandGuidelines,
     } = body;
     if (typeof blogId === 'string' && blogId) costBlogId = blogId;
+
+    /** Counts the article against the allowance, or spends the tutorial bonus instead. */
+    const chargeForArticle = async () => {
+      if (bonusUid) {
+        await consumeOnboardingBonus(getFirestore(), bonusUid, String(blogId || ''));
+        bonusUsed = true;
+        return;
+      }
+      await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', getFirestore());
+    };
     // Shopify credentials are resolved here rather than taken from the request, so a
     // store on a Dev Dashboard app (whose tokens last a day and are minted on demand)
     // works the same as one with a legacy permanent token. A store that cannot be
@@ -6310,7 +6338,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
         const hasGenerationIssues = detectGenerationIssues(result.content);
         if (!hasGenerationIssues) {
           try {
-            await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', getFirestore());
+            await chargeForArticle();
           } catch (usageError) {
             console.error('Error incrementing usage count:', usageError);
           }
@@ -6325,6 +6353,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
           format: 'enhanced',
           seo: result.seo,
           hasGenerationIssues,
+          onboardingBonus: bonusUsed,
           factCheck: result.factCheck,
           shopifyIntegration: {
             status: integrationStatus,
@@ -6526,8 +6555,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       if (!hasGenerationIssues) {
         console.log('Incrementing usage count for user:', verifiedUser.uid);
         try {
-          const adminFirestore = getFirestore();
-          await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', adminFirestore);
+          await chargeForArticle();
           console.log('Usage count incremented successfully');
         } catch (usageError) {
           console.error('Error incrementing usage count:', usageError);
@@ -6549,6 +6577,7 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       content: generatedContent,
       format: 'classic',
       hasGenerationIssues,
+      onboardingBonus: bonusUsed,
       factCheck: {
         passed: factCheckResult.factCheckPassed,
         iterations: factCheckResult.iterations
@@ -6583,6 +6612,11 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       { status: 500 }
     );
   } finally {
+    if (bonusUid && !bonusUsed) {
+      await releaseOnboardingBonus(getFirestore(), bonusUid).catch((error) =>
+        console.error('Could not release the tutorial bonus:', error)
+      );
+    }
     // Always clean up the generation tracking, even if there was an error
     if (typeof userId !== 'undefined') {
       trackGenerationEnd(userId);

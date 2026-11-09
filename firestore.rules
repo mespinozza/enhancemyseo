@@ -184,6 +184,12 @@ service cloud.firestore {
       allow read, list, create, update, delete: if false;
     }
 
+    // The tutorial's free first article. Only the article route may claim it; a client
+    // that could delete or rewrite this document could claim it every month.
+    match /onboardingBonus/{uid} {
+      allow read, list, create, update, delete: if false;
+    }
+
     // Shopify store access tokens. Same reasoning as above and the same `ownerUid` field
     // naming: this token can read and write a merchant's entire catalogue and blog, and
     // the browser never needs it — /api/shopify/status reports connection state instead.

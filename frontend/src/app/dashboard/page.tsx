@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
+import WelcomeCard from '@/components/onboarding/WelcomeCard';
 
 /**
  * Connecting a store is OAuth now, for Shopify and for Search Console. The guide this
@@ -224,6 +225,8 @@ export default function DashboardHome() {
       <h1 className="text-2xl font-bold mb-6">
         Welcome to <span className="bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">EnhanceMySEO</span>
       </h1>
+
+      <WelcomeCard />
       
       {/* Subscription Status Indicator */}
       {subscription_status === 'admin' && (
