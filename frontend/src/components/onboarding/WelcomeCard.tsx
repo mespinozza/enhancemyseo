@@ -88,14 +88,16 @@ export default function WelcomeCard() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="presentation">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center p-3 sm:items-center sm:p-6" role="presentation">
       <div aria-hidden className="absolute inset-0 animate-pick-fade bg-gray-950/70 backdrop-blur-sm" />
 
+      {/* The card clips its glow; the inner panel scrolls, without a visible bar, only if a
+          very short screen cannot fit it. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="welcome-title"
-        className="relative max-h-[calc(100dvh-2rem)] w-full max-w-xl animate-pick-fade overflow-y-auto rounded-3xl bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-2xl shadow-blue-950/50 ring-1 ring-white/10 sm:p-9"
+        className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl animate-pick-fade flex-col overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-2xl shadow-blue-950/50 ring-1 ring-white/10 sm:max-h-[calc(100dvh-3rem)]"
       >
         <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
         <div aria-hidden className="pointer-events-none absolute -bottom-24 -left-16 h-64 w-64 rounded-full bg-indigo-400/20 blur-3xl" />
@@ -104,42 +106,48 @@ export default function WelcomeCard() {
           type="button"
           onClick={skip}
           aria-label="Skip the tutorial"
-          className="absolute right-4 top-4 rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          className="absolute right-3 top-3 z-10 rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:right-4 sm:top-4"
         >
           <X className="h-5 w-5" />
         </button>
 
-        <div className="relative">
+        <div className="relative overflow-y-auto overflow-x-hidden overscroll-contain p-5 [scrollbar-width:none] sm:p-8 [&::-webkit-scrollbar]:hidden [@media(max-height:720px)]:sm:p-6">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
             <Sparkles className="h-3.5 w-3.5" />
             {resuming ? 'Pick up where you left off' : 'Welcome to EnhanceMySEO'}
           </span>
-          <h2 id="welcome-title" className="mt-4 text-2xl font-bold leading-tight sm:text-3xl">
+          <h2
+            id="welcome-title"
+            className="mt-3 pr-6 text-xl font-bold leading-tight sm:mt-4 sm:text-3xl [@media(max-height:720px)]:sm:text-2xl"
+          >
             {resuming ? 'Finish your first article' : 'Generate your first article in the next few minutes'}
           </h2>
-          <p className="mt-3 text-blue-100">
+          <p className="mt-2 text-sm text-blue-100 sm:mt-3 sm:text-base [@media(max-height:720px)]:sm:text-sm">
             Enter your website and we&apos;ll read it, set up your brand, and write an article that links to your real
             product or service pages. Your first one is on us, and it doesn&apos;t count toward your monthly articles.
           </p>
 
-          <ol className="mt-6 grid gap-2.5 sm:grid-cols-2">
+          <ol className="mt-4 grid grid-cols-2 gap-2 sm:mt-6 sm:gap-2.5 [@media(max-height:720px)]:sm:mt-4">
             {PREVIEW_STEPS.map((step, index) => (
-              <li key={step} className="flex items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 text-sm">
-                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-blue-700">
+              <li
+                key={step}
+                className="flex items-center gap-2 rounded-xl bg-white/10 px-2.5 py-2 text-xs sm:gap-3 sm:px-3 sm:py-2.5 sm:text-sm"
+              >
+                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-bold text-blue-700 sm:h-6 sm:w-6 sm:text-xs">
                   {index + 1}
                 </span>
-                {step}
+                <span className="min-w-0">{step}</span>
               </li>
             ))}
           </ol>
 
-          <div className="mt-8 flex flex-col gap-3">
+          <div className="mt-5 flex flex-col gap-2.5 sm:mt-8 sm:gap-3 [@media(max-height:720px)]:sm:mt-5">
             <button
               type="button"
               onClick={start}
               disabled={busy}
               autoFocus
-              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 font-semibold text-blue-700 shadow-lg transition-all duration-300 hover:bg-blue-50 hover:shadow-xl motion-safe:hover:-translate-y-0.5 disabled:opacity-70"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-semibold sm:py-3.5 text-blue-700 shadow-lg transition-all duration-300 hover:bg-blue-50 hover:shadow-xl motion-safe:hover:-translate-y-0.5 disabled:opacity-70"
             >
               {resuming ? 'Continue the tutorial' : 'Show me how'}
               <ArrowRight className="h-4 w-4 transition-transform duration-300 motion-safe:group-hover:translate-x-1" />
@@ -147,13 +155,13 @@ export default function WelcomeCard() {
             <button
               type="button"
               onClick={skip}
-              className="rounded-xl border border-white/30 px-6 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+              className="rounded-xl border border-white/30 px-6 py-2.5 text-sm font-medium sm:py-3 text-white transition hover:bg-white/10"
             >
               I already know how to use the tool
             </button>
           </div>
 
-          <div className="mt-4 flex items-center justify-between text-xs text-blue-200">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-blue-200 sm:mt-4">
             <span className="flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5" /> About 3 minutes
             </span>
