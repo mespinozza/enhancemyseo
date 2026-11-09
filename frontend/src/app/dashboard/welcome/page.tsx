@@ -1310,9 +1310,21 @@ function GenerateStep({
       )}
       <div className="mt-6 flex items-center justify-between gap-3">
         <BackButton onClick={onBack} />
-        <PrimaryButton onClick={generate} disabled={!brand}>
-          <Sparkles className="h-4 w-4" /> {phase === 'error' ? 'Try again' : 'Write my article'}
-        </PrimaryButton>
+        <button
+          type="button"
+          onClick={generate}
+          disabled={!brand}
+          className="group relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-7 py-3.5 font-semibold text-white shadow-lg shadow-blue-600/30 ring-2 ring-blue-400/0 transition-all duration-300 ease-out hover:from-blue-500 hover:to-indigo-500 hover:shadow-xl hover:shadow-blue-500/50 hover:ring-blue-400/40 motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.04] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {/* Light sweep across the button on hover. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/35 to-transparent opacity-0 transition-all duration-700 ease-out group-hover:left-full group-hover:opacity-100"
+          />
+          <Sparkles className="relative h-4 w-4 transition-transform duration-300 motion-safe:group-hover:rotate-12 motion-safe:group-hover:scale-125" />
+          <span className="relative">{phase === 'error' ? 'Try again' : 'Write my article'}</span>
+          <ArrowRight className="relative h-4 w-0 opacity-0 transition-all duration-300 group-hover:w-4 group-hover:opacity-100 motion-safe:group-hover:translate-x-0.5" />
+        </button>
       </div>
     </div>
   );
