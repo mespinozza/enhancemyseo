@@ -419,7 +419,9 @@ export default function ArticlesPage() {
 
   useEffect(() => {
     if (!tutorial?.brandId || isLoadingProfiles) return;
-    if (brandProfiles.some((profile) => profile.id === tutorial.brandId)) {
+    const tutorialBrand = brandProfiles.find((profile) => profile.id === tutorial.brandId);
+    if (tutorialBrand) {
+      setToneOfVoice(tutorialBrand.toneOfVoice ?? '');
       setSelectedBrandId(tutorial.brandId);
       markFieldAsTouched('brandProfile');
     }

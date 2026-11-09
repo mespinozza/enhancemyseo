@@ -11,6 +11,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { CLAUDE_MODEL } from '@/lib/ai/models';
 import { meterAs, meteredFetch } from '@/lib/ai/meter';
+import { TONE_LABELS, closestToneLabel } from '@/lib/article/enhanced/tones';
 import {
   ScanError,
   normalizeSiteInput,
@@ -124,7 +125,7 @@ Return ONLY a JSON object, no other text:
   "kind": "ecommerce" or "service",
   "businessType": "one short phrase, e.g. 'Online store selling waterproof outdoor gear' or 'Residential plumbing company in Denver'",
   "description": "two sentences on what they sell or do and who for, written in plain language",
-  "tone": "two or three words for the voice their site uses, e.g. 'friendly, expert'",
+  "tone": "the one voice from this list closest to how their site reads: ${TONE_LABELS.join(', ')}, or Default if none clearly fits",
   "topics": [
     { "keyword": "a search phrase of 3 to 7 words a potential customer would type into Google", "why": "one short sentence on why this topic fits them" }
   ]
@@ -151,7 +152,7 @@ Topic rules: tie each one to something they actually sell or do. Prefer question
       kind: parsed.kind === 'service' ? 'service' : 'ecommerce',
       businessType: clean(parsed.businessType, 120),
       description: clean(parsed.description, 400),
-      tone: clean(parsed.tone, 60),
+      tone: closestToneLabel(clean(parsed.tone, 60)),
       topics,
     };
   } catch {
@@ -211,7 +212,7 @@ export async function POST(request: Request) {
         kind,
         businessType: draft.businessType || description.slice(0, 120),
         description: draft.description || description,
-        tone: draft.tone || 'friendly, helpful',
+        tone: draft.tone ?? '',
       },
       topics: draft.topics?.length ? draft.topics : fallbackTopics([], description),
     };
@@ -287,7 +288,7 @@ export async function POST(request: Request) {
       kind: draft.kind || (isEcommerce ? 'ecommerce' : 'service'),
       businessType: draft.businessType || '',
       description: draft.description || home?.description || '',
-      tone: draft.tone || 'friendly, helpful',
+      tone: draft.tone ?? '',
     },
     topics: draft.topics?.length
       ? draft.topics

@@ -24,6 +24,8 @@ import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firest
 import type { OnboardingState } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
 import type { AnalyzeResponse, TopicSuggestion } from '@/app/api/onboarding/analyze/route';
+import TonePicker from '@/components/TonePicker';
+import { closestToneLabel } from '@/lib/article/enhanced/tones';
 
 export const STEPS = ['Website', 'Business', 'Connect', 'Topic'] as const;
 /** Where a provider sign-in lands; the dashboard reopens the tutorial at that step. */
@@ -478,8 +480,14 @@ export interface BusinessDraft {
 }
 
 export function draftFromBrand(brand: BrandProfile): BusinessDraft {
+  // Profiles saved before the tone dropdown kept it as a line in the guidelines.
   const [description, toneLine] = (brand.brandGuidelines || '').split(/\n\nTone of voice: /);
-  return { brandName: brand.brandName, businessType: brand.businessType, description: description || '', tone: toneLine || '' };
+  return {
+    brandName: brand.brandName,
+    businessType: brand.businessType,
+    description: description || '',
+    tone: brand.toneOfVoice ?? closestToneLabel(toneLine),
+  };
 }
 
 export function BusinessStep({
@@ -501,7 +509,7 @@ export function BusinessStep({
           brandName: analysis.business.brandName,
           businessType: analysis.business.businessType,
           description: analysis.business.description,
-          tone: analysis.business.tone,
+          tone: closestToneLabel(analysis.business.tone),
         }
       : brand
         ? draftFromBrand(brand)
@@ -551,10 +559,6 @@ export function BusinessStep({
           <input id="brandName" value={draft.brandName} onChange={(e) => setDraft({ ...draft, brandName: e.target.value })} className={inputClass} />
         </div>
         <div>
-          <label htmlFor="tone" className="mb-2 block text-sm font-medium text-gray-700">Tone of voice</label>
-          <input id="tone" value={draft.tone} onChange={(e) => setDraft({ ...draft, tone: e.target.value })} className={inputClass} placeholder="friendly, expert" />
-        </div>
-        <div className="sm:col-span-2">
           <label htmlFor="type" className="mb-2 block text-sm font-medium text-gray-700">Type of business</label>
           <input
             id="type"
@@ -567,6 +571,13 @@ export function BusinessStep({
         <div className="sm:col-span-2">
           <label htmlFor="about" className="mb-2 block text-sm font-medium text-gray-700">What you sell and who for</label>
           <textarea id="about" rows={3} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className={inputClass} />
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="tone" className="mb-2 block text-sm font-medium text-gray-700">Tone of voice</label>
+          <TonePicker id="tone" value={draft.tone} onChange={(tone) => setDraft({ ...draft, tone })} />
+          <p className="mt-1.5 text-xs text-gray-500">
+            {analysis?.source === 'website' ? 'Picked from how your site reads. ' : ''}The same voices you can choose for every article.
+          </p>
         </div>
       </div>
 

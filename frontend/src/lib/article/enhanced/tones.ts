@@ -252,6 +252,18 @@ export function toneFor(tone: string | undefined | null): ToneProfile | null {
   return TONE_PROFILES.find((t) => t.value === value || t.label.toLowerCase() === value) ?? null;
 }
 
+/**
+ * Snaps a loose description ("professional, trustworthy") to the stored value of the first
+ * selectable tone it names, or '' (Default) when none match.
+ */
+export function closestToneLabel(text: string | undefined | null): string {
+  for (const word of (text ?? '').split(/[\s,/&]+|\band\b/i)) {
+    const profile = word ? toneFor(word) : null;
+    if (profile?.value) return profile.label;
+  }
+  return '';
+}
+
 const CONTRACTIONS = {
   avoid: 'Do not use contractions.',
   sometimes: 'Use contractions occasionally, where they read naturally.',

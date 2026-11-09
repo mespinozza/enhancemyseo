@@ -38,6 +38,8 @@ export interface BrandProfile extends BaseDocument {
   brandGuidelines?: string;
   /** Enhanced articles end with a list of the sources they used. On unless false. */
   citeSources?: boolean;
+  /** The voice picked in the welcome tutorial, preselected when writing for this brand. Same values as TonePicker. */
+  toneOfVoice?: string;
   websiteUrl?: string;
   shopifyStoreUrl?: string;
   shopifyAccessToken?: string;

@@ -351,13 +351,11 @@ function TutorialFlow({
   const saveBusiness = async (draft: BusinessDraft) => {
     setSaving(true);
     try {
-      const guidelines = [draft.description.trim(), draft.tone.trim() && `Tone of voice: ${draft.tone.trim()}`]
-        .filter(Boolean)
-        .join('\n\n');
       const fields: Partial<BrandProfile> = {
         brandName: draft.brandName.trim(),
         businessType: draft.businessType.trim(),
-        brandGuidelines: guidelines,
+        brandGuidelines: draft.description.trim(),
+        toneOfVoice: draft.tone.trim(),
         ...(analysis?.websiteUrl && { websiteUrl: analysis.websiteUrl }),
         ...(analysis?.shopDomain && { shopifyStoreUrl: analysis.shopDomain }),
       };
