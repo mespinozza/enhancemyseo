@@ -1,445 +1,441 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/lib/firebase/auth-context';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { collection, getCountFromServer, getDocs, query, where } from 'firebase/firestore';
+import {
+  ArrowRight,
+  Building2,
+  Check,
+  ChevronRight,
+  FileText,
+  Infinity as InfinityIcon,
+  Plus,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
+import { useAuth } from '@/lib/firebase/auth-context';
+import { db } from '@/lib/firebase/config';
+import { blogOperations, brandProfileOperations, type Blog, type BrandProfile } from '@/lib/firebase/firestore';
+import { getUsageDisplay, getUserUsage } from '@/lib/usage-limits';
+import { AUTOMATIONS_COLLECTION } from '@/lib/automation/types';
+import { getFilteredNavigation, type SubscriptionTier } from '@/config/navigation';
 import WelcomeCard from '@/components/onboarding/WelcomeCard';
+import FeedbackCard from '@/components/dashboard/FeedbackCard';
 
-/**
- * Connecting a store is OAuth now, for Shopify and for Search Console. The guide this
- * replaced walked through creating a custom app in the Shopify admin and copying an API
- * key, secret, access token and store URL across by hand — none of which we ask for any
- * more, and Shopify no longer issues those tokens to new apps.
- */
-const CONNECT_STEPS = [
-  {
-    title: 'Add your brand',
-    body: 'Create a brand profile and paste in your store address.',
-    note: 'Use the permanent my-store.myshopify.com address, not a custom domain.',
-  },
-  {
-    title: 'Connect Shopify',
-    body: 'Press Connect Shopify and approve the permissions in your store. That is the whole setup.',
-    note: 'Products, collections and your blog become available straight away.',
-  },
-  {
-    title: 'Add Search Console',
-    body: 'Optional. Connect it to pull the keywords you already rank for into your automations.',
-    note: 'Sign in with the Google account that owns the property.',
-  },
-];
+const TIER_NAMES: Record<SubscriptionTier, string> = {
+  free: 'Free',
+  kickstart: 'Kickstart',
+  seo_takeover: 'SEO Takeover',
+  agency: 'Agency',
+  admin: 'Admin',
+};
 
-// Quick Feature Request Form Component
-function FeatureRequestForm() {
-  const { user } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [formData, setFormData] = useState({
-    type: 'feature',
-    title: '',
-    description: '',
-    priority: 'medium'
-  });
+const TIER_BADGES: Record<SubscriptionTier, string> = {
+  free: 'bg-gray-100 text-gray-700 ring-gray-200',
+  kickstart: 'bg-blue-50 text-blue-700 ring-blue-200',
+  seo_takeover: 'bg-purple-50 text-purple-700 ring-purple-200',
+  agency: 'bg-amber-50 text-amber-700 ring-amber-200',
+  admin: 'bg-green-50 text-green-700 ring-green-200',
+};
 
-  // Listen for custom events from the Help Us Improve card
-  useEffect(() => {
-    const handleOpenFeatureRequest = (event: CustomEvent) => {
-      const { type } = event.detail;
-      setFormData(prev => ({ ...prev, type }));
-      setIsOpen(true);
-    };
+const AUTOMATION_TIERS: SubscriptionTier[] = ['seo_takeover', 'agency', 'admin'];
 
-    window.addEventListener('openFeatureRequest', handleOpenFeatureRequest as EventListener);
-    
-    return () => {
-      window.removeEventListener('openFeatureRequest', handleOpenFeatureRequest as EventListener);
-    };
-  }, []);
+interface Overview {
+  used: number;
+  limit: number | 'unlimited';
+  recent: Blog[];
+  total: number | null;
+  brands: BrandProfile[];
+  automations: { total: number; enabled: number } | null;
+}
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    
-    try {
-      // Send to Featurebase API
-      const response = await fetch('https://do.featurebase.app/api/v1/posts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          organization: 'enhancemyseo',
-          title: formData.title,
-          content: formData.description,
-          category: formData.type,
-          author_email: user?.email || '',
-          priority: formData.priority,
-          tags: [formData.type, formData.priority, 'dashboard-request'],
-          metadata: {
-            source: 'dashboard_quick_form',
-            user_agent: navigator.userAgent,
-            timestamp: new Date().toISOString()
-          }
-        })
-      });
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
 
-      if (response.ok) {
-        console.log('Feature request submitted successfully');
-        setIsSubmitted(true);
-        setFormData({ type: 'feature', title: '', description: '', priority: 'medium' });
-        setTimeout(() => {
-          setIsOpen(false);
-          setIsSubmitted(false);
-        }, 2000);
-      } else {
-        console.error('Feature request submission failed:', response.status);
-        // Still show success for better UX
-        setIsSubmitted(true);
-        setTimeout(() => {
-          setIsOpen(false);
-          setIsSubmitted(false);
-        }, 2000);
-      }
-    } catch (error) {
-      console.error('Error submitting feature request:', error);
-      // Still show success for better UX
-      setIsSubmitted(true);
-      setTimeout(() => {
-        setIsOpen(false);
-        setIsSubmitted(false);
-      }, 2000);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+function dateOf(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  const toDate = (value as { toDate?: () => Date } | null)?.toDate;
+  return typeof toDate === 'function' ? toDate.call(value) : null;
+}
 
-  if (!isOpen) {
-    return (
-      <div className="flex items-center space-x-3">
-        <button
-          onClick={() => setIsOpen(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-        >
-          <ArrowRight className="w-4 h-4" />
-          <span>Request Feature</span>
-        </button>
-      </div>
-    );
-  }
-
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  href,
+  action,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: React.ReactNode;
+  detail?: React.ReactNode;
+  href: string;
+  action: string;
+  children?: React.ReactNode;
+}) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-      {isSubmitted ? (
-        <div className="text-center py-4">
-          <svg className="w-8 h-8 text-green-600 mx-auto mb-2" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-          </svg>
-          <p className="text-green-700 font-medium">Thank you! Your request has been submitted.</p>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="font-medium text-gray-900">Quick Feature Request</h4>
-            <button
-              type="button"
-              onClick={() => setIsOpen(false)}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-          </div>
-          
-          <div className="flex space-x-2">
-            {[
-              { value: 'feature', label: 'Feature' },
-              { value: 'bug', label: 'Bug' },
-              { value: 'improvement', label: 'Improvement' }
-            ].map((type) => (
-              <button
-                key={type.value}
-                type="button"
-                onClick={() => setFormData(prev => ({ ...prev, type: type.value }))}
-                className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                  formData.type === type.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {type.label}
-              </button>
-            ))}
-          </div>
-
-          <input
-            type="text"
-            placeholder="Brief title of your request..."
-            value={formData.title}
-            onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            required
-          />
-
-          <textarea
-            placeholder="Describe your request in detail..."
-            value={formData.description}
-            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
-            rows={3}
-            required
-          />
-
-          <div className="flex items-center justify-between">
-            <select
-              value={formData.priority}
-              onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
-              className="text-sm border border-gray-300 rounded px-2 py-1"
-            >
-              <option value="low">Low Priority</option>
-              <option value="medium">Medium Priority</option>
-              <option value="high">High Priority</option>
-            </select>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 text-sm"
-            >
-              <ArrowRight className="w-4 h-4" />
-              <span>{isSubmitting ? 'Submitting...' : 'Submit'}</span>
-            </button>
-          </div>
-        </form>
-      )}
+    <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-gray-500">{label}</p>
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
+          <Icon className="h-4 w-4" />
+        </span>
+      </div>
+      <p className="mt-2 text-2xl font-bold tabular-nums text-gray-900">{value}</p>
+      {detail && <p className="mt-0.5 text-xs text-gray-500">{detail}</p>}
+      {children}
+      <Link href={href} className="mt-auto inline-flex items-center gap-1 pt-3 text-xs font-medium text-blue-600 hover:text-blue-800">
+        {action} <ArrowRight className="h-3 w-3" />
+      </Link>
     </div>
   );
 }
 
+function Skeleton({ className = '' }: { className?: string }) {
+  return <span className={`block animate-pulse rounded bg-gray-100 ${className}`} />;
+}
+
 export default function DashboardHome() {
-  const { subscription_status } = useAuth();
+  const { user, subscription_status } = useAuth();
+  const tier = (subscription_status || 'free') as SubscriptionTier;
+  const [overview, setOverview] = useState<Overview | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    const uid = user.uid;
+    const canAutomate = AUTOMATION_TIERS.includes(tier);
+    (async () => {
+      const [usage, recent, total, brands, automations] = await Promise.allSettled([
+        getUserUsage(uid),
+        blogOperations.getRecent(uid, 5),
+        getCountFromServer(query(collection(db, 'blogs'), where('userId', '==', uid))).then((s) => s.data().count),
+        brandProfileOperations.getAll(uid),
+        canAutomate
+          ? getDocs(query(collection(db, AUTOMATIONS_COLLECTION), where('userId', '==', uid))).then((s) => ({
+              total: s.size,
+              enabled: s.docs.filter((d) => d.data().enabled).length,
+            }))
+          : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      const display = usage.status === 'fulfilled' ? getUsageDisplay(tier, 'articles', usage.value) : null;
+      setOverview({
+        used: display?.used ?? 0,
+        limit: display?.limit ?? 'unlimited',
+        recent: recent.status === 'fulfilled' ? recent.value : [],
+        total: total.status === 'fulfilled' ? total.value : null,
+        brands: brands.status === 'fulfilled' ? brands.value : [],
+        automations: automations.status === 'fulfilled' ? automations.value : null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, tier]);
+
+  const firstName = user?.displayName?.trim().split(/\s+/)[0];
+  const canAutomate = AUTOMATION_TIERS.includes(tier);
+  const tools = useMemo(() => getFilteredNavigation(tier), [tier]);
+
+  const setup = useMemo(() => {
+    if (!overview) return null;
+    const steps = [
+      {
+        label: 'Create a brand profile',
+        detail: 'Your business, voice and audience, used for every article.',
+        done: overview.brands.length > 0,
+        href: '/dashboard/settings/brands',
+      },
+      {
+        label: 'Connect your store or website',
+        detail: 'Shopify or your site, so articles link your own products and pages.',
+        done: overview.brands.some((b) => b.shopifyStoreUrl || b.websiteUrl),
+        href: '/dashboard/settings/brands',
+      },
+      {
+        label: 'Write your first article',
+        detail: 'About 3 minutes, researched and fact-checked.',
+        done: (overview.total ?? overview.recent.length) > 0,
+        href: '/dashboard/articles',
+      },
+      ...(canAutomate
+        ? [
+            {
+              label: 'Automate your publishing',
+              detail: 'Pick keywords once and new articles go out on a schedule.',
+              done: (overview.automations?.total ?? 0) > 0,
+              href: '/dashboard/automate',
+            },
+          ]
+        : []),
+    ];
+    return { steps, done: steps.filter((s) => s.done).length };
+  }, [overview, canAutomate]);
+
+  const used = overview?.used ?? 0;
+  const limit = overview?.limit ?? 'unlimited';
+  const percent = typeof limit === 'number' && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      <h1 className="text-2xl font-bold mb-6">
-        Welcome to <span className="bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">EnhanceMySEO</span>
-      </h1>
-
+    <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
       <WelcomeCard />
-      
-      {/* Subscription Status Indicator */}
-      {subscription_status === 'admin' && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-green-800">
-                Admin Subscription Active - You have access to enhanced features and analytics.
-              </p>
-            </div>
+
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
+              {greeting()}
+              {firstName ? `, ${firstName}` : ''}
+            </h1>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${TIER_BADGES[tier]}`}>
+              {TIER_NAMES[tier]} plan
+            </span>
           </div>
+          <p className="mt-1 text-sm text-gray-500">Here&apos;s where your content stands.</p>
         </div>
-      )}
-      
-      {/* Main Feature Cards - Full Width Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Generate Article Card */}
-        <Link 
+        <Link
           href="/dashboard/articles"
-          className="block p-5 sm:p-8 bg-white rounded-lg border border-gray-200 hover:border-blue-500 transition-colors group"
+          className="group inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 hover:shadow-md"
         >
-          <div className="flex items-center mb-6">
-            <ArrowRight className="w-8 h-8 text-blue-600 mr-4 group-hover:text-blue-700" />
-            <h2 className="text-2xl font-semibold">Generate Article</h2>
-          </div>
-          <p className="text-gray-600 mb-6 text-lg">
-            Create SEO-optimized articles tailored to your brand&apos;s voice and style. Choose from various content types and let AI do the heavy lifting.
-          </p>
-          
-          {/* Visual Elements for Generate Article */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg">
-            <div className="flex items-center text-sm text-gray-700 mb-3">
-              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-              <span className="font-medium">AI-Powered Content Creation</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
-              <div className="flex items-center">
-                <span className="mr-2">📝</span>
-                <span>SEO Optimized</span>
-              </div>
-              <div className="flex items-center">
-                <span className="mr-2">🎯</span>
-                <span>Brand Voice</span>
-              </div>
-              <div className="flex items-center">
-                <span className="mr-2">⚡</span>
-                <span>Fast Generation</span>
-              </div>
-              <div className="flex items-center">
-                <span className="mr-2">🔍</span>
-                <span>Keyword Rich</span>
-              </div>
-            </div>
-          </div>
+          <Plus className="h-4 w-4" />
+          Write an article
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </Link>
+      </header>
 
-        {/* Help Us Improve Card */}
-        <div className="p-5 sm:p-8 bg-white rounded-lg border border-gray-200 hover:border-purple-500 transition-colors">
-          <div className="flex items-center mb-6">
-            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
-              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-semibold">Help Us Improve</h2>
-          </div>
-          <p className="text-gray-600 mb-6 text-lg">
-            Share your ideas, report bugs, or suggest improvements. Your feedback helps us build exactly what you need.
-          </p>
-          <div className="space-y-3">
-            <button
-              onClick={() => {
-                // Create and dispatch a custom event to open the feature request form
-                const event = new CustomEvent('openFeatureRequest', { detail: { type: 'feature' } });
-                window.dispatchEvent(event);
-                
-                // Smooth scroll to the feature request section
-                setTimeout(() => {
-                  const featureSection = document.querySelector('[data-feature-request-section]');
-                  if (featureSection) {
-                    featureSection.scrollIntoView({ 
-                      behavior: 'smooth', 
-                      block: 'start' 
-                    });
-                  }
-                }, 100);
-              }}
-              className="w-full text-left px-4 py-3 text-sm bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors flex items-center"
-            >
-              <span className="w-5 h-5 mr-3 text-lg">💡</span>
-              <span className="font-medium">Request a Feature</span>
-            </button>
-            <button
-              onClick={() => {
-                const event = new CustomEvent('openFeatureRequest', { detail: { type: 'bug' } });
-                window.dispatchEvent(event);
-                
-                // Smooth scroll to the feature request section
-                setTimeout(() => {
-                  const featureSection = document.querySelector('[data-feature-request-section]');
-                  if (featureSection) {
-                    featureSection.scrollIntoView({ 
-                      behavior: 'smooth', 
-                      block: 'start' 
-                    });
-                  }
-                }, 100);
-              }}
-              className="w-full text-left px-4 py-3 text-sm bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors flex items-center"
-            >
-              <span className="w-5 h-5 mr-3 text-lg">🐛</span>
-              <span className="font-medium">Report a Bug</span>
-            </button>
-            <button
-              onClick={() => {
-                const event = new CustomEvent('openFeatureRequest', { detail: { type: 'improvement' } });
-                window.dispatchEvent(event);
-                
-                // Smooth scroll to the feature request section
-                setTimeout(() => {
-                  const featureSection = document.querySelector('[data-feature-request-section]');
-                  if (featureSection) {
-                    featureSection.scrollIntoView({ 
-                      behavior: 'smooth', 
-                      block: 'start' 
-                    });
-                  }
-                }, 100);
-              }}
-              className="w-full text-left px-4 py-3 text-sm bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg transition-colors flex items-center"
-            >
-              <span className="w-5 h-5 mr-3 text-lg">⚡</span>
-              <span className="font-medium">Suggest Improvement</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Connection guide. Shopify and Search Console are both OAuth now, so this is
-          three short steps rather than the old walkthrough for creating a custom app
-          and copying four credentials by hand. */}
-      <div className="mt-12">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold text-gray-900">Connect your store</h2>
-          <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm text-green-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-            No API keys to copy
-          </span>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          {CONNECT_STEPS.map((step, index) => (
-            <div
-              key={step.title}
-              className="relative rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                  {index + 1}
-                </span>
-                <h3 className="font-semibold text-gray-900">{step.title}</h3>
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-gray-600">{step.body}</p>
-              {step.note && <p className="mt-2 text-xs text-gray-500">{step.note}</p>}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Link
-            href="/dashboard/settings/brands"
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-          >
-            Open brand profiles
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-          <p className="text-sm text-gray-500">
-            Already connected? Nothing to do here.
-          </p>
-        </div>
-      </div>
-
-      {/* Feature Request Section for Non-Admin Users */}
-      {subscription_status !== 'admin' && (
-        <div 
-          data-feature-request-section
-          className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6"
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          icon={FileText}
+          label="Articles this month"
+          value={
+            overview ? (
+              <>
+                {used}
+                <span className="text-base font-medium text-gray-400"> / {limit === 'unlimited' ? <InfinityIcon className="inline h-4 w-4 align-[-2px]" /> : limit}</span>
+              </>
+            ) : (
+              <Skeleton className="h-8 w-16" />
+            )
+          }
+          detail={
+            overview
+              ? limit === 'unlimited'
+                ? 'Unlimited on your plan'
+                : `${Math.max(0, limit - used)} left this month`
+              : undefined
+          }
+          href={typeof limit === 'number' && used >= limit ? '/#pricing' : '/dashboard/articles'}
+          action={typeof limit === 'number' && used >= limit ? 'Get more articles' : 'Write one'}
         >
-          <div className="flex items-start space-x-4">
-            <div className="flex-shrink-0">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              </div>
+          {typeof limit === 'number' && (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className={`h-full rounded-full transition-[width] duration-700 ${percent >= 100 ? 'bg-amber-500' : 'bg-blue-600'}`}
+                style={{ width: `${percent}%` }}
+              />
             </div>
-            <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Want More Features?</h3>
-              <p className="text-gray-600 mb-4">
-                Missing a feature or have an idea to improve EnhanceMySEO? We&apos;d love to hear from you! Your feedback helps us build exactly what you need.
-              </p>
-              
-              {/* Quick Feature Request Form */}
-              <FeatureRequestForm />
-            </div>
+          )}
+        </StatCard>
+
+        <StatCard
+          icon={FileText}
+          label="Total articles"
+          value={overview ? (overview.total ?? overview.recent.length) : <Skeleton className="h-8 w-12" />}
+          detail="Everything you've written"
+          href="/dashboard/history"
+          action="View all"
+        />
+
+        <StatCard
+          icon={Building2}
+          label="Brand profiles"
+          value={overview ? overview.brands.length : <Skeleton className="h-8 w-10" />}
+          detail={
+            overview
+              ? `${overview.brands.filter((b) => b.shopifyStoreUrl || b.websiteUrl).length} connected to a store or site`
+              : undefined
+          }
+          href="/dashboard/settings/brands"
+          action="Manage"
+        />
+
+        {canAutomate ? (
+          <StatCard
+            icon={Workflow}
+            label="Automations"
+            value={overview ? (overview.automations?.enabled ?? 0) : <Skeleton className="h-8 w-10" />}
+            detail={overview ? `active of ${overview.automations?.total ?? 0} set up` : undefined}
+            href="/dashboard/automate"
+            action={(overview?.automations?.total ?? 0) > 0 ? 'Open automations' : 'Set one up'}
+          />
+        ) : (
+          <StatCard
+            icon={Workflow}
+            label="Automations"
+            value={<span className="text-base font-semibold text-gray-700">Publish on autopilot</span>}
+            detail="Scheduled articles from your keywords, on SEO Takeover and above."
+            href="/#pricing"
+            action="See plans"
+          />
+        )}
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <section className="rounded-xl border border-gray-200 bg-white shadow-sm lg:col-span-2">
+          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+            <h2 className="font-semibold text-gray-900">Recent articles</h2>
+            <Link href="/dashboard/history" className="text-sm font-medium text-blue-600 hover:text-blue-800">
+              View all
+            </Link>
           </div>
+          {!overview ? (
+            <ul className="divide-y divide-gray-100">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="flex items-center gap-3 px-5 py-3.5">
+                  <Skeleton className="h-9 w-9 rounded-lg" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-2/3" />
+                    <Skeleton className="h-3 w-1/4" />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : overview.recent.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <FileText className="h-6 w-6" />
+              </span>
+              <p className="mt-3 font-medium text-gray-900">No articles yet</p>
+              <p className="mt-1 text-sm text-gray-500">Your first one takes about 3 minutes.</p>
+              <Link
+                href="/dashboard/articles"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Write my first article <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {overview.recent.map((blog) => {
+                const created = dateOf(blog.createdAt);
+                const brand = overview.brands.find((b) => b.id === blog.brandId);
+                const published = blog.status === 'published';
+                return (
+                  <li key={blog.id}>
+                    <Link
+                      href={`/dashboard/articles/${blog.id}/edit`}
+                      className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-gray-50"
+                    >
+                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">{blog.title || blog.keyword || 'Untitled article'}</p>
+                        <p className="mt-0.5 truncate text-xs text-gray-500">
+                          {[created?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), brand?.brandName].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                      <span
+                        className={`hidden flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset sm:inline ${
+                          published ? 'bg-green-50 text-green-700 ring-green-200' : 'bg-gray-50 text-gray-600 ring-gray-200'
+                        }`}
+                      >
+                        {published ? 'Published' : 'Draft'}
+                      </span>
+                      <ChevronRight className="h-4 w-4 flex-shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-500" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <div className="space-y-6">
+          {setup && setup.done < setup.steps.length && (
+            <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-gray-900">Finish setting up</h2>
+                <span className="text-xs font-medium text-gray-500">
+                  {setup.done} of {setup.steps.length}
+                </span>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-green-500 transition-[width] duration-700"
+                  style={{ width: `${(setup.done / setup.steps.length) * 100}%` }}
+                />
+              </div>
+              <ol className="mt-4 space-y-1">
+                {setup.steps.map((step) => (
+                  <li key={step.label}>
+                    <Link
+                      href={step.href}
+                      className={`group -mx-2 flex items-start gap-3 rounded-lg px-2 py-2 transition-colors ${step.done ? '' : 'hover:bg-gray-50'}`}
+                    >
+                      <span
+                        className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full ${
+                          step.done ? 'bg-green-500 text-white' : 'border-2 border-gray-300 group-hover:border-blue-500'
+                        }`}
+                      >
+                        {step.done && <Check className="h-3 w-3" strokeWidth={3} />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-sm font-medium ${step.done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                          {step.label}
+                        </span>
+                        {!step.done && <span className="mt-0.5 block text-xs text-gray-500">{step.detail}</span>}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+
+          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <h2 className="font-semibold text-gray-900">Tools</h2>
+            <ul className="mt-3 space-y-1">
+              {tools.map((tool) => (
+                <li key={tool.href}>
+                  <Link
+                    href={tool.href}
+                    className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                  >
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-50 text-gray-500 ring-1 ring-inset ring-gray-200 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:ring-blue-100">
+                      <tool.icon className="h-4 w-4" />
+                    </span>
+                    <span className="flex-1 font-medium">{tool.name === 'Tools' ? 'Automations' : tool.name}</span>
+                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-blue-500" />
+                  </Link>
+                </li>
+              ))}
+              <li>
+                <Link
+                  href="/dashboard/settings/brands"
+                  className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-50 text-gray-500 ring-1 ring-inset ring-gray-200 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:ring-blue-100">
+                    <Building2 className="h-4 w-4" />
+                  </span>
+                  <span className="flex-1 font-medium">Brand profiles</span>
+                  <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-blue-500" />
+                </Link>
+              </li>
+            </ul>
+          </section>
+
+          <FeedbackCard />
         </div>
-      )}
+      </div>
     </div>
   );
-} 
+}
