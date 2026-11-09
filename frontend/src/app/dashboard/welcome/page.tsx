@@ -162,6 +162,18 @@ function TimedChecklist({ items, intervals }: { items: string[]; intervals: numb
 
 /* ──────────────────────────────────── Step 1 ──────────────────────────────────── */
 
+/**
+ * The box shows /sitemap.xml as a fixed suffix, so only the domain is typed. A pasted
+ * product URL is cut back to its domain, and a custom sitemap file is kept as given.
+ */
+function toSitemapUrl(input: string): string {
+  const value = input.trim().replace(/\/+$/, '');
+  if (/\.xml(\.gz)?$/i.test(value)) return value;
+  const scheme = /^http:\/\//i.test(value) ? 'http://' : '';
+  const host = value.replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
+  return `${scheme}${host}/sitemap.xml`;
+}
+
 function WebsiteStep({ user, onDone }: { user: Authed; onDone: (analysis: AnalyzeResponse) => void }) {
   const [mode, setMode] = useState<'url' | 'manual'>('url');
   const [url, setUrl] = useState('');
@@ -176,7 +188,7 @@ function WebsiteStep({ user, onDone }: { user: Authed; onDone: (analysis: Analyz
     try {
       const response = await authedFetch(user, '/api/onboarding/analyze', {
         method: 'POST',
-        body: JSON.stringify(mode === 'url' ? { url } : { manual }),
+        body: JSON.stringify(mode === 'url' ? { url: toSitemapUrl(url) } : { manual }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'We could not read that website.');
@@ -226,24 +238,27 @@ function WebsiteStep({ user, onDone }: { user: Authed; onDone: (analysis: Analyz
             body="We'll read it to learn what you sell and which pages to link to. Nothing on your site gets changed."
           />
           <label htmlFor="site" className="mb-2 block text-sm font-medium text-gray-700">
-            Website or sitemap address
+            Website address
           </label>
-          <div className="relative">
-            <Globe className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+          <div className="flex items-center overflow-hidden rounded-xl border border-gray-300 bg-white shadow-sm transition focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/30">
+            <Globe className="ml-4 h-5 w-5 flex-shrink-0 text-gray-400" />
             <input
               id="site"
               autoFocus
               inputMode="url"
               autoComplete="url"
               value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="yourstore.com/sitemap.xml"
-              className={`${inputClass} pl-12`}
+              onChange={(event) => setUrl(event.target.value.replace(/\/sitemap\.xml\/?$/i, ''))}
+              placeholder="yourstore.com"
+              className="min-w-0 flex-1 bg-transparent px-3 py-3 text-gray-900 focus:outline-none"
             />
+            <span className="flex-shrink-0 self-stretch border-l border-gray-200 bg-gray-50 px-4 py-3 text-gray-500">
+              /sitemap.xml
+            </span>
           </div>
           <p className="mt-2 text-sm text-gray-500">
-            Tip: adding <code className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">/sitemap.xml</code> to the end is the
-            fastest way for us to find every product and page.
+            Tip: just enter your website. It&apos;s the quickest way for us to find and link to your most important product
+            or service pages.
           </p>
           {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="mt-6 flex flex-wrap items-center gap-3">
