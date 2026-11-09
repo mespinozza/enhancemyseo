@@ -275,7 +275,7 @@ function WebsiteStep({
         <TimedChecklist
           items={
             mode === 'url'
-              ? ['Reading your homepage', 'Finding your sitemap', 'Counting your products and pages', 'Drafting your brand profile and topics']
+              ? ['Reading your homepage', 'Finding your sitemap', 'Counting your product or service pages', 'Drafting your brand profile and topics']
               : ['Reading your description', 'Drafting your brand profile', 'Finding topics your customers search for']
           }
           intervals={mode === 'url' ? [0, 2, 5, 9] : [0, 2, 6]}
@@ -925,7 +925,7 @@ function TopicStep({
 
 const WRITING_PHASES = [
   'Researching the topic and the questions people ask',
-  'Finding your products and pages to link to',
+  'Finding your product or service pages to link to',
   'Writing your article',
   'Fact-checking every claim',
   'Adding the SEO title, description and finishing touches',
