@@ -2193,7 +2193,8 @@ export default function ArticlesPage() {
               {/* Articles Grid - Shows completed articles during generation */}
               {generatedArticles.length > 0 && (
                 <div
-                  className={`mb-4 content-start md:flex-1 md:overflow-y-auto md:pr-2 ${
+                  // Padding keeps a hovered card's lift and shadow inside the scroll area, which clips its edges.
+                  className={`mb-4 content-start p-1 md:flex-1 md:overflow-y-auto md:pr-2 ${
                     articleLayout === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3' : 'flex flex-col gap-2'
                   }`}
                 >
