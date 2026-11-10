@@ -21,6 +21,8 @@ import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firest
 import { thumbnailApi, useAuthedImage } from '@/lib/thumbnail/client';
 import { THUMBNAIL_TIERS, type ThumbnailRecord, type ThumbnailTarget } from '@/lib/thumbnail/types';
 import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
+import BuyCredits from '@/components/credits/BuyCredits';
+import { useCreditReturn } from '@/lib/credits/client';
 import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
 import ThumbnailEditor, { targetValue, type LinkOption } from '@/components/thumbnail/ThumbnailEditor';
 
@@ -152,6 +154,8 @@ export default function ThumbnailStudioPage() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [customTitle, setCustomTitle] = useState('');
   const [layout, setLayout] = useState<ThumbnailLayout>('parts-plus');
+  const [outOfPhotos, setOutOfPhotos] = useState(false);
+  useCreditReturn();
   const [making, setMaking] = useState<{ done: number; total: number; current: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState<Set<string>>(new Set());
@@ -308,6 +312,11 @@ export default function ThumbnailStudioPage() {
         setThumbnails((current) => [thumbnail, ...current]);
       } catch (error) {
         failures += 1;
+        if ((error as { code?: string }).code === 'image_limit') {
+          setOutOfPhotos(true);
+          toast.error(error instanceof Error ? error.message : 'Out of photos this month');
+          break;
+        }
         toast.error(`${job.title}: ${error instanceof Error ? error.message : 'failed'}`);
       }
     }
@@ -372,8 +381,15 @@ export default function ThumbnailStudioPage() {
           body: JSON.stringify({ regenerate: true }),
         });
         setThumbnails((current) => current.map((t) => (t.id === id ? thumbnail : t)));
-      } catch {
+      } catch (error) {
         failed++;
+        if ((error as { code?: string }).code === 'image_limit') {
+          setOutOfPhotos(true);
+          toast.error(error instanceof Error ? error.message : 'Out of photos this month');
+          const skipped = new Set(ids.slice(ids.indexOf(id) + 1));
+          setRegenerating((current) => new Set(Array.from(current).filter((other) => !skipped.has(other))));
+          return;
+        }
       } finally {
         setRegenerating((current) => {
           const next = new Set(current);
@@ -520,6 +536,9 @@ export default function ThumbnailStudioPage() {
                 </button>
               )}
               <p className="text-center text-[11px] text-gray-400">About 30 seconds each. You can edit every one before it goes anywhere.</p>
+              {outOfPhotos && (
+                <BuyCredits kind="images" compact title="You've used this month's thumbnail photos" returnTo="/dashboard/generate-thumbnail" />
+              )}
             </div>
           </section>
 

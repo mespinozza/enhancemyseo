@@ -12,6 +12,7 @@ import {
 } from '@/lib/thumbnail/service';
 import { THUMBNAILS_COLLECTION, type ThumbnailTarget } from '@/lib/thumbnail/types';
 import { isLayout } from '@/lib/thumbnail/design';
+import { IMAGE_LIMIT_MESSAGE, refundImage, reserveImage } from '@/lib/credits/server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -78,8 +79,13 @@ export async function POST(request: NextRequest) {
   }
 
   const access = await thumbnailAccess(uid, email);
-  if (!access.studio && (!body.tutorial || !(await claimTutorialThumbnail(uid, access)))) {
+  const tutorialFree = body.tutorial === true && (await claimTutorialThumbnail(uid, access));
+  if (!access.studio && !tutorialFree) {
     return NextResponse.json({ error: 'Thumbnails come with a paid plan', code: 'not_allowed' }, { status: 403 });
+  }
+  const charge = tutorialFree ? null : await reserveImage(uid, access.tier);
+  if (!tutorialFree && !charge) {
+    return NextResponse.json({ error: IMAGE_LIMIT_MESSAGE, code: 'image_limit' }, { status: 429 });
   }
 
   meterAs(uid);
@@ -96,7 +102,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ thumbnail: await toRecord(snap, access) });
   } catch (error) {
     console.error('Thumbnail generation failed:', error);
-    if (!access.studio) await releaseTutorialThumbnail(uid);
+    if (tutorialFree) await releaseTutorialThumbnail(uid);
+    await refundImage(charge).catch(() => undefined);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Thumbnail generation failed' },
       { status: 500 },

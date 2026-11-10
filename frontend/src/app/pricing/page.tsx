@@ -36,7 +36,11 @@ const FAQS = [
   },
   {
     q: 'What happens when I hit my article limit?',
-    a: "You'll see a friendly message letting you know. You can upgrade at any time mid-month and the new limit applies immediately.",
+    a: "You'll see a friendly message letting you know. You can upgrade at any time mid-month and the new limit applies immediately, or top up on a paid plan: 10 extra articles for $20, 25 for $45, or 20 extra thumbnail photos for $10. Extras are used after your monthly allowance and never expire.",
+  },
+  {
+    q: 'How do thumbnails count?',
+    a: 'Kickstart includes 50 thumbnail photos a month and SEO Takeover 180, about two tries per article. Only making a new photo counts; changing the title, colours or style is always free.',
   },
   {
     q: 'Is the content actually good quality?',

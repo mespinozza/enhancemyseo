@@ -12,6 +12,7 @@ import {
   toRecord,
 } from '@/lib/thumbnail/service';
 import type { ThumbnailTarget } from '@/lib/thumbnail/types';
+import { IMAGE_LIMIT_MESSAGE, refundImage, reserveImage } from '@/lib/credits/server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -50,8 +51,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   };
   try {
     if (body.regenerate) {
+      const charge = await reserveImage(ctx.uid, ctx.access.tier);
+      if (!charge) return NextResponse.json({ error: IMAGE_LIMIT_MESSAGE, code: 'image_limit' }, { status: 429 });
       meterAs(ctx.uid);
-      await regeneratePhoto(ctx.uid, ctx.snap, body.direction?.trim().slice(0, 300));
+      try {
+        await regeneratePhoto(ctx.uid, ctx.snap, body.direction?.trim().slice(0, 300));
+      } catch (error) {
+        await refundImage(charge).catch(() => undefined);
+        throw error;
+      }
     } else if ('target' in body) {
       const t = body.target;
       const target: ThumbnailTarget | null =

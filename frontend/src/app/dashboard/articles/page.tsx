@@ -9,6 +9,8 @@ import TutorialThumbnail, {
   type TutorialThumbnailArticle,
 } from '@/components/thumbnail/TutorialThumbnail';
 import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
+import { fetchCredits, useCreditReturn } from '@/lib/credits/client';
+import BuyCredits from '@/components/credits/BuyCredits';
 import { takeArticleHandoff } from '@/lib/keywords/handoff';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
@@ -428,6 +430,8 @@ export default function ArticlesPage() {
   // Kept on screen after the run, where a toast would have vanished.
   const [failedArticles, setFailedArticles] = useState<{ keyword: string; message: string }[]>([]);
   const [retryPending, setRetryPending] = useState(false);
+  const [outOfArticles, setOutOfArticles] = useState(false);
+  useCreditReturn();
   // Offered on the tutorial article before upgrading: it is made on the next visit after.
   useEffect(() => {
     const pending = pendingTutorialThumbnail();
@@ -684,13 +688,18 @@ export default function ArticlesPage() {
     // the free bonus, which only the server can see, so it decides that one.
     if (!tutorial) try {
       const currentUsage = await getUserUsage(user.uid);
-      const { canPerform, reason } = await canPerformAction(user.uid, subscription_status, 'articles', currentUsage, validKeywords.length);
-      
-      if (!canPerform) {
+      const { canPerform, reason, remaining } = await canPerformAction(user.uid, subscription_status, 'articles', currentUsage, validKeywords.length);
+      // Past the allowance, purchased credits cover the rest; the server checks again.
+      const shortfall = validKeywords.length - (typeof remaining === 'number' ? remaining : 0);
+      const credits = canPerform || subscription_status === 'free' ? 0 : await fetchCredits(user).then((r) => r.credits.articles).catch(() => 0);
+
+      if (!canPerform && credits < shortfall) {
         const errorMessage = reason || 'You have reached your limit. Please upgrade your plan or wait for the next reset period.';
         toast.error(errorMessage);
+        setOutOfArticles(true);
         return;
       }
+      if (!canPerform) toast(`Using ${shortfall} of your ${credits} extra article credits.`, { icon: '🎟️' });
     } catch (error) {
       console.error('Error checking usage limits:', error);
       toast.error('Unable to verify usage limits. Please try again.');
@@ -898,8 +907,9 @@ export default function ArticlesPage() {
           }
           
           // Check if it's a usage limit error
-          if (error instanceof Error && error.message.includes('usage limit')) {
+          if (error instanceof Error && /usage limit|limit reached/i.test(error.message)) {
             toast.error('Usage limit reached. Stopping bulk generation.');
+            setOutOfArticles(true);
             break;
           } else {
             toast.error(`Article ${i + 1} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -2163,6 +2173,10 @@ export default function ArticlesPage() {
                   })()}
             </button>
             </div>
+
+            {outOfArticles && (
+              <BuyCredits kind="articles" compact title="You've used this month's articles" returnTo="/dashboard/articles" />
+            )}
             
             {((!selectedBrandId && touchedFields.brandProfile) || ((bulkMode ? !bulkKeywordsText.trim() : !keywords[0]?.trim()) && touchedFields.keyword) || (!contentType && touchedFields.contentType)) && (
               <p className="text-sm text-red-600 text-center">

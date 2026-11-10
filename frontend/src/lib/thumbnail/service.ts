@@ -28,11 +28,11 @@ export async function thumbnailAccess(uid: string, email: string | null): Promis
 }
 
 /**
- * The tutorial's thumbnail comes with a paid plan, one per account. Free accounts are
- * shown what they would get, drawn in the browser, and never cost an image generation.
+ * The tutorial's thumbnail comes with a paid plan, one per account, and doesn't count
+ * against the month's photos. Free accounts are shown what they would get, drawn in the
+ * browser, and never cost an image generation.
  */
 export async function claimTutorialThumbnail(uid: string, access: ThumbnailAccess): Promise<boolean> {
-  if (access.studio) return true;
   if (!access.paid) return false;
   initializeFirebaseAdmin();
   try {

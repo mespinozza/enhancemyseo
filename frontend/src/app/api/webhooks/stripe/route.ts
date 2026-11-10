@@ -5,6 +5,8 @@ import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { sendMetaCAPIEvent } from '@/lib/meta-capi';
 import { DONE_FOR_YOU } from '@/lib/stripe';
 import { CLEARED_BILLING, billingFromSubscription } from '@/lib/stripe/billing';
+import { CREDIT_PACKS } from '@/lib/credits/packs';
+import { grantPack } from '@/lib/credits/server';
 
 // Initialize Firebase Admin
 initializeFirebaseAdmin();
@@ -57,6 +59,11 @@ export async function POST(request: Request) {
 
       case 'invoice.payment_failed':
         await handlePaymentFailed(event.data.object as Stripe.Invoice);
+        break;
+
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded':
+        await handleCreditPurchase(event.data.object as Stripe.Checkout.Session);
         break;
 
       default:
@@ -144,6 +151,28 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
         // Never let CAPI failure break the webhook response
         console.error('[CAPI] Error sending Purchase event:', err);
       }
+    }
+  }
+}
+
+/**
+ * A one-time credit pack. The pack is worked out from what Stripe says was bought, never
+ * from the metadata alone, so a session can only grant what was paid for.
+ */
+async function handleCreditPurchase(session: Stripe.Checkout.Session) {
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') return;
+  const userId = session.metadata?.userId;
+  if (!userId) {
+    console.error('Credit purchase without a userId:', session.id);
+    return;
+  }
+  const items = await stripe.checkout.sessions.listLineItems(session.id, { limit: 10 });
+  for (const item of items.data) {
+    const pack = CREDIT_PACKS.find((p) => p.priceId === item.price?.id);
+    if (!pack) continue;
+    for (let i = 0; i < (item.quantity ?? 1); i += 1) {
+      const granted = await grantPack(i ? `${session.id}:${pack.id}:${i}` : `${session.id}:${pack.id}`, userId, pack, item.amount_total ?? null);
+      console.log(granted ? `🎟️ Granted ${pack.label} to ${userId}` : `Credit pack already granted for ${session.id}`);
     }
   }
 }

@@ -6,6 +6,8 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { getServerUserSubscriptionStatus } from '@/lib/firebase/server-admin-utils';
 import { serverSideUsageUtils } from '@/lib/server-usage-utils';
+import { CREDIT_TIERS } from '@/lib/credits/packs';
+import { recordCreditUse, refundCredit, reserveCredit } from '@/lib/credits/server';
 import {
   consumeOnboardingBonus,
   releaseOnboardingBonus,
@@ -5672,6 +5674,9 @@ async function generate(request: Request, ctx: GenerationContext) {
   // Set while this request holds the tutorial's free first article.
   let bonusUid: string | undefined;
   let bonusUsed = false;
+  // A purchased credit taken before generating, given back if the article never arrives.
+  let creditUid: string | undefined;
+  let creditUsed = false;
   
   try {
     log('📥 Received article generation request');
@@ -5775,11 +5780,16 @@ async function generate(request: Request, ctx: GenerationContext) {
           adminFirestore
         );
 
-        if (!usageCheck.canPerform) {
+        // Past the month's allowance, a purchased credit pays for it instead.
+        if (!usageCheck.canPerform && (await reserveCredit(verifiedUser.uid, 'articles'))) {
+          creditUid = verifiedUser.uid;
+          log('🎟️ Monthly allowance used: this article spends one purchased credit');
+        } else if (!usageCheck.canPerform) {
           console.log('Usage limit exceeded for user:', verifiedUser.uid, usageCheck.reason);
           return NextResponse.json({
             error: usageCheck.reason || 'Usage limit exceeded',
-            code: 'usage_limit'
+            code: 'usage_limit',
+            canBuyCredits: CREDIT_TIERS.includes(subscriptionStatus),
           }, { status: 429 });
         }
       }
@@ -5829,6 +5839,11 @@ async function generate(request: Request, ctx: GenerationContext) {
       if (bonusUid) {
         await consumeOnboardingBonus(getFirestore(), bonusUid, String(blogId || ''));
         bonusUsed = true;
+        return;
+      }
+      if (creditUid) {
+        creditUsed = true;
+        await recordCreditUse(creditUid, 'articles').catch(() => undefined);
         return;
       }
       await serverSideUsageUtils.incrementUsage(verifiedUser.uid, 'articles', getFirestore());
@@ -6736,6 +6751,9 @@ When mentioning these items, use descriptive anchor text and ensure the links fe
       await releaseOnboardingBonus(getFirestore(), bonusUid).catch((error) =>
         console.error('Could not release the tutorial bonus:', error)
       );
+    }
+    if (creditUid && !creditUsed) {
+      await refundCredit(creditUid, 'articles').catch((error) => console.error('Could not refund the article credit:', error));
     }
     // Always clean up the generation tracking, even if there was an error
     if (typeof userId !== 'undefined') {

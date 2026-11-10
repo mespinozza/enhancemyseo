@@ -15,19 +15,21 @@ export const USAGE_LIMITS: Record<string, UsageData> = {
   free: {
     articles: 2,
     keywords: 1,
-    thumbnails: 2,
+    // Free accounts see thumbnails as a mock-up only.
+    thumbnails: 0,
     lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   kickstart: {
     articles: 25,
     keywords: 10,
-    thumbnails: 20,
+    // Photo generations: two tries per article. Editing never counts.
+    thumbnails: 50,
     lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   seo_takeover: {
     articles: 90,
     keywords: 30,
-    thumbnails: 50,
+    thumbnails: 180,
     lastReset: new Date(2023, 0, 1), // Example last reset date
   },
   agency: {

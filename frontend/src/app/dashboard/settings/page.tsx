@@ -25,6 +25,8 @@ import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { createCustomerPortalSession } from '@/lib/stripe';
 import { USAGE_LIMITS } from '@/lib/usage-limits';
 import { PLAN_LABELS, type Plan } from '@/lib/admin/customers';
+import BuyCredits from '@/components/credits/BuyCredits';
+import { useCreditReturn } from '@/lib/credits/client';
 
 const profileSchema = z.object({
   displayName: z.string().min(1, 'Display name is required'),
@@ -115,6 +117,8 @@ export default function SettingsPage() {
   const isAdmin = plan === 'admin';
   const isFree = plan === 'free';
   const articleLimit = USAGE_LIMITS[plan]?.articles;
+  const photoLimit = USAGE_LIMITS[plan]?.thumbnails;
+  useCreditReturn();
 
   const {
     register: registerProfile,
@@ -344,9 +348,9 @@ export default function SettingsPage() {
           }
           description={
             articleLimit === 'unlimited'
-              ? 'Unlimited articles each month.'
+              ? 'Unlimited articles and thumbnail photos each month.'
               : typeof articleLimit === 'number'
-                ? `${articleLimit} articles each month.`
+                ? `${articleLimit} articles${photoLimit ? ` and ${photoLimit} thumbnail photos` : ''} each month.`
                 : undefined
           }
         >
@@ -383,6 +387,11 @@ export default function SettingsPage() {
               Manage billing
             </button>
           </Row>
+        )}
+        {!isFree && !isAdmin && (
+          <div id="extra-credits" className="px-5 py-4">
+            <BuyCredits title="Extra articles and thumbnail photos" returnTo="/dashboard/settings" />
+          </div>
         )}
       </Section>
 

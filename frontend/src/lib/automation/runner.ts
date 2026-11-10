@@ -22,6 +22,7 @@ import { meterAs } from '@/lib/ai/meter';
 import { internalBaseUrl } from '@/lib/internal-url';
 import { recordError } from '@/lib/errors/record';
 import { createThumbnail, thumbnailAccess } from '@/lib/thumbnail/service';
+import { IMAGE_LIMIT_MESSAGE, refundImage, reserveImage } from '@/lib/credits/server';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
 import { RECENT_CONTENT_TYPES, allowedContentTypes, pickContentType } from './content-type';
@@ -358,13 +359,21 @@ async function makeThumbnail(
 ): Promise<{ src: string; alt: string } | null> {
   const access = await thumbnailAccess(automation.userId, null);
   if (!access.studio) return null;
-  const snap = await createThumbnail({
-    uid: automation.userId,
-    brandId: automation.brandId,
-    title: article.title,
-    keyword: null,
-    target: { kind: 'blog', blogId: article.blogId },
-  });
+  const charge = await reserveImage(automation.userId, access.tier);
+  if (!charge) throw new Error(IMAGE_LIMIT_MESSAGE);
+  let snap;
+  try {
+    snap = await createThumbnail({
+      uid: automation.userId,
+      brandId: automation.brandId,
+      title: article.title,
+      keyword: null,
+      target: { kind: 'blog', blogId: article.blogId },
+    });
+  } catch (error) {
+    await refundImage(charge).catch(() => undefined);
+    throw error;
+  }
   const url = snap.get('imageUrl');
   return typeof url === 'string' ? { src: url, alt: article.title } : null;
 }
