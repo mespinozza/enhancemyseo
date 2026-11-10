@@ -20,7 +20,8 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import { thumbnailApi } from '@/lib/thumbnail/client';
 import { CONTENT_BLUEPRINTS } from '@/lib/article/enhanced/blueprints';
-import { INTENT_LABELS, type KeywordCollection, type KeywordIdea } from '@/lib/keywords/collection-types';
+import { INTENT_LABELS, type KeywordCollection, type KeywordIdea, type StoreOverview } from '@/lib/keywords/collection-types';
+import StoreOverviewPanel from '@/components/keywords/StoreOverviewPanel';
 import { sendToArticles, sendToAutomation } from '@/lib/keywords/handoff';
 
 const BRAND_KEY = 'keyword-collections-brand';
@@ -63,6 +64,9 @@ export default function KeywordCollectionsPage() {
   const [stage, setStage] = useState(0);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState<StoreOverview | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user && subscription_status && subscription_status !== 'admin') router.push('/dashboard/articles');
@@ -104,6 +108,32 @@ export default function KeywordCollectionsPage() {
     load();
   }, [brandId, load]);
 
+  const loadOverview = useCallback(
+    async (fresh = false) => {
+      if (!user || !brandId || !brand?.shopifyStoreUrl) return;
+      setOverviewLoading(true);
+      setOverviewError(null);
+      if (fresh) setOverview(null);
+      try {
+        const { overview: data } = await thumbnailApi<{ overview: StoreOverview }>(
+          user,
+          `/api/keyword-collections/store?brandId=${encodeURIComponent(brandId)}${fresh ? '&fresh=1' : ''}`,
+        );
+        setOverview(data);
+      } catch (error) {
+        setOverviewError(error instanceof Error ? error.message : 'Could not read the store');
+      } finally {
+        setOverviewLoading(false);
+      }
+    },
+    [user, brandId, brand?.shopifyStoreUrl],
+  );
+
+  useEffect(() => {
+    setOverview(null);
+    loadOverview();
+  }, [loadOverview]);
+
   useEffect(() => {
     if (!generating) return;
     setStage(0);
@@ -118,13 +148,17 @@ export default function KeywordCollectionsPage() {
     setPicked(new Set(allKeywords));
   }, [allKeywords]);
 
-  const generate = async () => {
+  const generate = async (focusOverride?: string) => {
     if (!user || !brandId) return;
+    if (focusOverride !== undefined) {
+      setFocus(focusOverride);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     setGenerating(true);
     try {
       const { collection } = await thumbnailApi<{ collection: KeywordCollection }>(user, '/api/keyword-collections', {
         method: 'POST',
-        body: JSON.stringify({ brandId, focus, count }),
+        body: JSON.stringify({ brandId, focus: focusOverride ?? focus, count }),
       });
       setCollections((current) => [collection, ...current]);
       setActiveId(collection.id);
@@ -250,7 +284,7 @@ export default function KeywordCollectionsPage() {
             </div>
             <button
               type="button"
-              onClick={generate}
+              onClick={() => generate()}
               disabled={generating || !brandId}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
             >
@@ -274,6 +308,19 @@ export default function KeywordCollectionsPage() {
             </ol>
           )}
         </section>
+      )}
+
+      {brand?.shopifyStoreUrl && (
+        <StoreOverviewPanel
+          key={brandId}
+          brandName={brand.brandName}
+          overview={overview}
+          loading={overviewLoading}
+          error={overviewError}
+          building={generating}
+          onBuild={(name) => generate(name)}
+          onRefresh={() => loadOverview(true)}
+        />
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">

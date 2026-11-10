@@ -13,6 +13,7 @@ import {
   type KeywordGroup,
   type KeywordIdea,
   type KeywordIntent,
+  type StoreOverview,
 } from './collection-types';
 
 const INTENTS: KeywordIntent[] = ['buying', 'comparing', 'how-to', 'problem', 'informational'];
@@ -56,17 +57,122 @@ const TOOL = {
   },
 };
 
-function storeSummary(brand: { name: string; businessType?: string; website?: string }, inventory: StoreInventory, focus: string | null) {
+/** Storewide collections every shop has, which say nothing about what it sells. */
+const GENERIC_COLLECTIONS = new Set(['frontpage', 'all', 'home-page', 'homepage', 'all-products']);
+
+const INVENTORY_TTL_MS = 10 * 60 * 1000;
+const inventoryCache = new Map<string, { at: number; shopDomain: string; inventory: StoreInventory }>();
+
+/** The store's inventory, reused for a few minutes so viewing it and then building doesn't fetch twice. */
+async function loadInventory(uid: string, brandId: string, fresh = false) {
+  const key = `${uid}:${brandId}`;
+  const cached = inventoryCache.get(key);
+  if (!fresh && cached && Date.now() - cached.at < INVENTORY_TTL_MS) return cached;
+  const { shopDomain, accessToken } = await resolveShopifyCredentials(uid, { brandId });
+  const entry = { at: Date.now(), shopDomain, inventory: await fetchStoreInventory(shopDomain, accessToken) };
+  inventoryCache.set(key, entry);
+  return entry;
+}
+
+async function appArticleTitles(uid: string, brandId: string): Promise<string[]> {
+  const snap = await getFirestore()
+    .collection('blogs')
+    .where('userId', '==', uid)
+    .where('brandId', '==', brandId)
+    .select('keyword', 'title')
+    .get();
+  return snap.docs
+    .flatMap((d) => [d.get('keyword'), d.get('title')])
+    .filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+}
+
+/** How many of the articles name every meaningful word of `name`. */
+function coverage(name: string, articles: Set<string>[]): number {
+  const needed = Array.from(words(name));
+  if (!needed.length) return 0;
+  return articles.filter((article) => needed.every((w) => article.has(w))).length;
+}
+
+function topics(inventory: StoreInventory, titles: string[], storefront: string) {
+  const articleWords = titles.map(words);
+  // A collection holding nearly the whole catalogue ("Best Selling", "All") is a sort order, not a topic.
+  const catchAll = (c: { products: number }) => inventory.totalProducts > 50 && c.products >= inventory.totalProducts * 0.9;
+  const collections = inventory.collections
+    .filter((c) => !GENERIC_COLLECTIONS.has(c.handle) && !catchAll(c))
+    .map((c) => ({ name: c.title, products: c.products, covered: coverage(c.title, articleWords), url: `${storefront}/collections/${c.handle}` }));
+  const vendors = inventory.vendors.map((v) => ({
+    name: v.name,
+    products: v.products,
+    covered: coverage(v.name, articleWords),
+    url: `${storefront}/collections/vendors?q=${encodeURIComponent(v.name)}`,
+  }));
+  const productTypes = inventory.productTypes.map((t) => ({
+    name: t.name,
+    products: t.products,
+    covered: coverage(t.name, articleWords),
+    url: `${storefront}/collections/types?q=${encodeURIComponent(t.name)}`,
+  }));
+  return { collections, vendors, productTypes };
+}
+
+const storefrontFor = (website: unknown, shopDomain: string) =>
+  (typeof website === 'string' && /^https?:\/\//.test(website.trim()) ? website.trim() : `https://${shopDomain}`).replace(/\/+$/, '');
+
+export async function storeOverview(uid: string, brandId: string, fresh = false): Promise<StoreOverview> {
+  initializeFirebaseAdmin();
+  const brand = await getFirestore().collection('brandProfiles').doc(brandId).get();
+  if (!brand.exists || brand.get('userId') !== uid) throw new Error('Brand profile not found');
+
+  const [{ shopDomain, inventory }, appTitles] = await Promise.all([loadInventory(uid, brandId, fresh), appArticleTitles(uid, brandId)]);
+  const storefront = storefrontFor(brand.get('websiteUrl'), shopDomain);
+  const titles = [...appTitles, ...inventory.articles.map((a) => a.title)];
+  const byProducts = <T extends { products: number }>(list: T[]) => [...list].sort((a, b) => b.products - a.products);
+  const { collections, vendors, productTypes } = topics(inventory, titles, storefront);
+
+  return {
+    storefront,
+    counts: {
+      products: inventory.totalProducts,
+      vendors: inventory.vendors.length,
+      productTypes: inventory.productTypes.length,
+      collections: collections.length,
+      pages: inventory.pages.length,
+      shopifyArticles: inventory.articles.length,
+      appArticles: new Set(appTitles.map(looseKeywordKey)).size,
+    },
+    collections: byProducts(collections),
+    vendors: byProducts(vendors),
+    productTypes: byProducts(productTypes),
+    pages: inventory.pages.map((p) => ({ title: p.title, url: `${storefront}/pages/${p.handle}` })),
+    articles: inventory.articles.map((a) => ({
+      title: a.title,
+      blog: a.blog,
+      url: a.blogHandle ? `${storefront}/blogs/${a.blogHandle}/${a.handle}` : storefront,
+    })),
+    missing: inventory.missing,
+  };
+}
+
+function storeSummary(
+  brand: { name: string; businessType?: string; website?: string },
+  inventory: StoreInventory,
+  focus: string | null,
+  gaps: string[],
+) {
   const list = (items: string[], max: number) => (items.length ? items.slice(0, max).join('; ') : '(none)');
   return [
     `Store: ${brand.name}${brand.businessType ? `, ${brand.businessType}` : ''}${brand.website ? ` (${brand.website})` : ''}.`,
     focus ? `Focus requested by the owner: ${focus}.` : '',
     `Vendors (by product count): ${list(inventory.vendors.map((v) => `${v.name} (${v.products})`), PROMPT_LIMITS.vendors)}`,
     `Product types: ${list(inventory.productTypes.map((t) => `${t.name} (${t.products})`), PROMPT_LIMITS.productTypes)}`,
-    `Collections: ${list(inventory.collections.filter((c) => c.products > 0 || !c.products).map((c) => c.title), PROMPT_LIMITS.collections)}`,
+    `Total active products: ${inventory.totalProducts}`,
+    `Collections (by product count): ${list([...inventory.collections].sort((a, b) => b.products - a.products).map((c) => `${c.title} (${c.products})`), PROMPT_LIMITS.collections)}`,
     `Pages: ${list(inventory.pages.map((p) => p.title), PROMPT_LIMITS.pages)}`,
     `Sample products: ${list(inventory.products.map((p) => p.title), PROMPT_LIMITS.products)}`,
     `Blog articles already published (do not repeat these topics): ${list(inventory.articles.map((a) => a.title), PROMPT_LIMITS.articles)}`,
+    gaps.length
+      ? `Content gaps, collections and vendors with products but no article yet (favour these): ${list(gaps, 40)}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -121,10 +227,9 @@ export async function generateKeywordCollection(input: {
   const brand = await db.collection('brandProfiles').doc(input.brandId).get();
   if (!brand.exists || brand.get('userId') !== input.uid) throw new Error('Brand profile not found');
 
-  const { shopDomain, accessToken } = await resolveShopifyCredentials(input.uid, { brandId: input.brandId });
-  const [inventory, ownArticles] = await Promise.all([
-    fetchStoreInventory(shopDomain, accessToken),
-    db.collection('blogs').where('userId', '==', input.uid).where('brandId', '==', input.brandId).select('keyword', 'title').get(),
+  const [{ shopDomain, inventory }, appTitles] = await Promise.all([
+    loadInventory(input.uid, input.brandId),
+    appArticleTitles(input.uid, input.brandId),
   ]);
   if (!inventory.products.length && !inventory.collections.length) {
     throw new Error('Shopify returned no products or collections for this store, so there is nothing to plan around yet.');
@@ -132,7 +237,15 @@ export async function generateKeywordCollection(input: {
 
   const focus = input.focus?.trim().slice(0, 200) || null;
   const count = Math.min(80, Math.max(10, input.count ?? 40));
-  const appTitles = ownArticles.docs.flatMap((d) => [d.get('keyword'), d.get('title')]).filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+  const found = topics(inventory, [...appTitles, ...inventory.articles.map((a) => a.title)], storefrontFor(brand.get('websiteUrl'), shopDomain));
+  const gaps = Array.from(
+    new Set(
+      [...found.collections, ...found.vendors]
+        .filter((t) => t.products > 0 && t.covered === 0)
+        .sort((a, b) => b.products - a.products)
+        .map((t) => t.name),
+    ),
+  );
 
   const message = await anthropic().messages.create({
     model: CLAUDE_MODEL,
@@ -143,7 +256,7 @@ export async function generateKeywordCollection(input: {
       {
         role: 'user',
         content: prompt(
-          storeSummary({ name: brand.get('brandName'), businessType: brand.get('businessType'), website: brand.get('websiteUrl') }, inventory, focus),
+          storeSummary({ name: brand.get('brandName'), businessType: brand.get('businessType'), website: brand.get('websiteUrl') }, inventory, focus, gaps),
           count,
           appTitles,
         ),
@@ -204,11 +317,11 @@ export async function generateKeywordCollection(input: {
     focus,
     groups,
     stats: {
-      products: inventory.products.length,
+      products: inventory.totalProducts,
       collections: inventory.collections.length,
       vendors: inventory.vendors.length,
       pages: inventory.pages.length,
-      articles: inventory.articles.length + ownArticles.size,
+      articles: inventory.articles.length + new Set(appTitles.map(looseKeywordKey)).size,
       alreadyCovered,
     },
     missing: inventory.missing,
