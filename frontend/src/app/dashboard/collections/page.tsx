@@ -48,7 +48,8 @@ export default function KeywordCollectionsPage() {
     brandProfileOperations.getAll(user.uid).then((profiles) => {
       setBrands(profiles);
       const saved = localStorage.getItem(BRAND_KEY);
-      const initial = profiles.find((b) => b.id === saved) ?? profiles.find((b) => b.shopifyStoreUrl) ?? profiles[0];
+      const stores = profiles.filter((b) => b.shopifyStoreUrl);
+      const initial = stores.find((b) => b.id === saved) ?? stores[0];
       if (initial?.id) setBrandId(initial.id);
     });
   }, [user]);
@@ -140,15 +141,25 @@ export default function KeywordCollectionsPage() {
             onChange={(event) => setBrandId(event.target.value)}
             className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
           >
+            {!brandId && <option value="">Pick a Shopify store</option>}
             {brands.map((b) => (
-              <option key={b.id} value={b.id}>
+              <option key={b.id} value={b.id} disabled={!b.shopifyStoreUrl}>
                 {b.brandName}
-                {b.shopifyStoreUrl ? '' : ' (no Shopify)'}
+                {b.shopifyStoreUrl ? '' : ' (Not a Shopify Store)'}
               </option>
             ))}
           </select>
         )}
       </header>
+
+      {brands.length > 0 && !brands.some((b) => b.shopifyStoreUrl) && (
+        <div className="mt-6 rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
+          None of your brands is a Shopify store yet. Add a store URL to a brand to use this page.{' '}
+          <Link href="/dashboard/settings/brands" className="font-medium text-blue-600 hover:text-blue-800">
+            Brand profiles
+          </Link>
+        </div>
+      )}
 
       {brands.length === 0 && (
         <div className="mt-6 rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
