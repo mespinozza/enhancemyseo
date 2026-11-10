@@ -18,7 +18,7 @@ const ANTHROPIC_CACHE_READ = 0.1;
 const ANTHROPIC_WEB_SEARCH = 10 / 1000;
 const PERPLEXITY_PER_MTOK = 1;
 const PERPLEXITY_PER_REQUEST = 5 / 1000;
-/** gpt-image-1: text prompt tokens and generated image tokens. */
+/** OpenAI image models (gpt-image-2): text prompt tokens and generated image tokens. */
 const OPENAI_IMAGE_INPUT_PER_MTOK = 5;
 const OPENAI_IMAGE_OUTPUT_PER_MTOK = 40;
 

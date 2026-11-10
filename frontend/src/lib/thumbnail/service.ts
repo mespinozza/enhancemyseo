@@ -123,6 +123,9 @@ export function photoPrompt(input: {
     .join(' ');
 }
 
+/** OpenAI retires image models; the env var swaps one in without a deploy of new code. */
+const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL?.trim() || 'gpt-image-2';
+
 export async function generatePhoto(prompt: string): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
@@ -130,7 +133,7 @@ export async function generatePhoto(prompt: string): Promise<Buffer> {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'gpt-image-1',
+      model: IMAGE_MODEL,
       prompt,
       size: '1536x1024',
       quality: 'medium',
