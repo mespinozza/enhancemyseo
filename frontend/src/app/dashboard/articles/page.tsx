@@ -12,7 +12,7 @@ import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
 import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { Download, Copy, Plus, Sparkles, X, Check, Pencil, Star, Lock, LayoutGrid, List, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, Download, Copy, Plus, RefreshCw, Sparkles, X, Check, Pencil, Star, Lock, LayoutGrid, List, ShoppingBag } from 'lucide-react';
 import Link from 'next/link';
 import {
   getFavoriteBrands,
@@ -420,6 +420,9 @@ export default function ArticlesPage() {
   // is sent as the tutorial's bonus.
   const [tutorial, setTutorial] = useState<OnboardingState | null>(null);
   const [tutorialThumb, setTutorialThumb] = useState<TutorialThumbnailArticle | null>(null);
+  // Kept on screen after the run, where a toast would have vanished.
+  const [failedArticles, setFailedArticles] = useState<{ keyword: string; message: string }[]>([]);
+  const [retryPending, setRetryPending] = useState(false);
   // Offered on the tutorial article before upgrading: it is made on the next visit after.
   useEffect(() => {
     const pending = pendingTutorialThumbnail();
@@ -690,6 +693,7 @@ export default function ArticlesPage() {
 
     setIsGenerating(true);
     setGeneratedArticles([]);
+    setFailedArticles([]);
     
     // Initialize status for all keywords
     const initialStatus = validKeywords.reduce((acc, _, index) => ({
@@ -711,6 +715,10 @@ export default function ArticlesPage() {
         
         setBulkGenerationStatus(prev => ({ ...prev, [i]: 'generating' }));
 
+        let blog: string | undefined;
+        let saved = false;
+        let serverRecorded = false;
+        const recentLog: string[] = [];
         try {
           // Create the blog post in draft status
           const blogData: Omit<Blog, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -731,12 +739,14 @@ export default function ArticlesPage() {
           };
 
           // Create the initial blog post
-          const blog = await blogOperations.create(user.uid, blogData);
+          blog = await blogOperations.create(user.uid, blogData);
 
           // Generate the content, following the server's progress as it streams in
           const articleStart = Date.now();
           setLiveProgress({ keyword: currentKeyword, stage: 'start', stageAt: articleStart, startedAt: articleStart, notes: [] });
           const onLog = (message: string) => {
+            recentLog.push(message);
+            if (recentLog.length > 40) recentLog.shift();
             const { stage, note } = readLogLine(message);
             if (!stage && !note) return;
             setLiveProgress((prev) => {
@@ -780,6 +790,8 @@ export default function ArticlesPage() {
 
           const outcome = await readGeneration(response, onLog);
           if (!outcome.ok) {
+            // Only a dropped connection goes unseen by the server; everything else it logged.
+            serverRecorded = !outcome.dropped;
             throw new Error(String(outcome.body.error || 'Failed to generate article'));
           }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same untyped payload response.json() gave before
@@ -808,6 +820,7 @@ export default function ArticlesPage() {
                 generationSettings: { ...blogData.generationSettings, articleFormat: 'classic' as const },
               }),
             });
+            saved = true;
 
             // Add to generated articles (include generation log for admin debugging)
             const newArticle: BlogPost = {
@@ -854,6 +867,29 @@ export default function ArticlesPage() {
         } catch (error) {
           console.error(`Failed to generate article ${i + 1}:`, error);
           setBulkGenerationStatus(prev => ({ ...prev, [i]: 'error' }));
+          const message = error instanceof Error ? error.message : String(error);
+          if (!saved) {
+            setFailedArticles((prev) => [...prev.filter((f) => f.keyword !== currentKeyword), { keyword: currentKeyword, message }]);
+            // A draft left empty by a failed run only clutters the history.
+            if (blog) blogOperations.delete(user.uid, blog).catch(() => {});
+          }
+          if (!serverRecorded) {
+            user.getIdToken().then((token) =>
+              fetch('/api/errors/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  message,
+                  blogId: blog,
+                  brandId: selectedBrandId,
+                  keyword: currentKeyword,
+                  stage: recentLog[recentLog.length - 1],
+                  log: recentLog,
+                  page: 'articles',
+                }),
+              })
+            ).catch(() => {});
+          }
           
           // Check if it's a usage limit error
           if (error instanceof Error && error.message.includes('usage limit')) {
@@ -892,6 +928,27 @@ export default function ArticlesPage() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // "Try again" puts the failed keywords back in the form, then starts once state has them.
+  useEffect(() => {
+    if (!retryPending || isGenerating) return;
+    setRetryPending(false);
+    handleBulkGenerate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per retry request
+  }, [retryPending]);
+
+  const retryFailed = () => {
+    const failed = failedArticles.map((f) => f.keyword);
+    if (!failed.length) return;
+    if (failed.length > 10) {
+      setBulkMode(true);
+      setBulkKeywordsText(failed.join('\n'));
+    } else {
+      setBulkMode(false);
+      setKeywords(failed);
+    }
+    setRetryPending(true);
   };
 
   // Check if there's a keyword from the keywords page
@@ -2117,6 +2174,45 @@ export default function ArticlesPage() {
               {...tutorialThumb}
               onReady={(image) => showThumbnail(tutorialThumb.blogId, image)}
             />
+          )}
+          {!isGenerating && failedArticles.length > 0 && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4" role="alert">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-red-900">
+                    {failedArticles.length === 1
+                      ? 'This article didn’t finish'
+                      : `${failedArticles.length} articles didn’t finish`}
+                  </p>
+                  <ul className="mt-1 space-y-1 text-sm text-red-800">
+                    {failedArticles.slice(0, 5).map((f) => (
+                      <li key={f.keyword}>
+                        <span className="font-medium">“{f.keyword}”</span>: {f.message}
+                      </li>
+                    ))}
+                    {failedArticles.length > 5 && <li>and {failedArticles.length - 5} more</li>}
+                  </ul>
+                  <p className="mt-2 text-xs text-red-700">It doesn&apos;t count against your plan, and the error has been logged for our team.</p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={retryFailed}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      <RefreshCw className="h-4 w-4" /> Try again
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFailedArticles([])}
+                      className="rounded-lg px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
           {/* Show content when generating OR has articles */}
           {(isGenerating || generatedArticles.length > 0) ? (

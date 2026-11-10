@@ -20,6 +20,7 @@ import {
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { meterAs } from '@/lib/ai/meter';
 import { internalBaseUrl } from '@/lib/internal-url';
+import { recordError } from '@/lib/errors/record';
 import { createThumbnail, thumbnailAccess } from '@/lib/thumbnail/service';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
@@ -715,6 +716,16 @@ async function runQueuedAutomation(
     };
     outcomes.push(outcome);
     await closeRun(openRef, { ...partial, pushedToShopify: partial.pushedToShopify ?? false });
+    if (partial.status === 'failed') {
+      await recordError({
+        source: 'automation',
+        message: partial.error || 'Automation run failed',
+        uid: automation.userId,
+        brandId: automation.brandId,
+        keyword: partial.keyword || null,
+        context: { automationId: automation.id ?? null, automationName: automation.name },
+      });
+    }
   };
 
   const allowance = remainingThisMonth(automation);

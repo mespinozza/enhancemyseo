@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart3, ChevronDown, FileText, LogOut, Menu, Settings, Users, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, ChevronDown, FileText, LogOut, Menu, Settings, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -263,6 +263,13 @@ export default function Header() {
                             <BarChart3 className="h-4 w-4 text-gray-400" />
                             Admin case studies
                           </Link>
+                          <Link
+                            href="/admin/errors"
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            <AlertTriangle className="h-4 w-4 text-gray-400" />
+                            Admin errors
+                          </Link>
                         </>
                       )}
 
@@ -348,6 +355,12 @@ export default function Header() {
                       className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                     >
                       Admin case studies
+                    </Link>
+                    <Link
+                      href="/admin/errors"
+                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Admin errors
                     </Link>
                   </>
                 )}

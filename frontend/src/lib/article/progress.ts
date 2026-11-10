@@ -71,6 +71,9 @@ export function readLogLine(message: string): { stage?: StageId; note?: string }
   if ((match = m.match(/^🛒 Products found: (\d+)/)) && +match[1] > 0) return { note: `Matched ${plural(+match[1], 'product')} to feature` };
   if ((match = m.match(/^📂 Collections found: (\d+)/)) && +match[1] > 0) return { note: `Matched ${plural(+match[1], 'collection')} to link` };
   if ((match = m.match(/^✅ Found (\d+) (?:relevant )?pages/)) && +match[1] > 0) return { note: `Found ${plural(+match[1], 'page')} on your site to link` };
+  if (/^⚠️ Your website could not be reached/.test(m)) return { note: 'Your site didn’t respond, so we’ll link your homepage' };
+  if (/^⏱️ Your website took too long/.test(m)) return { note: 'Your site was slow to scan, so we’ll link your homepage' };
+  if (/^ℹ️ Few pages found on your site/.test(m)) return { note: 'Not much on your site to link yet, so we’ll link your homepage' };
 
   if (/^✍️ Writing Enhanced article|^✍️ Generating article/.test(m)) return { stage: 'writing', note: 'Drafting the article' };
   if ((match = m.match(/^✍️ Intent: [^;]+; (\d+) sections; blocks: ([^;]+); quiz (\w+); FAQ (\d+)/))) {
@@ -107,7 +110,7 @@ export function readLogLine(message: string): { stage?: StageId; note?: string }
 export async function readGeneration(
   response: Response,
   onLog: (message: string) => void
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+): Promise<{ ok: boolean; status: number; body: Record<string, unknown>; dropped?: boolean }> {
   const type = response.headers.get('content-type') || '';
   if (!type.includes('ndjson') || !response.body) {
     const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -140,6 +143,15 @@ export async function readGeneration(
   handle(buffer);
 
   const final = result as { status: number; body: Record<string, unknown> } | null;
-  if (!final) return { ok: false, status: 502, body: { error: 'The connection dropped before the article finished. Please try again.' } };
+  // No result means the server never finished: it restarted, ran out of memory or was cut
+  // off by a proxy, so it had no chance to record the failure itself.
+  if (!final) {
+    return {
+      ok: false,
+      status: 502,
+      dropped: true,
+      body: { error: 'The connection dropped before the article finished. Please try again.' },
+    };
+  }
   return { ok: final.status >= 200 && final.status < 300, status: final.status, body: final.body };
 }

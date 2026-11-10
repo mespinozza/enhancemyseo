@@ -33,6 +33,7 @@ import { filterSources } from '@/lib/article/enhanced/sources';
 import type { CatalogProduct, LinkTarget, ResearchResult } from '@/lib/article/enhanced/types';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { PROGRESS_STREAM_HEADER, type GenerationEvent } from '@/lib/article/progress';
+import { recordError } from '@/lib/errors/record';
 import OpenAI from 'openai';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -2757,16 +2758,20 @@ async function crawlWebsiteWithPuppeteer(
   }
 }
 
-/**
- * Check if Puppeteer is available
- */
-async function isPuppeteerAvailable(): Promise<boolean> {
-  if (!isPuppeteerEnabled) return false;
-  
+/** Longest the site scan may hold up an article before it is written without site links. */
+const SITE_LOOKUP_MS = 75_000;
+
+/** Whether the site answers at all, so an offline or unfinished one isn't crawled for minutes. */
+async function siteResponds(websiteUrl: string): Promise<boolean> {
   try {
-    const browser = await getBrowser();
-    await browser.close();
-    return true;
+    const response = await fetch(websiteUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EnhanceMySEO/1.0)' },
+    });
+    response.body?.cancel().catch(() => {});
+    return response.status < 500;
   } catch {
     return false;
   }
@@ -5562,9 +5567,53 @@ ${cleaned}`;
 }
 
 
+/** Who and what a generation was for, filled in by generate() as it learns them. */
+interface GenerationContext {
+  uid?: string;
+  email?: string | null;
+  blogId?: string;
+  brandId?: string;
+  keyword?: string;
+  site?: string;
+}
+
+/** Refusals that are the product working as intended, not failures worth a look. */
+const EXPECTED_CODES = new Set(['usage_limit']);
+
+async function reportFailure(
+  ctx: GenerationContext,
+  status: number,
+  body: Record<string, unknown>,
+  lines: string[],
+  error?: unknown,
+) {
+  if (status < 400 || status === 401 || EXPECTED_CODES.has(String(body.code))) return;
+  await recordError({
+    source: 'article',
+    message: String(body.error || (error instanceof Error ? error.message : '') || 'Article generation failed'),
+    detail: body.detail ? String(body.detail) : error instanceof Error ? error.stack ?? error.message : null,
+    status,
+    code: body.code ? String(body.code) : null,
+    stage: lines[lines.length - 1] ?? null,
+    uid: ctx.uid,
+    email: ctx.email,
+    blogId: ctx.blogId,
+    brandId: ctx.brandId,
+    keyword: ctx.keyword,
+    log: lines,
+    context: { site: ctx.site ?? null },
+  });
+}
+
 export async function POST(request: Request) {
+  const ctx: GenerationContext = {};
   if (request.headers.get(PROGRESS_STREAM_HEADER) !== '1') {
-    return requestLogStore.run([], () => runMetered(() => generate(request)));
+    const lines: string[] = [];
+    const response = await requestLogStore.run(lines, () => runMetered(() => generate(request, ctx)));
+    if (!response.ok) {
+      await reportFailure(ctx, response.status, await response.clone().json().catch(() => ({})), lines);
+    }
+    return response;
   }
 
   // Streams each log line as it is written, then the response generate() returns. Those
@@ -5586,13 +5635,17 @@ export async function POST(request: Request) {
   const heartbeat = setInterval(() => send({ type: 'ping' }), 15_000);
 
   requestLogStore
-    .run(lines, () => runMetered(() => generate(request)))
+    .run(lines, () => runMetered(() => generate(request, ctx)))
     .then(async (response) => {
-      send({ type: 'result', status: response.status, body: await response.json().catch(() => ({})) });
+      const body = await response.json().catch(() => ({}));
+      send({ type: 'result', status: response.status, body });
+      await reportFailure(ctx, response.status, body, lines);
     })
-    .catch((error) => {
+    .catch(async (error) => {
       console.error('Article generation failed while streaming:', error);
-      send({ type: 'result', status: 500, body: { error: 'Article generation failed. Please try again.' } });
+      const body = { error: 'Article generation failed. Please try again.' };
+      send({ type: 'result', status: 500, body });
+      await reportFailure(ctx, 500, body, lines, error);
     })
     .finally(() => {
       clearInterval(heartbeat);
@@ -5609,7 +5662,7 @@ export async function POST(request: Request) {
   });
 }
 
-async function generate(request: Request) {
+async function generate(request: Request, ctx: GenerationContext) {
   // Create a logger that uses the request-scoped logging system
   const log = rlog;
   
@@ -5670,6 +5723,8 @@ async function generate(request: Request) {
         throw new Error('Invalid token');
       }
       console.log('User authenticated successfully:', verifiedUser.uid);
+      ctx.uid = verifiedUser.uid;
+      ctx.email = verifiedUser.email ?? null;
     } catch (error) {
       console.error('Error verifying token:', error);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
@@ -5688,6 +5743,10 @@ async function generate(request: Request) {
 
     // Read before the usage check, which the tutorial's bonus article bypasses.
     const body = await request.json();
+    ctx.blogId = typeof body?.blogId === 'string' ? body.blogId : undefined;
+    ctx.brandId = typeof body?.brandId === 'string' ? body.brandId : undefined;
+    ctx.keyword = typeof body?.keyword === 'string' ? body.keyword : undefined;
+    ctx.site = typeof body?.websiteUrl === 'string' ? body.websiteUrl : undefined;
 
     // CRITICAL: Server-side usage verification
     console.log('Verifying usage limits for user:', verifiedUser.uid);
@@ -5897,7 +5956,16 @@ async function generate(request: Request) {
         
         try {
           if (contentSelection.mode === 'automatic') {
-            await handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
+            // A new, slow or offline site must not hold up the article: if it can't be
+            // reached, or the scan runs long, the article is written without site links.
+            if (!(await siteResponds(body.websiteUrl))) {
+              log('⚠️ Your website could not be reached, so this article links to your homepage only');
+            } else {
+              const lookup = handleAutomaticWebsiteContent(contentSelection, body.websiteUrl, [keyword]);
+              lookup.catch(() => {});
+              const finished = await Promise.race([lookup.then(() => true), sleep(SITE_LOOKUP_MS).then(() => false)]);
+              if (!finished) log('⏱️ Your website took too long to scan, so this article links to your homepage only');
+            }
           } else {
             await handleManualWebsiteContent(contentSelection);
           }
@@ -5918,6 +5986,13 @@ async function generate(request: Request) {
         }
       }
       
+      // A new or thin site may give nothing to link; the homepage always exists, so the
+      // article still sends readers to the business.
+      if (siteBase && linkTargets.length === 0) {
+        linkTargets.push({ kind: 'website', title: `${brandName} homepage`, url: `${siteBase}/` });
+        log('ℹ️ Few pages found on your site to link, so the article links to your homepage');
+      }
+
       // Build integration prompt based on collected content
       integrationPrompt = buildIntegrationPrompt(relatedProductsList, relatedCollectionsList, relatedPagesList, relatedWebsiteContentList, detectedVendor);
     }
@@ -6110,9 +6185,9 @@ async function generate(request: Request) {
         // ============================================================================
         // 🚀 TRY PUPPETEER FIRST - Better product discovery with headless browser
         // ============================================================================
-        const puppeteerAvailable = await isPuppeteerAvailable();
-        
-        if (puppeteerAvailable) {
+        // The crawl returns nothing when no browser can start, so it needs no separate
+        // check, which launched a whole browser just to close it again.
+        if (isPuppeteerEnabled) {
           rlog('🕷️ Using Puppeteer headless browser for website crawling...');
           const crawledPages = await crawlWebsiteWithPuppeteer(websiteUrl, searchQueries, 20);
           
