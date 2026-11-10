@@ -57,6 +57,11 @@ export async function POST(request: Request) {
     }
 
     const attribution = attributionMetadata(body.attribution);
+    // Only a dashboard path on this site, so the parameter can't send a cancelled checkout elsewhere.
+    const cancelPath =
+      typeof body.cancelPath === 'string' && /^\/dashboard(\/[\w-]+)*(\?[\w=&-]*)?$/.test(body.cancelPath)
+        ? body.cancelPath
+        : '/pricing?canceled=true';
 
     // A missing profile just means we can't tell an upgrade from a first purchase.
     let currentPlan: string | null = null;
@@ -85,7 +90,7 @@ export async function POST(request: Request) {
         },
       ],
       success_url: `${request.headers.get('origin')}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${request.headers.get('origin')}/pricing?canceled=true`,
+      cancel_url: `${request.headers.get('origin')}${cancelPath}`,
       metadata,
       subscription_data: {
         metadata,

@@ -51,3 +51,29 @@ export const savePendingTutorialThumbnail = (article: TutorialThumbnailArticle) 
   localStorage.setItem(PENDING_KEY, JSON.stringify(article));
 
 export const clearPendingTutorialThumbnail = () => localStorage.removeItem(PENDING_KEY);
+
+/** A tutorial article not written yet, whose writer went to checkout to have it made with a thumbnail. */
+export interface TutorialUpgrade {
+  keyword: string;
+  layout: ThumbnailLayout;
+  atMs: number;
+}
+
+const UPGRADE_KEY = 'tutorial-article:upgrading';
+// Long enough for a slow checkout, short enough that an abandoned one doesn't redirect a later visit.
+const UPGRADE_TTL_MS = 6 * 60 * 60 * 1000;
+
+export function pendingTutorialUpgrade(): TutorialUpgrade | null {
+  try {
+    const raw = localStorage.getItem(UPGRADE_KEY);
+    const value = raw ? (JSON.parse(raw) as TutorialUpgrade) : null;
+    return value && Date.now() - value.atMs < UPGRADE_TTL_MS ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export const savePendingTutorialUpgrade = (keyword: string, layout: ThumbnailLayout) =>
+  localStorage.setItem(UPGRADE_KEY, JSON.stringify({ keyword, layout, atMs: Date.now() } satisfies TutorialUpgrade));
+
+export const clearPendingTutorialUpgrade = () => localStorage.removeItem(UPGRADE_KEY);

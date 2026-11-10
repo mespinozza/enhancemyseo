@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Check, FileText, Link2, ListTree, Loader2, Lock, PartyPopper, Shield, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, FileText, Link2, ListTree, Loader2, Lock, PartyPopper, Shield, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { track } from '@/lib/analytics';
 import { PLANS } from '@/lib/plans';
@@ -18,20 +18,34 @@ const monthly = (key: PaidKey | 'free') => {
 };
 
 /**
- * The tutorial's upgrade moment, shown once the free first article is written: what that
- * one article holds, what a plan's pace adds up to over a year, and a straight path to
- * checkout with annual billing chosen, since it saves 20%.
+ * The tutorial's upgrade offer, with annual billing chosen since it saves 20%. Shown before
+ * the free first article is written ("ready": everything is in place, and a plan adds its
+ * thumbnail) and again once it is ("written": what that one article holds). Both show what
+ * a plan's pace adds up to over a year and go straight to checkout.
  */
 export default function TutorialUpgrade({
+  variant = 'written',
   preview,
   stats,
+  ready = [],
   onDismiss,
+  onBack,
+  onBeforeCheckout,
+  cancelPath,
 }: {
+  variant?: 'ready' | 'written';
   /** The thumbnail mock-up and its style picker. */
   preview: ReactNode;
   stats?: ArticleStats;
+  /** What the tutorial has collected, for the "ready" variant. */
+  ready?: string[];
   onDismiss: () => void;
+  onBack?: () => void;
+  /** Awaited before leaving for Stripe, to keep what the return needs. */
+  onBeforeCheckout?: () => Promise<void> | void;
+  cancelPath?: string;
 }) {
+  const before = variant === 'ready';
   const { user } = useAuth();
   const [planKey, setPlanKey] = useState<PaidKey>('kickstart');
   const [annual, setAnnual] = useState(true);
@@ -55,7 +69,7 @@ export default function TutorialUpgrade({
     if (!user) return;
     setBusy(true);
     setError('');
-    track('tutorial_upgrade_checkout', { plan: planKey, interval: annual ? 'year' : 'month' });
+    track('tutorial_upgrade_checkout', { plan: planKey, interval: annual ? 'year' : 'month', moment: variant });
     try {
       (window as Window & { fbq?: (...args: unknown[]) => void }).fbq?.('track', 'InitiateCheckout', {
         value: annual ? plan.annualTotal : plan.monthlyPrice,
@@ -69,14 +83,17 @@ export default function TutorialUpgrade({
     try {
       const priceId = getPriceId(planKey, annual);
       if (!priceId) throw new Error('That plan is not available right now');
-      await createCheckoutSession(priceId, await user.getIdToken());
+      await onBeforeCheckout?.();
+      await createCheckoutSession(priceId, await user.getIdToken(), { cancelPath });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not start checkout');
       setBusy(false);
     }
   };
 
-  const facts = [
+  const facts = before
+    ? ready.map((text) => ({ icon: Check, text }))
+    : [
     stats?.words ? { icon: FileText, text: `${stats.words.toLocaleString()} words` } : null,
     stats?.sections ? { icon: ListTree, text: `${stats.sections} sections` } : null,
     stats?.ownLinks ? { icon: Link2, text: `${stats.ownLinks} links to your own pages` } : null,
@@ -84,15 +101,31 @@ export default function TutorialUpgrade({
   ].filter((fact): fact is { icon: typeof FileText; text: string } => Boolean(fact));
 
   return (
-    <div className="mb-4 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-lg shadow-blue-900/5">
+    <div className={`overflow-hidden rounded-2xl border border-blue-200 bg-white ${before ? '' : 'mb-4 shadow-lg shadow-blue-900/5'}`}>
       <div className="relative bg-gradient-to-br from-blue-600 to-indigo-700 px-5 py-5 text-white">
         <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
         <p className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold">
-          <PartyPopper className="h-3.5 w-3.5" /> Your first article is ready
+          {before ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5" /> Everything&apos;s ready for your first article
+            </>
+          ) : (
+            <>
+              <PartyPopper className="h-3.5 w-3.5" /> Your first article is ready
+            </>
+          )}
         </p>
         <h3 className="mt-2 text-xl font-bold leading-tight sm:text-2xl">
-          That&apos;s one page Google can find you on. Imagine {monthly(planKey)} more every month.
+          {before
+            ? 'Write it complete, with a thumbnail that makes people click'
+            : `That's one page Google can find you on. Imagine ${monthly(planKey)} more every month.`}
         </h3>
+        {before && (
+          <p className="mt-1.5 text-sm text-blue-50/90">
+            We can write it now. Start a plan and it comes finished, with its featured image designed in your brand colour,
+            then {monthly(planKey)} more like it every month.
+          </p>
+        )}
         <ul className="mt-3 flex flex-wrap gap-1.5">
           {facts.map(({ icon: Icon, text }) => (
             <li key={text} className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium">
@@ -102,12 +135,14 @@ export default function TutorialUpgrade({
         </ul>
       </div>
 
-      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,17rem)_1fr]">
+      <div className={`grid gap-5 p-5 ${before ? 'md:grid-cols-[minmax(0,15rem)_1fr]' : 'lg:grid-cols-[minmax(0,17rem)_1fr]'}`}>
         <div>
-          <p className="mb-2 text-sm font-semibold text-gray-900">Finish it with a thumbnail</p>
+          <p className="mb-2 text-sm font-semibold text-gray-900">{before ? 'Your article’s thumbnail' : 'Finish it with a thumbnail'}</p>
           {preview}
           <p className="mt-2 text-xs text-gray-500">
-            Made the moment you upgrade, set as the featured image and sent to Shopify with the article.
+            {before
+              ? 'Made with your article, set as its featured image and sent to Shopify with it.'
+              : 'Made the moment you upgrade, set as the featured image and sent to Shopify with the article.'}
           </p>
         </div>
 
@@ -231,7 +266,7 @@ export default function TutorialUpgrade({
           className="group mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-blue-700 disabled:opacity-60 sm:text-base"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-          Get {plan.name} at ${perMonth}/mo and my thumbnail
+          {before ? `Start ${plan.name} at $${perMonth}/mo, write it with a thumbnail` : `Get ${plan.name} at $${perMonth}/mo and my thumbnail`}
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </button>
         {error && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -244,14 +279,40 @@ export default function TutorialUpgrade({
           <span aria-hidden>·</span>
           <span>Secure checkout by Stripe</span>
         </p>
-        <div className="mt-3 flex items-center justify-center gap-4 text-xs">
-          <Link href="/pricing?from=tutorial-thumbnail" className="font-medium text-gray-500 hover:text-blue-600">
-            Compare all plans
-          </Link>
-          <button type="button" onClick={onDismiss} className="font-medium text-gray-400 hover:text-gray-600">
-            Not now, my article is saved
-          </button>
-        </div>
+        {before ? (
+          <>
+            <div className="my-4 flex items-center gap-3 text-xs text-gray-400">
+              <span className="h-px flex-1 bg-gray-200" /> or <span className="h-px flex-1 bg-gray-200" />
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={busy}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
+            >
+              Skip, write my article for free
+            </button>
+            <p className="mt-1.5 text-center text-xs text-gray-500">The full article, without its thumbnail. Ready in 2 to 3 minutes.</p>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="mx-auto mt-3 flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-gray-600"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" /> Change the topic
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="mt-3 flex items-center justify-center gap-4 text-xs">
+            <Link href="/pricing?from=tutorial-thumbnail" className="font-medium text-gray-500 hover:text-blue-600">
+              Compare all plans
+            </Link>
+            <button type="button" onClick={onDismiss} className="font-medium text-gray-400 hover:text-gray-600">
+              Not now, my article is saved
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

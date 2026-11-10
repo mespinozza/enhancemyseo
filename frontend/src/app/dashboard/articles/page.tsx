@@ -9,7 +9,12 @@ import TutorialThumbnail, {
   type TutorialThumbnailArticle,
 } from '@/components/thumbnail/TutorialThumbnail';
 import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
-import { articleStats } from '@/lib/thumbnail/tutorial-pending';
+import {
+  articleStats,
+  clearPendingTutorialUpgrade,
+  pendingTutorialUpgrade,
+  type TutorialUpgrade,
+} from '@/lib/thumbnail/tutorial-pending';
 import { fetchCredits, useCreditReturn } from '@/lib/credits/client';
 import BuyCredits from '@/components/credits/BuyCredits';
 import { takeArticleHandoff } from '@/lib/keywords/handoff';
@@ -428,6 +433,9 @@ export default function ArticlesPage() {
   // is sent as the tutorial's bonus.
   const [tutorial, setTutorial] = useState<OnboardingState | null>(null);
   const [tutorialThumb, setTutorialThumb] = useState<TutorialThumbnailArticle | null>(null);
+  // Upgraded on the tutorial's offer before writing: the article comes with its thumbnail.
+  const [tutorialUpgrade, setTutorialUpgrade] = useState<TutorialUpgrade | null>(null);
+  useEffect(() => setTutorialUpgrade(pendingTutorialUpgrade()), []);
   // Kept on screen after the run, where a toast would have vanished.
   const [failedArticles, setFailedArticles] = useState<{ keyword: string; message: string }[]>([]);
   const [retryPending, setRetryPending] = useState(false);
@@ -867,7 +875,9 @@ export default function ArticlesPage() {
                 brandName: selectedProfile.brandName,
                 brandColor: selectedProfile.brandColor,
                 stats: articleStats(generatedContent.content || '', [selectedProfile.websiteUrl, selectedProfile.shopifyStoreUrl]),
+                ...(tutorialUpgrade && { layout: tutorialUpgrade.layout }),
               });
+              clearPendingTutorialUpgrade();
               setTutorial(null);
               setExpandedArticle(0);
               toast.success(
@@ -2140,7 +2150,7 @@ export default function ArticlesPage() {
                     keyword={tutorial.keyword}
                     brandName={tutorialBrandProfile?.brandName}
                     brandColor={tutorialBrandProfile?.brandColor}
-                    paid={THUMBNAIL_TIERS.includes(subscription_status || 'free')}
+                    paid={Boolean(tutorialUpgrade) || THUMBNAIL_TIERS.includes(subscription_status || 'free')}
                   />
                 )}
               </div>

@@ -18,6 +18,13 @@ import {
 } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
 import type { AnalyzeResponse } from '@/app/api/onboarding/analyze/route';
+import { TutorialReadyOffer } from '@/components/thumbnail/TutorialThumbnail';
+import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
+import {
+  clearPendingTutorialUpgrade,
+  pendingTutorialUpgrade,
+  savePendingTutorialUpgrade,
+} from '@/lib/thumbnail/tutorial-pending';
 import {
   STEPS,
   BusinessStep,
@@ -57,6 +64,7 @@ function readReturn() {
  */
 export default function WelcomeCard() {
   const { user } = useAuth();
+  const router = useRouter();
   const [phase, setPhase] = useState<'hidden' | 'intro' | 'flow'>('hidden');
   const [resuming, setResuming] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -70,6 +78,13 @@ export default function WelcomeCard() {
     let cancelled = false;
     const returned = readReturn();
     (async () => {
+      // Paid for in the tutorial, before the article was written: go and write it.
+      if (new URLSearchParams(window.location.search).get('success') === 'true' && pendingTutorialUpgrade()) {
+        router.replace('/dashboard/articles?tutorial=1');
+        return;
+      }
+      // Back from a cancelled checkout: the offer is shown again, so nothing is pending.
+      if (returned) clearPendingTutorialUpgrade();
       if (returned) {
         // Back from a sign-in partway through: reopen on the step it left from.
         if (cancelled) return;
@@ -144,6 +159,7 @@ export default function WelcomeCard() {
       {phase === 'flow' ? (
         <TutorialFlow
           fresh={fresh}
+          preview={preview}
           returnInfo={returnInfo}
           onSkip={() => skip('tutorial')}
         />
@@ -269,20 +285,24 @@ export default function WelcomeCard() {
 /** Steps one to four, inside the modal. */
 function TutorialFlow({
   fresh,
+  preview,
   returnInfo,
   onSkip,
 }: {
   fresh: boolean;
+  /** Test accounts see the free-account offer whatever their plan. */
+  preview: boolean;
   returnInfo: ReturnType<typeof readReturn>;
   onSkip: () => void;
 }) {
-  const { user } = useAuth();
+  const { user, subscription_status } = useAuth();
   const router = useRouter();
   const [state, setState] = useState<OnboardingState | null>(null);
   const [brand, setBrand] = useState<BrandProfile | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [saving, setSaving] = useState(false);
   const [handingOff, setHandingOff] = useState(false);
+  const [offer, setOffer] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const step = state?.step && state.step <= STEPS.length ? state.step : 1;
@@ -413,14 +433,42 @@ function TutorialFlow({
     window.location.assign(target);
   };
 
-  const handOff = async (keyword: string, source: string) => {
-    setHandingOff(true);
+  const topicChosen = (keyword: string, source: string) => {
     track('onboarding_topic_selected', { source });
     track('onboarding_step_complete', { step: 4, step_name: 'Topic' });
+  };
+
+  const handOff = async (keyword: string) => {
+    setHandingOff(true);
+    clearPendingTutorialUpgrade();
     // Awaited: the articles page reads this to fill in its form.
     await saveOnboarding(user.uid, { step: 5, keyword }).catch((error) => console.warn('Could not save the topic:', error));
     router.push('/dashboard/articles?tutorial=1');
   };
+
+  // Free accounts stop here before writing, to be offered the article with its thumbnail.
+  const offerUpgrade = preview || !THUMBNAIL_TIERS.includes(subscription_status || 'free');
+
+  const chooseTopic = (keyword: string, source: string) => {
+    topicChosen(keyword, source);
+    if (offerUpgrade) {
+      update({ keyword });
+      setOffer(keyword);
+    } else {
+      handOff(keyword);
+    }
+  };
+
+  const websiteHost = (state?.shopDomain || state?.websiteUrl || brand?.websiteUrl || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .split('/')[0];
+  const ready = [
+    brand?.brandName && `Business: ${brand.brandName}`,
+    websiteHost && `${connections.shopify ? 'Store' : 'Website'}: ${websiteHost}`,
+    brand?.toneOfVoice && brand.toneOfVoice.length <= 30 && `Voice: ${brand.toneOfVoice}`,
+    offer && `Topic: ${offer}`,
+  ].filter((item): item is string => Boolean(item));
 
   let content: React.ReactNode = null;
   if (state) {
@@ -459,8 +507,22 @@ function TutorialFlow({
         );
         break;
       default:
-        content = (
-          <TopicStep user={authed} state={state} gscConnected={connections.gsc} onBack={() => update({ step: 3 })} onNext={handOff} />
+        content = offer ? (
+          <TutorialReadyOffer
+            keyword={offer}
+            brandName={brand?.brandName}
+            brandColor={brand?.brandColor}
+            ready={ready}
+            onSkip={() => handOff(offer)}
+            onBack={() => setOffer(null)}
+            onBeforeCheckout={async (layout) => {
+              savePendingTutorialUpgrade(offer, layout);
+              await saveOnboarding(user.uid, { step: 5, keyword: offer });
+            }}
+            cancelPath={`/dashboard?tutorial=${STEPS.length}`}
+          />
+        ) : (
+          <TopicStep user={authed} state={state} gscConnected={connections.gsc} onBack={() => update({ step: 3 })} onNext={chooseTopic} />
         );
     }
   }

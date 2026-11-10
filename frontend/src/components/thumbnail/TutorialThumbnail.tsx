@@ -100,6 +100,98 @@ export function TutorialThumbnailTeaser({
   );
 }
 
+/** The mock-up canvas with a "preview" chip, and the style picker under it. */
+function ThumbnailMock({
+  canvasRef,
+  layout,
+  onPick,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  layout: ThumbnailLayout;
+  onPick: (layout: ThumbnailLayout) => void;
+}) {
+  return (
+    <>
+      <div className="relative overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-blue-100">
+        <canvas ref={canvasRef} width={THUMBNAIL_WIDTH} height={THUMBNAIL_HEIGHT} className="block aspect-video h-auto w-full" />
+        <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          <ImageIcon className="h-3 w-3" /> Preview: yours gets a photo made for this topic
+        </span>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Thumbnail style">
+        {THUMBNAIL_LAYOUTS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={layout === option.value}
+            onClick={() => onPick(option.value)}
+            className={`truncate rounded-md px-2 py-1 text-xs font-medium transition ${
+              layout === option.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-blue-300'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/**
+ * The tutorial's last stop before writing, for free accounts: everything is in place for
+ * the first article, and a plan would have it made with its thumbnail. Upgrading keeps the
+ * topic and style for the return from checkout; skipping writes the article without one.
+ */
+export function TutorialReadyOffer({
+  keyword,
+  brandName,
+  brandColor,
+  ready,
+  onSkip,
+  onBack,
+  onBeforeCheckout,
+  cancelPath,
+}: {
+  keyword: string;
+  brandName?: string;
+  brandColor?: string;
+  ready: string[];
+  onSkip: () => void;
+  onBack: () => void;
+  onBeforeCheckout: (layout: ThumbnailLayout) => Promise<void>;
+  cancelPath: string;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [layout, setLayout] = useState<ThumbnailLayout>('parts-plus');
+  useMockCanvas(ref, { title: headline(keyword), brandName, brandColor, layout, enabled: true });
+  useEffect(() => track('tutorial_ready_offer_shown'), []);
+
+  return (
+    <TutorialUpgrade
+      variant="ready"
+      ready={ready}
+      preview={
+        <ThumbnailMock
+          canvasRef={ref}
+          layout={layout}
+          onPick={(value) => {
+            setLayout(value);
+            track('tutorial_thumbnail_style_pick', { layout: value, moment: 'ready' });
+          }}
+        />
+      }
+      onDismiss={() => {
+        track('tutorial_ready_offer_skipped', { layout });
+        onSkip();
+      }}
+      onBack={onBack}
+      onBeforeCheckout={() => onBeforeCheckout(layout)}
+      cancelPath={cancelPath}
+    />
+  );
+}
+
 /**
  * The tutorial's first article comes with a thumbnail on a paid plan. Free accounts see
  * a mock-up of it drawn in the browser, never an image generation, in the style they pick,
@@ -174,33 +266,13 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
   };
 
   if (state === 'upsell') {
-    const preview = (
-      <>
-        <div className="relative overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-blue-100">
-          <canvas ref={mockRef} width={THUMBNAIL_WIDTH} height={THUMBNAIL_HEIGHT} className="block aspect-video h-auto w-full" />
-          <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-            <ImageIcon className="h-3 w-3" /> Preview: yours gets a photo made for this topic
-          </span>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Thumbnail style">
-          {THUMBNAIL_LAYOUTS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="radio"
-              aria-checked={layout === option.value}
-              onClick={() => pickLayout(option.value)}
-              className={`truncate rounded-md px-2 py-1 text-xs font-medium transition ${
-                layout === option.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-blue-300'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </>
+    return (
+      <TutorialUpgrade
+        preview={<ThumbnailMock canvasRef={mockRef} layout={layout} onPick={pickLayout} />}
+        stats={article.stats}
+        onDismiss={dismiss}
+      />
     );
-    return <TutorialUpgrade preview={preview} stats={article.stats} onDismiss={dismiss} />;
   }
 
   return (

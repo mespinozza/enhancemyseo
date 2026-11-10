@@ -115,7 +115,11 @@ export const describePrice = (
  * @param userToken - The Firebase user ID token for authentication
  * @returns The checkout session URL
  */
-export const createCheckoutSession = async (priceId: string, userToken: string): Promise<string> => {
+export const createCheckoutSession = async (
+  priceId: string,
+  userToken: string,
+  options: { cancelPath?: string } = {}
+): Promise<string> => {
   try {
     console.log('Creating checkout session for priceId:', priceId);
     
@@ -127,7 +131,7 @@ export const createCheckoutSession = async (priceId: string, userToken: string):
       },
       // The ad that brought the visitor rides along into the Stripe metadata, so a
       // subscription can be traced back to its campaign.
-      body: JSON.stringify({ priceId, attribution: readAttribution() }),
+      body: JSON.stringify({ priceId, attribution: readAttribution(), cancelPath: options.cancelPath }),
     });
 
     console.log('Response status:', response.status);
