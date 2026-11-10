@@ -56,6 +56,20 @@ export async function GET() {
   </url>
   
   <url>
+    <loc>${baseUrl}/services/article-generation</loc>
+    <lastmod>${currentDate}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
+    <loc>${baseUrl}/services/thumbnail-generation</loc>
+    <lastmod>${currentDate}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
     <loc>${baseUrl}/pricing</loc>
     <lastmod>${currentDate}</lastmod>
     <changefreq>weekly</changefreq>

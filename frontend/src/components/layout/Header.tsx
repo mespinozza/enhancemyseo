@@ -19,7 +19,10 @@ import { useEffect, useRef, useState } from 'react';
  * press. Navigation is plain text, account actions sit behind a menu.
  */
 
-const SERVICES = [{ href: '/services/article-generation', label: 'Article Generation' }];
+const SERVICES = [
+  { href: '/services/article-generation', label: 'Article Generation' },
+  { href: '/services/thumbnail-generation', label: 'Thumbnail Generation' },
+];
 
 const COMING_SOON_SERVICES = [
   'Automated Link Building',

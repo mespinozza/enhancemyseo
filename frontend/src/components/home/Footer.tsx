@@ -85,6 +85,16 @@ export default function Footer() {
                 </button>
               </li>
               <li>
+                <Link href="/services/article-generation" className="text-gray-400 hover:text-white transition-colors">
+                  AI Article Generation
+                </Link>
+              </li>
+              <li>
+                <Link href="/services/thumbnail-generation" className="text-gray-400 hover:text-white transition-colors">
+                  AI Thumbnail Generator
+                </Link>
+              </li>
+              <li>
                 <Link href="/blog" className="text-gray-400 hover:text-white transition-colors">
                   Our Blog
                 </Link>
