@@ -22,6 +22,7 @@ import {
 } from '@/lib/firebase/automations';
 import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota';
 import AutomationForm from '@/components/automation/AutomationForm';
+import { takeAutomationDraft, type KeywordAutomationDraft } from '@/lib/keywords/handoff';
 import AutomationCard, { formatWhen } from '@/components/automation/AutomationCard';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
 import { ContentTypeBadge } from '@/components/ContentTypePicker';
@@ -62,6 +63,15 @@ export default function AutomatePage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<KeywordAutomationDraft | null>(null);
+
+  useEffect(() => {
+    const incoming = takeAutomationDraft();
+    if (!incoming?.topics.length) return;
+    setDraft(incoming);
+    setEditing(null);
+    setShowForm(true);
+  }, []);
 
   // Automations and runs are live: both change underneath this page while the server
   // works, and a listener costs a read per changed document rather than a read per
@@ -222,13 +232,16 @@ export default function AutomatePage() {
         <AutomationForm
           brandProfiles={brandProfiles}
           existing={editing}
+          draft={editing ? null : draft}
           onSaved={() => {
             setShowForm(false);
             setEditing(null);
+            setDraft(null);
           }}
           onCancel={() => {
             setShowForm(false);
             setEditing(null);
+            setDraft(null);
           }}
         />
       ) : (

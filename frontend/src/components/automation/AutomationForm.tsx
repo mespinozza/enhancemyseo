@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AlertTriangle, Info, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/firebase/auth-context';
+import type { KeywordAutomationDraft } from '@/lib/keywords/handoff';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import { createAutomation, updateAutomation } from '@/lib/firebase/automations';
 import {
@@ -34,6 +35,8 @@ import {
 interface AutomationFormProps {
   brandProfiles: BrandProfile[];
   existing?: Automation | null;
+  /** A new automation pre-filled from a keyword collection. */
+  draft?: KeywordAutomationDraft | null;
   onSaved: () => void;
   onCancel: () => void;
 }
@@ -68,6 +71,7 @@ const labelClass = 'block text-sm font-medium text-gray-700';
 export default function AutomationForm({
   brandProfiles,
   existing,
+  draft,
   onSaved,
   onCancel,
 }: AutomationFormProps) {
@@ -75,12 +79,13 @@ export default function AutomationForm({
   const isAdmin = subscription_status === 'admin';
   const [isSaving, setIsSaving] = useState(false);
 
-  const [name, setName] = useState(existing?.name || '');
-  const [brandId, setBrandId] = useState(existing?.brandId || brandProfiles[0]?.id || '');
+  const [name, setName] = useState(existing?.name || draft?.name || '');
+  const [brandId, setBrandId] = useState(existing?.brandId || draft?.brandId || brandProfiles[0]?.id || '');
   const [trigger, setTrigger] = useState<AutomationTrigger>(existing?.trigger || 'topicList');
-  const [topicsText, setTopicsText] = useState((existing?.topics || []).join('\n'));
-  // Automations saved before this setting existed have it on.
-  const [deriveKeywords, setDeriveKeywords] = useState(existing?.deriveKeywords !== false);
+  const [topicsText, setTopicsText] = useState((existing?.topics || draft?.topics || []).join('\n'));
+  // Automations saved before this setting existed have it on. A draft's topics are
+  // already finished long-tail keywords, so deriving new ones from them would lose them.
+  const [deriveKeywords, setDeriveKeywords] = useState(draft ? false : existing?.deriveKeywords !== false);
   const [gsc, setGsc] = useState<AutomationGscConfig>(existing?.gsc || DEFAULT_GSC_CONFIG);
   const [gscStatus, setGscStatus] = useState<GscStatus | null>(null);
   const [gscLoading, setGscLoading] = useState(false);

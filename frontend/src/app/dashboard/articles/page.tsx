@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getOnboarding, saveOnboarding, type OnboardingState } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
 import TutorialThumbnail from '@/components/thumbnail/TutorialThumbnail';
+import { takeArticleHandoff } from '@/lib/keywords/handoff';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { brandProfileOperations, BrandProfile, blogOperations, Blog } from '@/lib/firebase/firestore';
@@ -892,6 +893,18 @@ export default function ArticlesPage() {
     if (savedKeyword) {
       setKeywords([savedKeyword]);
       localStorage.removeItem('selectedKeyword'); // Clear it after using
+    }
+    const handoff = takeArticleHandoff();
+    if (handoff?.keywords.length) {
+      if (handoff.brandId) setSelectedBrandId(handoff.brandId);
+      // Past the ten keyword fields, the list goes into bulk mode's text box.
+      if (handoff.keywords.length > 10) {
+        setBulkKeywordsText(handoff.keywords.join('\n'));
+        setBulkMode(true);
+      } else {
+        setKeywords(handoff.keywords);
+      }
+      toast.success(`${handoff.keywords.length} keywords ready to write`);
     }
   }, []);
 
