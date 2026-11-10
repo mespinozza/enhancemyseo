@@ -19,6 +19,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { db } from '@/lib/firebase/config';
 import { blogOperations, brandProfileOperations, type Blog, type BrandProfile } from '@/lib/firebase/firestore';
 import { getUsageDisplay, getUserUsage } from '@/lib/usage-limits';
+import { useAllowance } from '@/lib/allowance';
 import { AUTOMATIONS_COLLECTION } from '@/lib/automation/types';
 import { getFilteredNavigation, type SubscriptionTier } from '@/config/navigation';
 import WelcomeCard from '@/components/onboarding/WelcomeCard';
@@ -108,6 +109,8 @@ export default function DashboardHome() {
   const { user, subscription_status } = useAuth();
   const tier = (subscription_status || 'free') as SubscriptionTier;
   const [overview, setOverview] = useState<Overview | null>(null);
+  const { allowance: articleAllowance } = useAllowance('articles');
+  const { allowance: photos } = useAllowance('thumbnails');
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -191,6 +194,8 @@ export default function DashboardHome() {
   const used = overview?.used ?? 0;
   const limit = overview?.limit ?? 'unlimited';
   const percent = typeof limit === 'number' && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const extraArticles = articleAllowance?.credits ?? 0;
+  const outOfArticles = typeof limit === 'number' && used >= limit && extraArticles === 0;
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
@@ -251,13 +256,19 @@ export default function DashboardHome() {
           }
           detail={
             overview
-              ? limit === 'unlimited'
-                ? 'Unlimited on your plan'
-                : `${Math.max(0, limit - used)} left this month`
+              ? [
+                  limit === 'unlimited'
+                    ? 'Unlimited on your plan'
+                    : `${Math.max(0, limit - used)} left this month${extraArticles ? ` + ${extraArticles} extra` : ''}`,
+                  photos?.included &&
+                    (photos.unlimited ? 'unlimited thumbnails' : `${photos.left} thumbnail photo${photos.left === 1 ? '' : 's'}`),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
               : undefined
           }
-          href={typeof limit === 'number' && used >= limit ? '/#pricing' : '/dashboard/articles'}
-          action={typeof limit === 'number' && used >= limit ? 'Get more articles' : 'Write one'}
+          href={outOfArticles ? (tier === 'free' ? '/pricing' : '/dashboard/settings#extra-credits') : '/dashboard/articles'}
+          action={outOfArticles ? 'Get more articles' : 'Write one'}
         >
           {typeof limit === 'number' && (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">

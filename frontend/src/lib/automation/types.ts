@@ -6,6 +6,7 @@
  * that happen to share a shape, which `TimestampLike` captures.
  */
 import type { ContentSelection } from '@/types/content-selection';
+import type { ThumbnailLayout } from '@/lib/thumbnail/design';
 export const AUTOMATIONS_COLLECTION = 'automations';
 export const AUTOMATION_RUNS_COLLECTION = 'automationRuns';
 
@@ -138,6 +139,8 @@ export interface Automation {
   shopifyStatus: 'draft' | 'published';
   /** Makes a thumbnail for each article and uses it as the featured image. Studio plans only. */
   generateThumbnail?: boolean;
+  /** The thumbnail style; the default style when unset. */
+  thumbnailLayout?: ThumbnailLayout;
   /**
    * Publish to the EnhanceMySEO blog at /blog rather than a customer's store.
    *

@@ -22,6 +22,7 @@ import { meterAs } from '@/lib/ai/meter';
 import { internalBaseUrl } from '@/lib/internal-url';
 import { recordError } from '@/lib/errors/record';
 import { createThumbnail, thumbnailAccess } from '@/lib/thumbnail/service';
+import { isLayout } from '@/lib/thumbnail/design';
 import { IMAGE_LIMIT_MESSAGE, refundImage, reserveImage } from '@/lib/credits/server';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
@@ -369,6 +370,7 @@ async function makeThumbnail(
       title: article.title,
       keyword: null,
       target: { kind: 'blog', blogId: article.blogId },
+      design: isLayout(automation.thumbnailLayout) ? { layout: automation.thumbnailLayout } : null,
     });
   } catch (error) {
     await refundImage(charge).catch(() => undefined);

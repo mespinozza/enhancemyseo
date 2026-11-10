@@ -1,13 +1,16 @@
 'use client';
 
 import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
-import { getUserUsage, getUsageDisplay, getResetInfo, UsageData } from '@/lib/usage-limits';
-import { BarChart3, Crown, Zap, TrendingUp, Sparkles, X, ArrowUp } from 'lucide-react';
+import { getResetInfo, USAGE_LIMITS } from '@/lib/usage-limits';
+import { allowanceNoun, useAllowance, type Allowance, type AllowanceKind } from '@/lib/allowance';
+import BuyCredits from '@/components/credits/BuyCredits';
+import { BarChart3, Crown, Zap, TrendingUp, Sparkles, ArrowUp, ImageIcon } from 'lucide-react';
 
 interface UsageTrackerProps {
-  tool: 'articles' | 'keywords' | 'thumbnails';
+  tool: AllowanceKind;
   className?: string;
 }
 
@@ -40,347 +43,211 @@ const tierColors = {
   admin: 'bg-green-100 text-green-800 border-green-200',
 };
 
-// Define upgrade paths for tier-specific suggestions
-const UPGRADE_PATHS = {
-  free: {
-    nextTier: 'kickstart',
-    nextTierName: 'Kickstart',
-    benefits: ['15 articles per month', '10 keywords per month', 'Bulk generation support'],
-    buttonText: 'Upgrade to Kickstart',
-    icon: Zap
-  },
-  kickstart: {
-    nextTier: 'seo_takeover',
-    nextTierName: 'SEO Takeover',
-    benefits: ['40 articles per month', '30 keywords per month', '2.5x more content'],
-    buttonText: 'Upgrade to SEO Takeover',
-    icon: TrendingUp
-  },
-  seo_takeover: {
-    nextTier: 'agency',
-    nextTierName: 'Agency',
-    benefits: ['Unlimited articles', 'Unlimited keywords', 'No monthly limits'],
-    buttonText: 'Go Unlimited with Agency',
-    icon: Crown
-  },
-  agency: {
-    nextTier: null,
-    nextTierName: null,
-    benefits: ['Unlimited everything'],
-    buttonText: null,
-    icon: Crown
-  },
-  admin: {
-    nextTier: null,
-    nextTierName: null,
-    benefits: ['Unlimited everything'],
-    buttonText: null,
-    icon: Sparkles
-  }
+const NEXT_TIER: Record<string, 'kickstart' | 'seo_takeover' | 'agency' | null> = {
+  free: 'kickstart',
+  kickstart: 'seo_takeover',
+  seo_takeover: 'agency',
+  agency: null,
+  admin: null,
 };
+
+const TOOL_TITLES: Record<AllowanceKind, string> = {
+  articles: 'Article Generation',
+  keywords: 'Keyword Generation',
+  thumbnails: 'Thumbnail Photos',
+};
+
+/** What the next plan gives, from the same limits the server enforces. */
+function nextTierPitch(next: 'kickstart' | 'seo_takeover' | 'agency'): string {
+  const limits = USAGE_LIMITS[next];
+  if (limits.articles === 'unlimited') return 'unlimited articles and thumbnails';
+  return `${limits.articles} articles and ${limits.thumbnails} thumbnail photos a month`;
+}
+
+/** Plan allowance and purchased extras as one bar, for the month. */
+function AllowanceBar({ allowance, tone }: { allowance: Allowance; tone: string }) {
+  if (allowance.unlimited) {
+    return (
+      <div className="flex items-center space-x-2">
+        <div className="h-2 w-full rounded-full bg-green-100">
+          <div className="h-2 w-full rounded-full bg-green-500" />
+        </div>
+        <span className="whitespace-nowrap text-xs font-medium text-green-600">Unlimited</span>
+      </div>
+    );
+  }
+  const percentage = allowance.planLimit > 0 ? Math.min(100, (allowance.planUsed / allowance.planLimit) * 100) : 100;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
+        <span>
+          {Math.min(allowance.planUsed, allowance.planLimit)} of {allowance.planLimit} used
+        </span>
+        <span>
+          {allowance.planLeft} left
+          {allowance.credits > 0 && <span className="font-medium text-blue-700"> + {allowance.credits} extra</span>}
+        </span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-gray-200">
+        <div className={`h-2 rounded-full transition-all duration-300 ${tone}`} style={{ width: `${percentage}%` }} />
+      </div>
+    </div>
+  );
+}
 
 const UsageTracker = forwardRef<UsageTrackerRef, UsageTrackerProps>(({ tool, className = '' }, ref) => {
   const { user, subscription_status } = useAuth();
+  const tier = subscription_status || 'free';
   const { registerRefreshFunction, unregisterRefreshFunction } = useUsageRefresh();
-  const [usage, setUsage] = useState<UsageData | null>(null); // Changed from UserUsage to any
-  const [resetInfo, setResetInfo] = useState<{
-    resetText: string;
-    canGenerateNow: boolean;
-    nextResetDate?: Date;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-
-  const loadUsageAndResetInfo = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    
-    try {
-      const [usage, resetData] = await Promise.all([
-        getUserUsage(user.uid),
-        getResetInfo(user.uid, subscription_status)
-      ]);
-      
-      setUsage(usage);
-      setResetInfo(resetData);
-    } catch (error) {
-      console.error('Error loading usage info:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user, subscription_status]);
+  const { allowance, refresh } = useAllowance(tool);
+  // Photos ride along on the articles tracker, since articles are where most of them go.
+  const { allowance: photos, refresh: refreshPhotos } = useAllowance('thumbnails');
+  const [resetInfo, setResetInfo] = useState<{ resetText: string; canGenerateNow: boolean } | null>(null);
 
   useEffect(() => {
-    loadUsageAndResetInfo();
-  }, [loadUsageAndResetInfo]);
+    if (!user) return;
+    getResetInfo(user.uid, tier)
+      .then(setResetInfo)
+      .catch((error) => console.error('Error loading usage info:', error));
+  }, [user, tier]);
 
   const refreshUsageData = useCallback(async () => {
-    if (!user) return;
-    
-    try {
-      const usage = await getUserUsage(user.uid);
-      setUsage(usage);
-    } catch (error) {
-      console.error('Error fetching usage data:', error);
-    }
-  }, [user]);
+    await Promise.all([refresh(), tool === 'articles' ? refreshPhotos() : Promise.resolve()]);
+  }, [refresh, refreshPhotos, tool]);
 
-  // Expose refresh function to parent components via ref
-  useImperativeHandle(ref, () => ({
-    refreshUsage: refreshUsageData
-  }));
+  useImperativeHandle(ref, () => ({ refreshUsage: refreshUsageData }));
 
-  // Register with the global refresh context
   useEffect(() => {
     registerRefreshFunction(tool, refreshUsageData);
-    
-    return () => {
-      unregisterRefreshFunction(tool);
-    };
+    return () => unregisterRefreshFunction(tool);
   }, [tool, registerRefreshFunction, unregisterRefreshFunction, refreshUsageData]);
 
-  if (loading || !user || !usage || !resetInfo) {
-    return (
-      <div className={`animate-pulse bg-gray-100 rounded-lg h-24 ${className}`} />
-    );
+  if (!user || !allowance || !resetInfo) {
+    return <div className={`h-24 animate-pulse rounded-lg bg-gray-100 ${className}`} />;
   }
 
-  const usageDisplay = getUsageDisplay(subscription_status, tool, usage);
-  const TierIcon = tierIcons[subscription_status as keyof typeof tierIcons];
-  const upgradeInfo = UPGRADE_PATHS[subscription_status as keyof typeof UPGRADE_PATHS];
+  const TierIcon = tierIcons[tier as keyof typeof tierIcons] ?? BarChart3;
+  const next = NEXT_TIER[tier] ?? null;
+  const isFree = tier === 'free';
+  const planOut = !allowance.unlimited && allowance.planLeft === 0;
+  const allOut = planOut && allowance.credits === 0;
+  const onCredits = planOut && allowance.credits > 0;
+  const isNearLimit =
+    !allowance.unlimited && !isFree && !planOut && allowance.planLimit > 0 && allowance.planUsed / allowance.planLimit >= 0.8;
+  const cannotGenerateNow = isFree && tool === 'articles' && !resetInfo.canGenerateNow;
+  const blocked = allOut || cannotGenerateNow;
+  const noun = (n: number) => allowanceNoun(tool, n);
 
-  const isUnlimited = usageDisplay.limit === 'unlimited';
-  const isFree = subscription_status === 'free';
-  const isNearLimit = !isUnlimited && !isFree && usageDisplay.percentage >= 80;
-  const hasExceeded = !isUnlimited && usageDisplay.remaining === 0;
-  const cannotGenerateNow = isFree && !resetInfo.canGenerateNow;
-  const canUpgrade = upgradeInfo.nextTier !== null;
+  const tone = blocked ? 'bg-red-500' : onCredits || isNearLimit ? 'bg-yellow-500' : 'bg-blue-500';
+  const background = blocked ? 'bg-red-50 border-red-200' : isNearLimit ? 'bg-yellow-50 border-yellow-200' : 'bg-white border-gray-200';
 
-  const getProgressBarColor = () => {
-    if (isUnlimited) return 'bg-green-500';
-    if (hasExceeded || cannotGenerateNow) return 'bg-red-500';
-    if (isNearLimit) return 'bg-yellow-500';
-    return 'bg-blue-500';
-  };
-
-  const getBackgroundColor = () => {
-    if (hasExceeded || cannotGenerateNow) return 'bg-red-50 border-red-200';
-    if (isNearLimit) return 'bg-yellow-50 border-yellow-200';
-    return 'bg-white border-gray-200';
-  };
-
-  const handleUpgradeClick = () => {
-    // Scroll to pricing section on home page
-    window.location.href = '/#pricing';
-  };
-
-  const getLimitMessage = () => {
-    if (hasExceeded) {
-      if (isFree) {
-        return {
-          title: '📈 Monthly Limit Reached',
-          message: 'You\'ve used all 2 articles for this month on the Free plan.',
-          action: 'Upgrade to Kickstart for 15 articles per month'
-        };
-      } else if (canUpgrade) {
-        return {
-          title: '📈 Monthly Limit Reached',
-          message: `You've used all ${usageDisplay.limit} ${tool} for this month on the ${tierDisplayNames[subscription_status as keyof typeof tierDisplayNames]} plan.`,
-          action: `Upgrade to ${upgradeInfo.nextTierName} for ${upgradeInfo.benefits[0].toLowerCase()}`
-        };
-      } else {
-        return {
-          title: '🎉 Monthly Limit Reached',
-          message: 'You\'re on the highest tier! Your limits will reset next month.',
-          action: null
-        };
-      }
-    } else if (cannotGenerateNow) {
+  const message = (() => {
+    if (blocked) {
       return {
-        title: '📈 Monthly Limit Reached',
-        message: 'You\'ve used all 2 articles for this month on the Free plan.',
-        action: 'Upgrade to Kickstart for 15 articles per month'
+        title: 'Monthly limit reached',
+        body: `You've used all ${allowance.planLimit} ${noun(allowance.planLimit)} on the ${tierDisplayNames[tier as keyof typeof tierDisplayNames] ?? tier} plan this month.`,
+        action: allowance.canBuy
+          ? `Top up below, or ${next ? `upgrade for ${nextTierPitch(next)}` : 'wait for next month'}.`
+          : next
+            ? `Upgrade to ${tierDisplayNames[next]} for ${nextTierPitch(next)}.`
+            : 'Your allowance resets next month.',
       };
-    } else if (isNearLimit) {
+    }
+    if (onCredits) {
       return {
-        title: '⚠️ Running Low',
-        message: `You have ${usageDisplay.remaining} ${tool} generations left this month.`,
-        action: canUpgrade ? `Consider upgrading to ${upgradeInfo.nextTierName}` : 'Your limits will reset next month'
+        title: 'Using your extras',
+        body: `This month's plan allowance is used. You have ${allowance.credits} extra ${noun(allowance.credits)} left, and they never expire.`,
+        action: null,
+      };
+    }
+    if (isNearLimit) {
+      return {
+        title: 'Running low',
+        body: `You have ${allowance.planLeft} ${noun(allowance.planLeft)} left this month${allowance.credits ? `, plus ${allowance.credits} extra` : ''}.`,
+        action: next ? `Upgrade to ${tierDisplayNames[next]} for ${nextTierPitch(next)}.` : null,
       };
     }
     return null;
-  };
+  })();
 
-  const limitMessage = getLimitMessage();
+  const messageTone = blocked
+    ? ['bg-red-50 border-red-200', 'text-red-700', 'text-red-600']
+    : ['bg-yellow-50 border-yellow-200', 'text-yellow-700', 'text-yellow-600'];
 
   return (
-    <>
-      <div className={`p-4 rounded-lg border ${getBackgroundColor()} ${className}`}>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-2">
-            <TierIcon className="w-4 h-4 text-gray-600" />
-            <span className="text-sm font-medium text-gray-900">
-              {tool === 'articles' ? 'Article Generation' : tool === 'keywords' ? 'Keyword Generation' : 'Thumbnail Generation'}
-            </span>
-          </div>
-          <div className={`px-2 py-1 rounded-full text-xs font-medium border ${tierColors[subscription_status as keyof typeof tierColors]}`}>
-            {tierDisplayNames[subscription_status as keyof typeof tierDisplayNames]}
-          </div>
+    <div className={`rounded-lg border p-4 ${background} ${className}`}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <TierIcon className="h-4 w-4 text-gray-600" />
+          <span className="text-sm font-medium text-gray-900">{TOOL_TITLES[tool]}</span>
         </div>
-
-        {/* Usage Display */}
-        {isUnlimited ? (
-          <div className="flex items-center space-x-2 mb-2">
-            <div className="w-full bg-green-100 rounded-full h-2">
-              <div className="bg-green-500 h-2 rounded-full w-full"></div>
-            </div>
-            <span className="text-xs font-medium text-green-600 whitespace-nowrap">
-              Unlimited
-            </span>
-          </div>
-        ) : (
-          <div className="mb-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-gray-600">
-                {usageDisplay.used} of {usageDisplay.limit} used
-              </span>
-              <span className="text-xs text-gray-600">
-                {usageDisplay.remaining} remaining
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className={`h-2 rounded-full transition-all duration-300 ${getProgressBarColor()}`}
-                style={{ width: `${Math.min(100, usageDisplay.percentage)}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
-
-        {/* Status Messages */}
-        {limitMessage ? (
-          <div className={`rounded-md p-3 mt-3 ${
-            hasExceeded || cannotGenerateNow ? 'bg-red-50 border border-red-200' :
-            isNearLimit ? 'bg-yellow-50 border border-yellow-200' : 'bg-blue-50 border border-blue-200'
-          }`}>
-            <p className={`text-xs font-medium ${
-              hasExceeded || cannotGenerateNow ? 'text-red-700' :
-              isNearLimit ? 'text-yellow-700' : 'text-blue-700'
-            }`}>
-              {limitMessage.title}
-            </p>
-            <p className={`text-xs mt-1 ${
-              hasExceeded || cannotGenerateNow ? 'text-red-600' :
-              isNearLimit ? 'text-yellow-600' : 'text-blue-600'
-            }`}>
-              {limitMessage.message}
-            </p>
-            {limitMessage.action && (
-              <p className={`text-xs mt-1 font-medium ${
-                hasExceeded || cannotGenerateNow ? 'text-red-700' :
-                isNearLimit ? 'text-yellow-700' : 'text-blue-700'
-              }`}>
-                {limitMessage.action}
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-500 mt-2">
-            {resetInfo.resetText}
-          </p>
-        )}
-
-        {/* Upgrade CTA for free users or when approaching limits */}
-        {(isFree || (isNearLimit && canUpgrade)) && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <button
-              onClick={handleUpgradeClick}
-              className={`inline-flex items-center justify-center w-full px-3 py-2 text-xs font-medium text-white rounded-md transition-colors ${
-                isFree ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'
-              }`}
-            >
-              {isFree ? (
-                <>
-                  <Crown className="w-3 h-3 mr-1" />
-                  Upgrade for More
-                </>
-              ) : (
-                <>
-                  <ArrowUp className="w-3 h-3 mr-1" />
-                  Upgrade to {upgradeInfo.nextTierName}
-                </>
-              )}
-            </button>
-          </div>
-        )}
+        <div className={`rounded-full border px-2 py-1 text-xs font-medium ${tierColors[tier as keyof typeof tierColors] ?? tierColors.free}`}>
+          {tierDisplayNames[tier as keyof typeof tierDisplayNames] ?? tier}
+        </div>
       </div>
 
-      {/* Enhanced Upgrade Modal */}
-      {showUpgradeModal && upgradeInfo.nextTier && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center space-x-2">
-                <upgradeInfo.icon className="h-6 w-6 text-blue-600" />
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Upgrade to {upgradeInfo.nextTierName}
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowUpgradeModal(false)}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="mb-6">
-              <p className="text-gray-600 mb-4">
-                You&apos;ve reached your {tool} limit for the {tierDisplayNames[subscription_status as keyof typeof tierDisplayNames]} plan. 
-                Upgrade to {upgradeInfo.nextTierName} and get:
-              </p>
-              
-              <ul className="space-y-2 mb-4">
-                {upgradeInfo.benefits.map((benefit, index) => (
-                  <li key={index} className="flex items-center space-x-2 text-sm text-gray-700">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span>{benefit}</span>
-                  </li>
-                ))}
-              </ul>
-              
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                <p className="text-sm text-blue-700 font-medium">
-                  🚀 Start creating more content immediately after upgrade!
-                </p>
-              </div>
-            </div>
+      <AllowanceBar allowance={allowance} tone={tone} />
 
-            <div className="flex space-x-3">
-              <button
-                onClick={() => setShowUpgradeModal(false)}
-                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-              >
-                Maybe Later
-              </button>
-              <button
-                onClick={() => {
-                  setShowUpgradeModal(false);
-                  handleUpgradeClick();
-                }}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
-              >
-                {upgradeInfo.buttonText}
-              </button>
-            </div>
-          </div>
+      {tool === 'articles' && photos?.included && (
+        <div className="mt-3 flex items-center justify-between text-xs text-gray-600">
+          <span className="flex items-center gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5 text-gray-400" /> Thumbnail photos
+          </span>
+          <span>
+            {photos.unlimited ? (
+              'Unlimited'
+            ) : (
+              <>
+                {photos.planLeft} of {photos.planLimit} left
+                {photos.credits > 0 && <span className="font-medium text-blue-700"> + {photos.credits} extra</span>}
+              </>
+            )}
+          </span>
         </div>
       )}
-    </>
+
+      {message ? (
+        <div className={`mt-3 rounded-md border p-3 ${onCredits ? 'border-blue-200 bg-blue-50' : messageTone[0]}`}>
+          <p className={`text-xs font-medium ${onCredits ? 'text-blue-700' : messageTone[1]}`}>{message.title}</p>
+          <p className={`mt-1 text-xs ${onCredits ? 'text-blue-600' : messageTone[2]}`}>{message.body}</p>
+          {message.action && <p className={`mt-1 text-xs font-medium ${messageTone[1]}`}>{message.action}</p>}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-gray-500">{resetInfo.resetText}</p>
+      )}
+
+      {blocked && allowance.canBuy && tool !== 'keywords' && (
+        <div className="mt-3">
+          <BuyCredits kind={tool === 'articles' ? 'articles' : 'images'} returnTo={tool === 'articles' ? '/dashboard/articles' : '/dashboard/generate-thumbnail'} />
+        </div>
+      )}
+
+      {(isFree || ((isNearLimit || blocked) && next)) && (
+        <div className="mt-3 border-t border-gray-200 pt-3">
+          <Link
+            href="/pricing"
+            className={`inline-flex w-full items-center justify-center rounded-md px-3 py-2 text-xs font-medium text-white transition-colors ${
+              isFree ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'
+            }`}
+          >
+            {isFree ? (
+              <>
+                <Crown className="mr-1 h-3 w-3" />
+                Upgrade for {nextTierPitch('kickstart')}
+              </>
+            ) : (
+              <>
+                <ArrowUp className="mr-1 h-3 w-3" />
+                Upgrade to {next ? tierDisplayNames[next] : ''}
+              </>
+            )}
+          </Link>
+        </div>
+      )}
+    </div>
   );
 });
 
 UsageTracker.displayName = 'UsageTracker';
 
-export default UsageTracker; 
+export default UsageTracker;

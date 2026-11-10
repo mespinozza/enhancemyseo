@@ -1,7 +1,7 @@
 'use client';
 
 import type { MouseEvent, ReactNode } from 'react';
-import { Check, ChevronRight, Copy, Download, Eye, FileText, Pencil, ScrollText } from 'lucide-react';
+import { Check, ChevronRight, Copy, Download, Eye, FileText, Loader2, Pencil, ScrollText } from 'lucide-react';
 import type { ArticleSeo } from '@/lib/article/enhanced/types';
 import { readingMinutes, storefrontBody } from '@/lib/article/storefront';
 
@@ -21,6 +21,8 @@ interface Props {
   layout: ArticleLayout;
   /** Admins can copy the generation log. */
   showLog: boolean;
+  /** Its thumbnail is being made. */
+  makingThumbnail?: boolean;
   onOpen: () => void;
   onEdit: () => void;
   onCopy: () => void;
@@ -63,7 +65,17 @@ function Action({ label, onClick, children }: { label: string; onClick: () => vo
 }
 
 /** A finished article in the results panel, as a card or a row. Clicking it opens the preview. */
-export default function GeneratedArticleCard({ article, layout, showLog, onOpen, onEdit, onCopy, onDownload, onCopyLog }: Props) {
+export default function GeneratedArticleCard({
+  article,
+  layout,
+  showLog,
+  makingThumbnail = false,
+  onOpen,
+  onEdit,
+  onCopy,
+  onDownload,
+  onCopyLog,
+}: Props) {
   const date = createdDate(article.createdAt);
   const minutes = readingMinutes(article.content);
   const meta = [date, `${minutes} min read`].filter(Boolean).join(' · ');
@@ -87,13 +99,25 @@ export default function GeneratedArticleCard({ article, layout, showLog, onOpen,
     </div>
   );
 
-  const status = (
+  const status = makingThumbnail ? (
+    <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200">
+      <Loader2 className="h-3 w-3 animate-spin" /> Making thumbnail
+    </span>
+  ) : (
     <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 ring-1 ring-inset ring-green-200">
       <Check className="h-3 w-3" strokeWidth={3} /> Ready
     </span>
   );
 
-  const icon = (
+  const image = article.seo?.featuredImage?.src;
+  const icon = image ? (
+    // eslint-disable-next-line @next/next/no-img-element -- a public Storage URL, shown small
+    <img
+      src={image}
+      alt={article.seo?.featuredImage?.alt || ''}
+      className="h-9 w-16 flex-shrink-0 rounded-lg object-cover ring-1 ring-inset ring-black/5"
+    />
+  ) : (
     <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
       <FileText className="h-4 w-4" />
     </span>

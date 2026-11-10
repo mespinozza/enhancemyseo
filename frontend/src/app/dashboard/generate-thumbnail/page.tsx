@@ -23,6 +23,7 @@ import { THUMBNAIL_TIERS, type ThumbnailRecord, type ThumbnailTarget } from '@/l
 import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
 import BuyCredits from '@/components/credits/BuyCredits';
 import { useCreditReturn } from '@/lib/credits/client';
+import { announceUsageChange, describeAllowance, useAllowance } from '@/lib/allowance';
 import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
 import ThumbnailEditor, { targetValue, type LinkOption } from '@/components/thumbnail/ThumbnailEditor';
 
@@ -155,6 +156,7 @@ export default function ThumbnailStudioPage() {
   const [customTitle, setCustomTitle] = useState('');
   const [layout, setLayout] = useState<ThumbnailLayout>('parts-plus');
   const [outOfPhotos, setOutOfPhotos] = useState(false);
+  const { allowance: photos } = useAllowance('thumbnails');
   useCreditReturn();
   const [making, setMaking] = useState<{ done: number; total: number; current: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -323,6 +325,7 @@ export default function ThumbnailStudioPage() {
     setMaking(null);
     setPicked(new Set());
     setCustomTitle('');
+    announceUsageChange();
     if (jobs.length - failures > 0) toast.success(`${jobs.length - failures} thumbnail${jobs.length - failures === 1 ? '' : 's'} ready`);
   };
 
@@ -398,6 +401,7 @@ export default function ThumbnailStudioPage() {
         });
       }
     }
+    announceUsageChange();
     if (failed) toast.error(`${failed} photo${failed === 1 ? '' : 's'} could not be remade`);
     else toast.success(ids.length === 1 ? 'New photo ready' : `${ids.length} new photos ready`);
   };
@@ -536,6 +540,16 @@ export default function ThumbnailStudioPage() {
                 </button>
               )}
               <p className="text-center text-[11px] text-gray-400">About 30 seconds each. You can edit every one before it goes anywhere.</p>
+              {photos && (
+                <p
+                  className={`text-center text-xs ${
+                    !photos.unlimited && pickCount > photos.left ? 'font-medium text-amber-700' : 'text-gray-500'
+                  }`}
+                >
+                  {describeAllowance(photos)}.
+                  {!photos.unlimited && pickCount > photos.left && ` Only the first ${photos.left} can be made.`}
+                </p>
+              )}
               {outOfPhotos && (
                 <BuyCredits kind="images" compact title="You've used this month's thumbnail photos" returnTo="/dashboard/generate-thumbnail" />
               )}

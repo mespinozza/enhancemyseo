@@ -26,6 +26,7 @@ import { createCustomerPortalSession } from '@/lib/stripe';
 import { USAGE_LIMITS } from '@/lib/usage-limits';
 import { PLAN_LABELS, type Plan } from '@/lib/admin/customers';
 import BuyCredits from '@/components/credits/BuyCredits';
+import { describeAllowance, useAllowance } from '@/lib/allowance';
 import { useCreditReturn } from '@/lib/credits/client';
 
 const profileSchema = z.object({
@@ -119,6 +120,8 @@ export default function SettingsPage() {
   const articleLimit = USAGE_LIMITS[plan]?.articles;
   const photoLimit = USAGE_LIMITS[plan]?.thumbnails;
   useCreditReturn();
+  const { allowance: articleAllowance } = useAllowance('articles');
+  const { allowance: photoAllowance } = useAllowance('thumbnails');
 
   const {
     register: registerProfile,
@@ -366,6 +369,16 @@ export default function SettingsPage() {
             </Link>
           )}
         </Row>
+        {articleAllowance && (
+          <Row
+            title="This month"
+            description={[articleAllowance, photoAllowance?.included ? photoAllowance : null]
+              .filter((a): a is NonNullable<typeof a> => Boolean(a))
+              .map((a) => describeAllowance(a))
+              .join('. ')
+              .concat('.')}
+          />
+        )}
         {isFree ? (
           <Row
             title="Get more out of EnhanceMySEO"

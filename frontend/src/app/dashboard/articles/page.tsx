@@ -8,7 +8,12 @@ import TutorialThumbnail, {
   TutorialThumbnailTeaser,
   type TutorialThumbnailArticle,
 } from '@/components/thumbnail/TutorialThumbnail';
-import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
+import { THUMBNAIL_TIERS, type ThumbnailRecord } from '@/lib/thumbnail/types';
+import type { ThumbnailLayout } from '@/lib/thumbnail/design';
+import { thumbnailApi } from '@/lib/thumbnail/client';
+import { loadThumbnailPrefs, saveThumbnailPrefs } from '@/lib/thumbnail/prefs';
+import { announceUsageChange } from '@/lib/allowance';
+import ThumbnailOption from '@/components/thumbnail/ThumbnailOption';
 import {
   articleStats,
   clearPendingTutorialUpgrade,
@@ -453,6 +458,52 @@ export default function ArticlesPage() {
       )
     );
   }, []);
+  // A thumbnail for each article written here, made once the article is saved.
+  const [withThumbnails, setWithThumbnails] = useState(false);
+  const [thumbnailLayout, setThumbnailLayout] = useState<ThumbnailLayout>('parts-plus');
+  const [makingThumbnails, setMakingThumbnails] = useState<Set<string>>(new Set());
+  const photosOutRef = useRef(false);
+  useEffect(() => {
+    const prefs = loadThumbnailPrefs();
+    if (!prefs) return;
+    setWithThumbnails(prefs.enabled);
+    setThumbnailLayout(prefs.layout);
+  }, []);
+  const addThumbnail = useCallback(
+    async (input: { blogId: string; brandId: string; title: string; keyword: string; layout: ThumbnailLayout }) => {
+      if (!user || photosOutRef.current) return;
+      setMakingThumbnails((prev) => new Set(prev).add(input.blogId));
+      try {
+        const { thumbnail } = await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, '/api/thumbnails', {
+          method: 'POST',
+          body: JSON.stringify({
+            brandId: input.brandId,
+            title: input.title,
+            keyword: input.keyword,
+            layout: input.layout,
+            target: { kind: 'blog', blogId: input.blogId },
+          }),
+        });
+        if (thumbnail.imageUrl) showThumbnail(input.blogId, { src: thumbnail.imageUrl, alt: thumbnail.title });
+        track('article_thumbnail_added', { layout: input.layout });
+      } catch (error) {
+        if ((error as { code?: string }).code === 'image_limit') {
+          photosOutRef.current = true;
+          toast.error("You're out of thumbnail photos this month. The rest of the articles are written without one.");
+        } else {
+          toast.error(`The thumbnail for "${input.title}" could not be made. Make one in the Thumbnail studio.`);
+        }
+      } finally {
+        setMakingThumbnails((prev) => {
+          const next = new Set(prev);
+          next.delete(input.blogId);
+          return next;
+        });
+        announceUsageChange();
+      }
+    },
+    [user, showThumbnail]
+  );
   const generateButtonRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!user?.uid || !new URLSearchParams(window.location.search).has('tutorial')) return;
@@ -733,6 +784,7 @@ export default function ArticlesPage() {
         throw new Error('Selected brand profile not found');
       }
 
+      photosOutRef.current = false;
       // Generate articles sequentially to respect rate limits
       for (let i = 0; i < validKeywords.length; i++) {
         const currentKeyword = validKeywords[i];
@@ -859,6 +911,17 @@ export default function ArticlesPage() {
 
             setGeneratedArticles(prev => [...prev, newArticle]);
             setBulkGenerationStatus(prev => ({ ...prev, [i]: 'completed' }));
+
+            // Not awaited: the next article starts while this one's photo is made.
+            if (!tutorial && withThumbnails && THUMBNAIL_TIERS.includes(subscription_status || 'free')) {
+              addThumbnail({
+                blogId: blog,
+                brandId: selectedBrandId,
+                title: newArticle.title,
+                keyword: currentKeyword,
+                layout: thumbnailLayout,
+              });
+            }
 
             if (tutorial) {
               track('first_article_generated', {
@@ -2122,6 +2185,24 @@ export default function ArticlesPage() {
               </div>
             )}
 
+            {!tutorial && (
+              <ThumbnailOption
+                enabled={withThumbnails}
+                onEnabledChange={(on) => {
+                  setWithThumbnails(on);
+                  saveThumbnailPrefs({ enabled: on, layout: thumbnailLayout });
+                }}
+                layout={thumbnailLayout}
+                onLayoutChange={(value) => {
+                  setThumbnailLayout(value);
+                  saveThumbnailPrefs({ enabled: withThumbnails, layout: value });
+                }}
+                needed={bulkMode ? parseBulkKeywords(bulkKeywordsText).length || 1 : keywords.filter((k) => k.trim()).length || 1}
+                context="articles"
+                returnTo="/dashboard/articles"
+              />
+            )}
+
             {tutorial && (
               <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold text-blue-900">
@@ -2382,6 +2463,7 @@ export default function ArticlesPage() {
                       article={article}
                       layout={articleLayout}
                       showLog={subscription_status === 'admin'}
+                      makingThumbnail={makingThumbnails.has(article.id)}
                       onOpen={() => setExpandedArticle(index)}
                       onEdit={() => router.push(`/dashboard/articles/${article.id}/edit`)}
                       onCopy={() => handleCopyHTML(article)}

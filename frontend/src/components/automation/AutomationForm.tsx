@@ -7,6 +7,8 @@ import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/firebase/auth-context';
 import type { KeywordAutomationDraft } from '@/lib/keywords/handoff';
 import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
+import { isLayout, type ThumbnailLayout } from '@/lib/thumbnail/design';
+import ThumbnailOption from '@/components/thumbnail/ThumbnailOption';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import { createAutomation, updateAutomation } from '@/lib/firebase/automations';
 import {
@@ -127,6 +129,9 @@ export default function AutomationForm({
   const [shopifyBlogs, setShopifyBlogs] = useState<ShopifyBlogOption[]>([]);
   const [loadingBlogs, setLoadingBlogs] = useState(false);
   const [generateThumbnail, setGenerateThumbnail] = useState(existing?.generateThumbnail || false);
+  const [thumbnailLayout, setThumbnailLayout] = useState<ThumbnailLayout>(
+    isLayout(existing?.thumbnailLayout) ? existing.thumbnailLayout : 'parts-plus'
+  );
   const [publishToSiteBlog, setPublishToSiteBlog] = useState(
     existing?.publishToSiteBlog || false
   );
@@ -333,6 +338,7 @@ export default function AutomationForm({
       // admin cannot leave a stale true behind on a saved automation.
       publishToSiteBlog: isAdmin ? publishToSiteBlog : false,
       generateThumbnail: canThumbnail ? generateThumbnail : false,
+      thumbnailLayout,
       siteBlogStatus,
     };
 
@@ -969,23 +975,17 @@ export default function AutomationForm({
         </div>
       </div>
 
-      {canThumbnail && (
-        <label className="flex items-start gap-3 border-t border-gray-200 pt-4">
-          <input
-            type="checkbox"
-            checked={generateThumbnail}
-            onChange={(event) => setGenerateThumbnail(event.target.checked)}
-            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <span className="text-sm">
-            <span className="font-medium text-gray-900">Make a thumbnail for each article</span>
-            <span className="mt-0.5 block text-xs text-gray-500">
-              A photo with your brand colour, title and logo, set as the featured image and sent with the
-              Shopify push. Edit any of them later in the Thumbnail studio.
-            </span>
-          </span>
-        </label>
-      )}
+      <div className="border-t border-gray-200 pt-4">
+        <ThumbnailOption
+          enabled={canThumbnail && generateThumbnail}
+          onEnabledChange={setGenerateThumbnail}
+          layout={thumbnailLayout}
+          onLayoutChange={setThumbnailLayout}
+          needed={projectedPerMonth}
+          context="automation"
+          returnTo="/dashboard/automate"
+        />
+      </div>
 
       <div className="border-t border-gray-200 pt-4">
         <h3 className="mb-1 text-sm font-semibold text-gray-900">Where to publish</h3>
