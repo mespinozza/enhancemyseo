@@ -15,13 +15,8 @@ const nextConfig = {
   experimental: {
     externalDir: false,
   },
-  serverExternalPackages: [],
-  // Add runtime configuration
-  publicRuntimeConfig: {
-    // Will be available on both server and client
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  },
+  // Native binary; bundling it breaks the .node loader.
+  serverExternalPackages: ['@napi-rs/canvas'],
   serverRuntimeConfig: {
     // Will only be available on the server side
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,

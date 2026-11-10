@@ -156,6 +156,8 @@ export async function POST(request: Request) {
           {
             error: `Shopify already has "${duplicate.title}" at /${duplicate.handle}, so this was not pushed as a second copy.`,
             code: 'duplicate_title',
+            existingArticleId: duplicate.id,
+            shopifyBlogId: blogId,
           },
           { status: 409 }
         );
@@ -220,6 +222,7 @@ export async function POST(request: Request) {
       message: 'Article successfully pushed to Shopify',
       shopifyArticle: {
         id: createdArticle.article.id,
+        blogId,
         title: createdArticle.article.title,
         url: `https://${shopDomain}/admin/articles/${createdArticle.article.id}`,
         status: createdArticle.article.published ? 'published' : 'draft'

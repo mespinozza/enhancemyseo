@@ -1,668 +1,562 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuth } from '@/lib/firebase/auth-context';
-import { useUsageRefresh } from '@/lib/usage-refresh-context';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
-import BrandProfileForm from '@/components/brand/BrandProfileForm';
-import UsageTracker from '@/components/usage/UsageTracker';
-import { getUserUsage, canPerformAction, incrementUsage } from '@/lib/usage-limits';
-import { toast } from 'react-hot-toast';
-import { Image, Check, X, Eye, EyeOff } from 'lucide-react';
+import toast from 'react-hot-toast';
+import {
+  Check,
+  ExternalLink,
+  ImageIcon,
+  Loader2,
+  Lock,
+  Pencil,
+  Search,
+  ShoppingBag,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import { useAuth } from '@/lib/firebase/auth-context';
+import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
+import { thumbnailApi, useAuthedImage } from '@/lib/thumbnail/client';
+import type { ThumbnailRecord, ThumbnailTarget } from '@/lib/thumbnail/types';
+import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
+import ThumbnailEditor, { targetValue, type LinkOption } from '@/components/thumbnail/ThumbnailEditor';
 
 interface ShopifyArticle {
-  id: string;
+  id: number;
   title: string;
-  content: string;
-  status: string;
-  handle: string;
-  created_at: string;
-  image?: {
-    id: string;
-    src: string;
-    alt: string;
-  };
+  blog_id: number;
+  blog_title?: string;
+  image?: { src: string } | null;
 }
 
-export default function GenerateThumbnailPage() {
-  const { user, subscription_status } = useAuth();
-  const { refreshUsage } = useUsageRefresh();
-  const router = useRouter();
+interface Source {
+  value: string;
+  title: string;
+  keyword: string | null;
+  target: ThumbnailTarget | null;
+  hasImage: boolean;
+}
 
-  // All state hooks must be at the top level
-  const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
-  const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
-  const [selectedBrandId, setSelectedBrandId] = useState<string>('');
-  const [showBrandForm, setShowBrandForm] = useState(false);
-  
-  // Shopify articles states with pagination
-  const [allShopifyArticles, setAllShopifyArticles] = useState<ShopifyArticle[]>([]);
-  const [displayedArticles, setDisplayedArticles] = useState<ShopifyArticle[]>([]);
-  const [isLoadingArticles, setIsLoadingArticles] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [selectedArticleIds, setSelectedArticleIds] = useState<string[]>([]);
-  
-  // Generation states
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState<{[key: string]: 'pending' | 'generating' | 'completed' | 'error'}>({});
+const BRAND_KEY = 'thumbnail-studio-brand';
 
-  // Ref for infinite scroll
-  const articlesContainerRef = useRef<HTMLDivElement>(null);
+const STATUS_STYLES: Record<ThumbnailRecord['status'], string> = {
+  draft: 'bg-gray-50 text-gray-600 ring-gray-200',
+  linked: 'bg-blue-50 text-blue-700 ring-blue-200',
+  pushed: 'bg-green-50 text-green-700 ring-green-200',
+};
+const STATUS_LABELS: Record<ThumbnailRecord['status'], string> = { draft: 'Not linked', linked: 'Linked', pushed: 'In Shopify' };
 
-  const ARTICLES_PER_PAGE = 9;
-
-  // Admin-only access control
-  useEffect(() => {
-    if (user && subscription_status !== 'admin') {
-      router.push('/dashboard/articles');
-    }
-  }, [user, subscription_status, router]);
-
-  const loadBrandProfiles = useCallback(async () => {
-    if (!user) return;
-    setIsLoadingProfiles(true);
-    try {
-      const profiles = await brandProfileOperations.getAll(user.uid);
-      setBrandProfiles(profiles);
-      
-      // If there's only one profile, select it automatically
-      if (profiles.length === 1) {
-        setSelectedBrandId(profiles[0].id || '');
-      }
-    } catch (error) {
-      console.error('Error loading brand profiles:', error);
-    } finally {
-      setIsLoadingProfiles(false);
-    }
-  }, [user]);
-
-  // Load brand profiles effect
-  useEffect(() => {
-    loadBrandProfiles();
-  }, [loadBrandProfiles]);
-
-  // Auto-load articles when brand is selected
-  useEffect(() => {
-    if (selectedBrandId && brandProfiles.length > 0) {
-      loadShopifyArticles(selectedBrandId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBrandId, brandProfiles.length]);
-
-  // Callback hooks
-  const loadMoreArticles = useCallback(() => {
-    if (isLoadingMore || !hasMore) return;
-    
-    setIsLoadingMore(true);
-    
-    const startIndex = currentPage * ARTICLES_PER_PAGE;
-    const endIndex = startIndex + ARTICLES_PER_PAGE;
-    const newArticles = allShopifyArticles.slice(startIndex, endIndex);
-    
-    setTimeout(() => {
-      setDisplayedArticles(prev => {
-        // Ensure no duplicates by filtering out articles that already exist
-        const existingIds = new Set(prev.map(article => article.id));
-        const filteredNewArticles = newArticles.filter(article => !existingIds.has(article.id));
-        return [...prev, ...filteredNewArticles];
-      });
-      setCurrentPage(prev => prev + 1);
-      setHasMore(endIndex < allShopifyArticles.length);
-      setIsLoadingMore(false);
-    }, 500);
-  }, [allShopifyArticles, currentPage, hasMore, isLoadingMore]);
-
-  const handleScroll = useCallback(() => {
-    const container = articlesContainerRef.current;
-    if (!container || isLoadingMore || !hasMore) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
-    
-    if (scrollPercentage > 0.8) {
-      loadMoreArticles();
-    }
-  }, [loadMoreArticles, isLoadingMore, hasMore]);
-
-  // Set up scroll listener effect
-  useEffect(() => {
-    const container = articlesContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
-  }, [handleScroll]);
-
-  const loadShopifyArticles = useCallback(async (brandId: string, reset = true) => {
-    const selectedBrand = brandProfiles.find(p => p.id === brandId);
-    if (!selectedBrand?.shopifyStoreUrl) {
-      toast.error('No Shopify store URL found. Please update your brand profile.');
-      return;
-    }
-
-    if (reset) {
-      setIsLoadingArticles(true);
-      setCurrentPage(0);
-      setDisplayedArticles([]);
-      setAllShopifyArticles([]);
-      setHasMore(false);
-      setSelectedArticleIds([]);
-    }
-
-    try {
-      const response = await fetch('/api/shopify/get-articles', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await user?.getIdToken()}`,
-        },
-        body: JSON.stringify({ brandId: selectedBrand.id }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const articles = data.articles || [];
-        
-        const uniqueArticles = articles.filter((article: ShopifyArticle, index: number, self: ShopifyArticle[]) => 
-          index === self.findIndex(a => a.id === article.id)
-        );
-        
-        if (reset) {
-          setAllShopifyArticles(uniqueArticles);
-          const initialArticles = uniqueArticles.slice(0, ARTICLES_PER_PAGE);
-          setDisplayedArticles(initialArticles);
-          setHasMore(uniqueArticles.length > ARTICLES_PER_PAGE);
-          setCurrentPage(1);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to load articles: ${errorData.error || 'Unknown error'}`);
-        if (reset) {
-          setAllShopifyArticles([]);
-          setDisplayedArticles([]);
-          setHasMore(false);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading Shopify articles:', error);
-      toast.error('Failed to load Shopify articles');
-      if (reset) {
-        setAllShopifyArticles([]);
-        setDisplayedArticles([]);
-        setHasMore(false);
-      }
-    } finally {
-      if (reset) {
-        setIsLoadingArticles(false);
-      }
-    }
-  }, [brandProfiles, user]);
-
-  const handleBrandSelection = async (brandId: string) => {
-    setSelectedBrandId(brandId);
-    setSelectedArticleIds([]);
-    setDisplayedArticles([]);
-    setAllShopifyArticles([]);
-    setCurrentPage(0);
-    setHasMore(false);
-    setGenerationProgress({}); // Reset generation progress
-    
-    if (brandId) {
-      await loadShopifyArticles(brandId);
-    }
-  };
-
-  const handleBrandSave = async () => {
-    setShowBrandForm(false);
-    await loadBrandProfiles();
-  };
-
-  const handleSelectAllArticles = () => {
-    if (selectedArticleIds.length === allShopifyArticles.length) {
-      setSelectedArticleIds([]);
-    } else {
-      setSelectedArticleIds(allShopifyArticles.map(article => article.id));
-    }
-  };
-
-  const handleSelectArticle = (articleId: string) => {
-    setSelectedArticleIds(prev => 
-      prev.includes(articleId) 
-        ? prev.filter(id => id !== articleId)
-        : [...prev, articleId]
-    );
-  };
-
-  const handleGenerateThumbnails = async () => {
-    if (!selectedBrandId || selectedArticleIds.length === 0 || !user) {
-      return;
-    }
-
-    // Check usage limits
-    try {
-      const currentUsage = await getUserUsage(user.uid);
-      const { canPerform, reason } = await canPerformAction(user.uid, subscription_status, 'thumbnails', currentUsage, selectedArticleIds.length);
-      
-      if (!canPerform) {
-        const errorMessage = reason || 'You have reached your limit. Please upgrade your plan or wait for the next reset period.';
-        toast.error(errorMessage);
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking usage limits:', error);
-      toast.error('Unable to verify usage limits. Please try again.');
-      return;
-    }
-
-    setIsGenerating(true);
-    
-    // Initialize progress for all selected articles
-    const initialProgress = selectedArticleIds.reduce((acc, id) => ({
-      ...acc,
-      [id]: 'pending' as const
-    }), {});
-    setGenerationProgress(initialProgress);
-
-    try {
-      const selectedBrand = brandProfiles.find(profile => profile.id === selectedBrandId);
-      if (!selectedBrand) {
-        throw new Error('Selected brand profile not found');
-      }
-
-      const selectedArticles = allShopifyArticles.filter(article => 
-        selectedArticleIds.includes(article.id)
-      );
-
-      let completedCount = 0;
-
-      // Generate thumbnails sequentially to avoid rate limits
-      for (const article of selectedArticles) {
-        setGenerationProgress(prev => ({ ...prev, [article.id]: 'generating' }));
-
-        try {
-          const response = await fetch('/api/generate-thumbnail', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${await user.getIdToken()}`,
-            },
-            body: JSON.stringify({
-              articleTitle: article.title,
-              articleId: article.id,
-              brandId: selectedBrand.id,
-            }),
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to generate thumbnail');
-          }
-
-          setGenerationProgress(prev => ({ ...prev, [article.id]: 'completed' }));
-          completedCount++;
-          
-          // Increment usage after successful generation
-          await incrementUsage(user.uid, 'thumbnails');
-          await refreshUsage('thumbnails');
-
-        } catch (error) {
-          console.error(`Failed to generate thumbnail for ${article.title}:`, error);
-          setGenerationProgress(prev => ({ ...prev, [article.id]: 'error' }));
-          toast.error(`Failed to generate thumbnail for: ${article.title}`);
-        }
-
-        // Rate limiting delay between generations
-        if (article !== selectedArticles[selectedArticles.length - 1]) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-
-      if (completedCount > 0) {
-        toast.success(`Successfully generated ${completedCount} thumbnail${completedCount !== 1 ? 's' : ''}!`);
-        // Reload articles to show updated images
-        await loadShopifyArticles(selectedBrandId);
-      }
-
-    } catch (error) {
-      console.error('Failed to generate thumbnails:', error);
-      toast.error(`Thumbnail generation failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setIsGenerating(false);
-      setSelectedArticleIds([]);
-      setGenerationProgress({});
-    }
-  };
-
-  // Don't render the page content if user is not admin
-  if (subscription_status !== 'admin') {
-    return (
-      <div className="p-4 sm:p-6 lg:p-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center py-12">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Restricted</h1>
-            <p className="text-gray-600 mb-6">This feature is only available to administrators.</p>
-            <button
-              onClick={() => router.push('/dashboard/articles')}
-              className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Go to Generate Articles
-            </button>
-          </div>
+function ThumbnailCard({
+  thumbnail,
+  linkLabel,
+  selected,
+  busy,
+  onToggle,
+  onOpen,
+}: {
+  thumbnail: ThumbnailRecord;
+  linkLabel: string | null;
+  selected: boolean;
+  busy: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+}) {
+  const { user } = useAuth();
+  const authed = useAuthedImage(user, thumbnail.imageUrl ? null : thumbnail.previewUrl);
+  const src = thumbnail.imageUrl ?? authed;
+  return (
+    <div
+      className={`group overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+        selected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-gray-200'
+      }`}
+    >
+      <button type="button" onClick={onOpen} className="relative block aspect-video w-full bg-gray-100">
+        {src ? (
+          // eslint-disable-next-line @next/next/no-img-element -- Storage URLs and blob URLs, not Next image hosts
+          <img src={src} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="absolute inset-0 animate-pulse bg-gray-100" />
+        )}
+        <span className="absolute inset-0 flex items-center justify-center bg-gray-900/0 opacity-0 transition group-hover:bg-gray-900/30 group-hover:opacity-100">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow">
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </span>
+        </span>
+        {busy && (
+          <span className="absolute inset-0 flex items-center justify-center bg-white/60">
+            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          </span>
+        )}
+      </button>
+      <div className="flex items-start gap-2.5 p-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={selected ? 'Deselect' : 'Select'}
+          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border transition ${
+            selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'
+          }`}
+        >
+          {selected && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm font-medium leading-snug text-gray-900">{thumbnail.design.title || thumbnail.title}</p>
+          <p className="mt-1 truncate text-xs text-gray-500">{linkLabel ?? 'Not linked to an article'}</p>
+          {thumbnail.error && <p className="mt-1 line-clamp-2 text-xs text-red-600">{thumbnail.error}</p>}
+        </div>
+        <div className="flex flex-shrink-0 flex-col items-end gap-1">
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${STATUS_STYLES[thumbnail.status]}`}>
+            {STATUS_LABELS[thumbnail.status]}
+          </span>
+          {thumbnail.shopifyAdminUrl && (
+            <a href={thumbnail.shopifyAdminUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 hover:text-blue-600">
+              Open <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {thumbnail.locked && <Lock className="h-3.5 w-3.5 text-amber-500" />}
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+export default function ThumbnailStudioPage() {
+  const { user, subscription_status } = useAuth();
+  const router = useRouter();
+  const [brands, setBrands] = useState<BrandProfile[]>([]);
+  const [brandId, setBrandId] = useState('');
+  const [appArticles, setAppArticles] = useState<StudioArticle[]>([]);
+  const [shopifyArticles, setShopifyArticles] = useState<ShopifyArticle[]>([]);
+  const [shopifyState, setShopifyState] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
+  const [thumbnails, setThumbnails] = useState<ThumbnailRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'app' | 'shopify'>('app');
+  const [search, setSearch] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [customTitle, setCustomTitle] = useState('');
+  const [making, setMaking] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pushing, setPushing] = useState<Set<string>>(new Set());
+  const [pushStatus, setPushStatus] = useState<'draft' | 'published'>('draft');
+  const [editing, setEditing] = useState<ThumbnailRecord | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const stopRef = useRef(false);
+
+  useEffect(() => {
+    if (user && subscription_status && subscription_status !== 'admin') router.push('/dashboard/articles');
+  }, [user, subscription_status, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    brandProfileOperations.getAll(user.uid).then((profiles) => {
+      setBrands(profiles);
+      const saved = localStorage.getItem(BRAND_KEY);
+      const initial = profiles.find((b) => b.id === saved) ?? profiles[0];
+      if (initial?.id) setBrandId(initial.id);
+      else setLoading(false);
+    });
+  }, [user]);
+
+  const brand = brands.find((b) => b.id === brandId);
+
+  useEffect(() => {
+    setLogoUrl(brand?.thumbnailLogoPath ? `/api/thumbnails/asset?path=${encodeURIComponent(brand.thumbnailLogoPath)}` : null);
+  }, [brand?.thumbnailLogoPath]);
+
+  const load = useCallback(async () => {
+    if (!user || !brandId) return;
+    setLoading(true);
+    try {
+      const [list, articles] = await Promise.all([
+        thumbnailApi<{ thumbnails: ThumbnailRecord[] }>(user, `/api/thumbnails?brandId=${encodeURIComponent(brandId)}`),
+        thumbnailApi<{ articles: StudioArticle[] }>(user, `/api/thumbnails/articles?brandId=${encodeURIComponent(brandId)}`),
+      ]);
+      setThumbnails(list.thumbnails);
+      setAppArticles(articles.articles);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not load thumbnails');
+    } finally {
+      setLoading(false);
+    }
+  }, [user, brandId]);
+
+  useEffect(() => {
+    if (!brandId) return;
+    localStorage.setItem(BRAND_KEY, brandId);
+    setPicked(new Set());
+    setSelected(new Set());
+    setShopifyArticles([]);
+    setShopifyState('idle');
+    load();
+  }, [brandId, load]);
+
+  const loadShopify = useCallback(async () => {
+    if (!user || !brand?.shopifyStoreUrl) return setShopifyState('unavailable');
+    setShopifyState('loading');
+    try {
+      const { articles } = await thumbnailApi<{ articles: ShopifyArticle[] }>(user, '/api/shopify/get-articles', {
+        method: 'POST',
+        body: JSON.stringify({ brandId }),
+      });
+      setShopifyArticles(articles ?? []);
+      setShopifyState('ready');
+    } catch {
+      setShopifyState('unavailable');
+    }
+  }, [user, brand?.shopifyStoreUrl, brandId]);
+
+  useEffect(() => {
+    if (brand && shopifyState === 'idle') loadShopify();
+  }, [brand, shopifyState, loadShopify]);
+
+  const linkOptions: LinkOption[] = useMemo(
+    () => [
+      ...appArticles.map((article) => {
+        const target: ThumbnailTarget = { kind: 'blog', blogId: article.id };
+        return { value: targetValue(target), label: article.title, group: 'app' as const, target };
+      }),
+      ...shopifyArticles.map((article) => {
+        const target: ThumbnailTarget = { kind: 'shopify', articleId: String(article.id), shopifyBlogId: String(article.blog_id) };
+        return { value: targetValue(target), label: article.title, group: 'shopify' as const, target };
+      }),
+    ],
+    [appArticles, shopifyArticles],
+  );
+  const linkLabel = (target: ThumbnailTarget | null) => {
+    if (!target) return null;
+    const option = linkOptions.find((o) => o.value === targetValue(target));
+    return option ? `${option.group === 'app' ? 'Article' : 'Shopify'}: ${option.label}` : target.kind === 'blog' ? 'Linked article' : 'Shopify article';
+  };
+
+  const linkedValues = useMemo(() => new Set(thumbnails.map((t) => targetValue(t.target)).filter(Boolean)), [thumbnails]);
+
+  const sources: Source[] = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list: Source[] =
+      tab === 'app'
+        ? appArticles.map((a) => {
+            const target: ThumbnailTarget = { kind: 'blog', blogId: a.id };
+            return { value: targetValue(target), title: a.title, keyword: a.keyword, target, hasImage: Boolean(a.thumbnailId) || linkedValues.has(targetValue(target)) };
+          })
+        : shopifyArticles.map((a) => {
+            const target: ThumbnailTarget = { kind: 'shopify', articleId: String(a.id), shopifyBlogId: String(a.blog_id) };
+            return { value: targetValue(target), title: a.title, keyword: null, target, hasImage: Boolean(a.image?.src) || linkedValues.has(targetValue(target)) };
+          });
+    return q ? list.filter((s) => s.title.toLowerCase().includes(q)) : list;
+  }, [tab, appArticles, shopifyArticles, search, linkedValues]);
+
+  const allSources = useMemo(() => {
+    const map = new Map<string, Source>();
+    for (const a of appArticles) {
+      const target: ThumbnailTarget = { kind: 'blog', blogId: a.id };
+      map.set(targetValue(target), { value: targetValue(target), title: a.title, keyword: a.keyword, target, hasImage: false });
+    }
+    for (const a of shopifyArticles) {
+      const target: ThumbnailTarget = { kind: 'shopify', articleId: String(a.id), shopifyBlogId: String(a.blog_id) };
+      map.set(targetValue(target), { value: targetValue(target), title: a.title, keyword: null, target, hasImage: false });
+    }
+    return map;
+  }, [appArticles, shopifyArticles]);
+
+  const togglePick = (value: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+
+  const make = async () => {
+    if (!user || !brandId) return;
+    const jobs: { title: string; keyword: string | null; target: ThumbnailTarget | null }[] = [
+      ...Array.from(picked)
+        .map((value) => allSources.get(value))
+        .filter((s): s is Source => Boolean(s))
+        .map((s) => ({ title: s.title, keyword: s.keyword, target: s.target })),
+      ...(customTitle.trim() ? [{ title: customTitle.trim(), keyword: null, target: null }] : []),
+    ];
+    if (!jobs.length) return;
+    stopRef.current = false;
+    let failures = 0;
+    for (const [index, job] of jobs.entries()) {
+      if (stopRef.current) break;
+      setMaking({ done: index, total: jobs.length, current: job.title });
+      try {
+        const { thumbnail } = await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, '/api/thumbnails', {
+          method: 'POST',
+          body: JSON.stringify({ brandId, ...job }),
+        });
+        setThumbnails((current) => [thumbnail, ...current]);
+      } catch (error) {
+        failures += 1;
+        toast.error(`${job.title}: ${error instanceof Error ? error.message : 'failed'}`);
+      }
+    }
+    setMaking(null);
+    setPicked(new Set());
+    setCustomTitle('');
+    if (jobs.length - failures > 0) toast.success(`${jobs.length - failures} thumbnail${jobs.length - failures === 1 ? '' : 's'} ready`);
+  };
+
+  const toggleSelected = (id: string) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const push = async () => {
+    if (!user || !selected.size) return;
+    const ids = Array.from(selected);
+    const unlinked = thumbnails.filter((t) => selected.has(t.id) && !t.target).length;
+    if (unlinked === ids.length) {
+      toast.error('Link the selected thumbnails to articles first');
+      return;
+    }
+    setPushing(new Set(ids));
+    try {
+      const { results } = await thumbnailApi<{ results: { id: string; ok: boolean; message: string }[] }>(user, '/api/thumbnails/push', {
+        method: 'POST',
+        body: JSON.stringify({ ids, status: pushStatus }),
+      });
+      const ok = results.filter((r) => r.ok).length;
+      if (ok) toast.success(`${ok} sent to Shopify`);
+      if (ok < results.length) toast.error(`${results.length - ok} could not be sent; see the cards for why`);
+      setSelected(new Set());
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Push failed');
+    } finally {
+      setPushing(new Set());
+    }
+  };
+
+  const remove = async () => {
+    if (!user || !selected.size) return;
+    if (!window.confirm(`Delete ${selected.size} thumbnail${selected.size === 1 ? '' : 's'}? Articles using them lose their featured image here, not in Shopify.`)) return;
+    const ids = Array.from(selected);
+    await Promise.all(ids.map((id) => thumbnailApi(user, `/api/thumbnails/${id}`, { method: 'DELETE' }).catch(() => undefined)));
+    setThumbnails((current) => current.filter((t) => !selected.has(t.id)));
+    setSelected(new Set());
+  };
+
+  const onSaved = (saved: ThumbnailRecord) => {
+    setThumbnails((current) => current.map((t) => (t.id === saved.id ? saved : t)));
+    setEditing(saved);
+  };
+
+  if (!user) return null;
+
+  const pickCount = picked.size + (customTitle.trim() ? 1 : 0);
+  const allSelected = thumbnails.length > 0 && thumbnails.every((t) => selected.has(t.id));
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      {/* Brand Profile Form Modal */}
-      {showBrandForm && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Create Brand Profile</h2>
-              <button
-                onClick={() => setShowBrandForm(false)}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            <BrandProfileForm
-              onSave={handleBrandSave}
-              onCancel={() => setShowBrandForm(false)}
-            />
-          </div>
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Thumbnail studio</h1>
+          <p className="mt-1 text-sm text-gray-500">Featured images for your articles: a photo, your brand colour and the title, ready for Shopify.</p>
         </div>
-      )}
+        {brands.length > 0 && (
+          <select
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+          >
+            {brands.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.brandName}
+              </option>
+            ))}
+          </select>
+        )}
+      </header>
 
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold mb-2">Generate Thumbnails</h1>
-          <p className="text-gray-600">Generate AI-powered thumbnails for your Shopify blog articles</p>
+      {!loading && brands.length === 0 ? (
+        <div className="mt-8 rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
+          <p className="font-medium text-gray-900">Create a brand profile first</p>
+          <p className="mt-1 text-sm text-gray-500">Thumbnails use its colour, name and logo.</p>
         </div>
-
-        {/* Usage Tracker */}
-        <UsageTracker tool="thumbnails" className="mb-8" />
-
-        {/* Brand Profile Selection */}
-        <div className={`mb-8 ${!selectedBrandId ? 'relative' : ''}`}>
-          <div className="flex items-center justify-between mb-4">
-            <label className={`block text-sm font-medium ${!selectedBrandId ? 'text-red-600' : 'text-gray-700'}`}>
-              Select Brand Profile
-              {!selectedBrandId && <span className="ml-1 text-red-600">*</span>}
-            </label>
-            <button
-              onClick={() => setShowBrandForm(true)}
-              className="text-sm text-blue-600 hover:text-blue-500"
-            >
-              + Add New Brand
-            </button>
-          </div>
-
-          <div className={`grid gap-4 ${!selectedBrandId ? 'border-2 border-red-200 rounded-lg p-4' : ''}`}>
-            {isLoadingProfiles ? (
-              <div className="text-center py-4">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                <p className="mt-2 text-sm text-gray-500">Loading brand profiles...</p>
-              </div>
-            ) : brandProfiles.length > 0 ? (
-              brandProfiles.map((profile) => (
-                <button
-                  key={profile.id}
-                  onClick={() => handleBrandSelection(profile.id || '')}
-                  className={`p-4 border rounded-lg text-left transition-colors ${
-                    selectedBrandId === profile.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div
-                        className="w-4 h-4 rounded-full"
-                        style={{ backgroundColor: profile.brandColor }}
-                      />
-                      <span className="font-medium">{profile.brandName}</span>
-                    </div>
-                    <div className="flex items-center space-x-2 text-sm text-gray-500">
-                      {profile.shopifyStoreUrl ? (
-                        <span className="flex items-center text-green-600">
-                          <Check className="w-4 h-4 mr-1" />
-                          Shopify Connected
-                        </span>
-                      ) : (
-                        <span className="flex items-center text-red-600">
-                          <X className="w-4 h-4 mr-1" />
-                          Shopify Not Connected
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">{profile.businessType}</p>
-                </button>
-              ))
-            ) : (
-              <div className={`text-center py-8 bg-gray-50 rounded-lg border-2 ${!selectedBrandId ? 'border-red-200' : 'border-dashed border-gray-300'}`}>
-                <p className={`mb-2 ${!selectedBrandId ? 'text-red-600' : 'text-gray-500'}`}>
-                  No brand profiles yet
-                </p>
-                <button
-                  onClick={() => setShowBrandForm(true)}
-                  className="text-blue-600 hover:text-blue-500"
-                >
-                  + Create your first brand profile
-                </button>
-              </div>
-            )}
-            
-            {!selectedBrandId && !isLoadingProfiles && brandProfiles.length > 0 && (
-              <div className="text-sm text-red-600 mt-2">
-                Please select a brand profile to load Shopify articles
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Articles Selection */}
-        {selectedBrandId && (
-          <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <div>
-                <h2 className="text-lg font-semibold">Shopify Articles</h2>
-                <p className="text-sm text-gray-600">Select articles to generate thumbnails for</p>
-              </div>
-              {allShopifyArticles.length > 0 && (
-                <div className="flex items-center space-x-4">
+      ) : (
+        <div className="mt-6 grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+          <section className="flex max-h-[calc(100vh-10rem)] flex-col rounded-xl border border-gray-200 bg-white shadow-sm lg:sticky lg:top-6">
+            <div className="border-b border-gray-100 p-4">
+              <h2 className="font-semibold text-gray-900">Make thumbnails</h2>
+              <div className="mt-3 grid grid-cols-2 rounded-lg bg-gray-100 p-0.5">
+                {(['app', 'shopify'] as const).map((value) => (
                   <button
-                    onClick={handleSelectAllArticles}
-                    className="text-sm text-blue-600 hover:text-blue-500 font-medium"
+                    key={value}
+                    type="button"
+                    onClick={() => setTab(value)}
+                    className={`rounded-md px-2 py-1.5 text-xs font-medium transition ${tab === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
                   >
-                    {selectedArticleIds.length === allShopifyArticles.length ? 'Deselect All' : 'Select All'}
+                    {value === 'app' ? `Your articles (${appArticles.length})` : `In Shopify (${shopifyArticles.length})`}
                   </button>
-                  <span className="text-sm text-gray-500">
-                    {selectedArticleIds.length} of {allShopifyArticles.length} selected
-                  </span>
+                ))}
+              </div>
+              <div className="relative mt-3">
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search titles"
+                  className="w-full rounded-lg border border-gray-300 py-2 pl-8 pr-3 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <ul className="min-h-[10rem] flex-1 divide-y divide-gray-50 overflow-y-auto">
+              {tab === 'shopify' && shopifyState === 'loading' && (
+                <li className="flex justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                </li>
+              )}
+              {tab === 'shopify' && shopifyState === 'unavailable' && (
+                <li className="px-4 py-6 text-center text-sm text-gray-500">Connect this brand&apos;s Shopify store to pick articles already published there.</li>
+              )}
+              {sources.map((source) => (
+                <li key={source.value}>
+                  <label className="flex cursor-pointer items-start gap-3 px-4 py-2.5 hover:bg-gray-50">
+                    <input type="checkbox" checked={picked.has(source.value)} onChange={() => togglePick(source.value)} className="mt-0.5 rounded text-blue-600" />
+                    <span className="min-w-0 flex-1 text-sm leading-snug text-gray-800">{source.title}</span>
+                    {source.hasImage && <ImageIcon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-green-500" aria-label="Has an image" />}
+                  </label>
+                </li>
+              ))}
+              {!loading && sources.length === 0 && (tab === 'app' || shopifyState === 'ready') && (
+                <li className="px-4 py-6 text-center text-sm text-gray-500">{search ? 'Nothing matches.' : 'No articles yet.'}</li>
+              )}
+            </ul>
+
+            <div className="space-y-3 border-t border-gray-100 p-4">
+              <input
+                value={customTitle}
+                onChange={(event) => setCustomTitle(event.target.value)}
+                placeholder="Or type any title"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+              {making ? (
+                <div>
+                  <div className="flex items-center justify-between text-xs text-gray-600">
+                    <span className="truncate pr-2">Making {making.done + 1} of {making.total}: {making.current}</span>
+                    <button type="button" onClick={() => (stopRef.current = true)} className="flex-shrink-0 font-medium text-gray-500 hover:text-red-600">
+                      Stop
+                    </button>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                    <div className="h-full rounded-full bg-blue-600 transition-[width] duration-500" style={{ width: `${((making.done + 0.5) / making.total) * 100}%` }} />
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={make}
+                  disabled={!pickCount}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {pickCount ? `Make ${pickCount} thumbnail${pickCount === 1 ? '' : 's'}` : 'Pick articles to illustrate'}
+                </button>
+              )}
+              <p className="text-center text-[11px] text-gray-400">About 30 seconds each. You can edit every one before it goes anywhere.</p>
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <h2 className="font-semibold text-gray-900">Thumbnails</h2>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{thumbnails.length}</span>
+                {thumbnails.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(allSelected ? new Set() : new Set(thumbnails.map((t) => t.id)))}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    {allSelected ? 'Clear selection' : 'Select all'}
+                  </button>
+                )}
+              </div>
+              {selected.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={pushStatus}
+                    onChange={(event) => setPushStatus(event.target.value as 'draft' | 'published')}
+                    className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs focus:outline-none"
+                    title="For articles not yet in Shopify"
+                  >
+                    <option value="draft">New articles as drafts</option>
+                    <option value="published">New articles published</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={remove}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-red-300 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={push}
+                    disabled={pushing.size > 0}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-green-700 disabled:opacity-60"
+                  >
+                    {pushing.size ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingBag className="h-4 w-4" />}
+                    Push {selected.size} to Shopify
+                  </button>
                 </div>
               )}
             </div>
 
-            {isLoadingArticles ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading Shopify articles...</p>
+            {loading ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="aspect-[4/3] animate-pulse rounded-xl bg-gray-100" />
+                ))}
               </div>
-            ) : allShopifyArticles.length > 0 ? (
-              <>
-                <div 
-                  ref={articlesContainerRef}
-                  className="max-h-96 overflow-y-scroll border border-gray-100 rounded-lg p-4 mb-6"
-                  style={{
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: '#9CA3AF #F3F4F6',
-                  }}
-                >
-                  <style jsx>{`
-                    div::-webkit-scrollbar {
-                      width: 8px;
-                    }
-                    div::-webkit-scrollbar-track {
-                      background: #F3F4F6;
-                      border-radius: 4px;
-                    }
-                    div::-webkit-scrollbar-thumb {
-                      background: #9CA3AF;
-                      border-radius: 4px;
-                    }
-                    div::-webkit-scrollbar-thumb:hover {
-                      background: #6B7280;
-                    }
-                  `}</style>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {displayedArticles.map((article) => (
-                      <div
-                        key={article.id}
-                        className={`border-2 rounded-lg p-4 cursor-pointer transition-all duration-200 ${
-                          selectedArticleIds.includes(article.id)
-                            ? 'border-green-500 bg-green-50 shadow-md'
-                            : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-                        }`}
-                        onClick={() => handleSelectArticle(article.id)}
-                      >
-                        <div className="flex items-start space-x-3">
-                          <div className="flex-shrink-0 mt-1">
-                            <div className={`relative w-5 h-5 rounded border-2 transition-all duration-200 ${
-                              selectedArticleIds.includes(article.id)
-                                ? 'bg-green-500 border-green-500'
-                                : 'bg-white border-gray-300 hover:border-gray-400'
-                            }`}>
-                              {selectedArticleIds.includes(article.id) && (
-                                <Check className="w-3 h-3 text-white absolute top-0.5 left-0.5" />
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between mb-2">
-                              <h3 className={`text-sm font-medium line-clamp-2 ${
-                                selectedArticleIds.includes(article.id)
-                                  ? 'text-green-900'
-                                  : 'text-gray-900'
-                              }`}>
-                                {article.title}
-                              </h3>
-                              {selectedArticleIds.includes(article.id) && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 ml-2">
-                                  Selected
-                                </span>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-gray-500">
-                                {(() => {
-                                  try {
-                                    return new Date(article.created_at as any).toLocaleDateString();
-                                  } catch {
-                                    return 'Unknown';
-                                  }
-                                })()}
-                              </span>
-                              <div className="flex items-center text-xs">
-                                {article.image ? (
-                                  <span className="flex items-center text-green-600">
-                                    <Eye className="w-3 h-3 mr-1" />
-                                    Has Image
-                                  </span>
-                                ) : (
-                                  <span className="flex items-center text-gray-500">
-                                    <EyeOff className="w-3 h-3 mr-1" />
-                                    No Image
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Generation Progress */}
-                            {generationProgress[article.id] && (
-                              <div className="mt-2">
-                                <div className={`text-xs px-2 py-1 rounded-full text-center ${
-                                  generationProgress[article.id] === 'completed' ? 'bg-green-100 text-green-700' :
-                                  generationProgress[article.id] === 'generating' ? 'bg-blue-100 text-blue-700' :
-                                  generationProgress[article.id] === 'error' ? 'bg-red-100 text-red-700' :
-                                  'bg-gray-100 text-gray-700'
-                                }`}>
-                                  {generationProgress[article.id] === 'completed' ? '✓ Complete' :
-                                   generationProgress[article.id] === 'generating' ? '🔄 Generating...' :
-                                   generationProgress[article.id] === 'error' ? '✗ Error' :
-                                   '⏳ Pending'}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Loading more indicator */}
-                  {isLoadingMore && (
-                    <div className="text-center py-4">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-2"></div>
-                      <p className="text-sm text-gray-500">Loading more articles...</p>
-                    </div>
-                  )}
-
-                  {/* Load More Button */}
-                  {!isLoadingMore && hasMore && (
-                    <div className="text-center py-4">
-                      <button
-                        onClick={loadMoreArticles}
-                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                      >
-                        Load More Articles
-                      </button>
-                    </div>
-                  )}
-
-                  {/* All loaded indicator */}
-                  {!hasMore && displayedArticles.length > 0 && displayedArticles.length === allShopifyArticles.length && (
-                    <div className="text-center py-4">
-                      <p className="text-sm text-gray-500">All articles loaded</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Generate Button */}
-                <div className="flex justify-center">
-                  <button
-                    onClick={handleGenerateThumbnails}
-                    disabled={selectedArticleIds.length === 0 || isGenerating}
-                    className="px-6 py-3 text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    {isGenerating 
-                      ? `Generating ${selectedArticleIds.length} thumbnail${selectedArticleIds.length !== 1 ? 's' : ''}...`
-                      : selectedArticleIds.length === 0
-                      ? 'Select articles to generate thumbnails'
-                      : `Generate ${selectedArticleIds.length} thumbnail${selectedArticleIds.length !== 1 ? 's' : ''}`
-                    }
-                  </button>
-                </div>
-              </>
+            ) : thumbnails.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
+                <ImageIcon className="mx-auto h-8 w-8 text-gray-300" />
+                <p className="mt-3 font-medium text-gray-900">No thumbnails yet</p>
+                <p className="mt-1 text-sm text-gray-500">Pick articles on the left and we&apos;ll make one for each.</p>
+              </div>
             ) : (
-              <div className="text-center py-12">
-                <Image className="w-16 h-16 text-gray-300 mx-auto mb-4" aria-label="No articles found" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Articles Found</h3>
-                <p className="text-gray-600">
-                  No articles found in your Shopify store. Make sure your store has published blog articles.
-                </p>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4 p-0.5">
+                {thumbnails.map((thumbnail) => (
+                  <ThumbnailCard
+                    key={thumbnail.id}
+                    thumbnail={thumbnail}
+                    linkLabel={linkLabel(thumbnail.target)}
+                    selected={selected.has(thumbnail.id)}
+                    busy={pushing.has(thumbnail.id)}
+                    onToggle={() => toggleSelected(thumbnail.id)}
+                    onOpen={() => setEditing(thumbnail)}
+                  />
+                ))}
               </div>
             )}
-          </div>
-        )}
-      </div>
+          </section>
+        </div>
+      )}
+
+      {editing && (
+        <ThumbnailEditor
+          user={user}
+          thumbnail={editing}
+          brandColor={brand?.brandColor}
+          logoUrl={logoUrl}
+          links={linkOptions}
+          onClose={() => setEditing(null)}
+          onSaved={onSaved}
+          onLogoUploaded={(url) => {
+            setLogoUrl(url);
+            const path = new URL(url, window.location.origin).searchParams.get('path') ?? undefined;
+            setBrands((current) => current.map((b) => (b.id === brandId ? { ...b, thumbnailLogoPath: path } : b)));
+          }}
+        />
+      )}
     </div>
   );
-} 
+}

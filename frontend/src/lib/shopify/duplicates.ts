@@ -27,7 +27,7 @@ export async function findDuplicateArticle(
   accessToken: string,
   blogId: string | number,
   title: string
-): Promise<{ title: string; handle: string } | null> {
+): Promise<{ id: number | null; title: string; handle: string } | null> {
   const wanted = new Set(handlesFor(title));
   let url: string | null =
     `https://${shopDomain}/admin/api/2023-10/blogs/${blogId}/articles.json?limit=250&fields=id,title,handle`;
@@ -41,13 +41,13 @@ export async function findDuplicateArticle(
     }
 
     const { articles = [] } = (await response.json()) as {
-      articles?: { title?: string; handle?: string }[];
+      articles?: { id?: number; title?: string; handle?: string }[];
     };
     for (const existing of articles) {
       const handle = existing.handle || '';
       const clash =
         wanted.has(handle) || handlesFor(existing.title || '').some((h) => wanted.has(h));
-      if (clash) return { title: existing.title || '', handle };
+      if (clash) return { id: existing.id ?? null, title: existing.title || '', handle };
     }
 
     const next = response.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/);

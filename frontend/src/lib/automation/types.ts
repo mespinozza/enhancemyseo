@@ -136,6 +136,8 @@ export interface Automation {
   shopifyBlogId?: string;
   /** Draft by default even when auto-push is on. */
   shopifyStatus: 'draft' | 'published';
+  /** Makes a thumbnail for each article and uses it as the featured image. Studio plans only. */
+  generateThumbnail?: boolean;
   /**
    * Publish to the EnhanceMySEO blog at /blog rather than a customer's store.
    *

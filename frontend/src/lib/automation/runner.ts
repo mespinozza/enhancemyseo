@@ -19,6 +19,8 @@ import {
 } from 'firebase-admin/firestore';
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { meterAs } from '@/lib/ai/meter';
+import { internalBaseUrl } from '@/lib/internal-url';
+import { createThumbnail, thumbnailAccess } from '@/lib/thumbnail/service';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
 import { RECENT_CONTENT_TYPES, allowedContentTypes, pickContentType } from './content-type';
@@ -63,19 +65,6 @@ export interface RunOutcome {
 function adminDb(): Firestore {
   initializeFirebaseAdmin();
   return getFirestore();
-}
-
-/**
- * Where to reach this same service. Loopback by default; `AUTOMATION_SELF_URL` exists
- * for the case where the cron and web processes are split across Railway services.
- */
-function internalBaseUrl(): string {
-  const override = process.env.AUTOMATION_SELF_URL || process.env.NEXT_PUBLIC_APP_URL;
-  if (override) return override.replace(/\/$/, '');
-
-  // `npm start` binds to PORT, which Railway sets. `npm run dev` binds to 3001.
-  const fallbackPort = process.env.NODE_ENV === 'development' ? 3001 : 3000;
-  return `http://127.0.0.1:${process.env.PORT || fallbackPort}`;
 }
 
 /**
@@ -356,6 +345,27 @@ async function generateArticle(
     hasGenerationIssues: Boolean(payload.hasGenerationIssues),
     seo,
   };
+}
+
+/**
+ * The thumbnail becomes the article's featured image in the app and in the push. The
+ * plan is checked against the account, since the flag is written by the browser.
+ */
+async function makeThumbnail(
+  automation: Automation,
+  article: GeneratedArticle,
+): Promise<{ src: string; alt: string } | null> {
+  const access = await thumbnailAccess(automation.userId, null);
+  if (!access.studio) return null;
+  const snap = await createThumbnail({
+    uid: automation.userId,
+    brandId: automation.brandId,
+    title: article.title,
+    keyword: null,
+    target: { kind: 'blog', blogId: article.blogId },
+  });
+  const url = snap.get('imageUrl');
+  return typeof url === 'string' ? { src: url, alt: article.title } : null;
 }
 
 async function pushToShopify(
@@ -826,6 +836,15 @@ async function runQueuedAutomation(
       let pushed = false;
       let sitePath: string | null = null;
       let warning: string | null = null;
+
+      if (automation.generateThumbnail) {
+        try {
+          const image = await makeThumbnail(automation, article);
+          if (image) article.seo = { ...(article.seo ?? {}), featuredImage: image } as ArticleSeo;
+        } catch (error) {
+          warning = `The thumbnail could not be made: ${describeError(error)}`;
+        }
+      }
 
       if (article.hasGenerationIssues) {
         // The fact-check loop flagged something. Publishing that unreviewed is worse

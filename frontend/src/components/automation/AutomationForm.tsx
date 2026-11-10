@@ -119,6 +119,7 @@ export default function AutomationForm({
   const [shopifyBlogId, setShopifyBlogId] = useState(existing?.shopifyBlogId || '');
   const [shopifyBlogs, setShopifyBlogs] = useState<ShopifyBlogOption[]>([]);
   const [loadingBlogs, setLoadingBlogs] = useState(false);
+  const [generateThumbnail, setGenerateThumbnail] = useState(existing?.generateThumbnail || false);
   const [publishToSiteBlog, setPublishToSiteBlog] = useState(
     existing?.publishToSiteBlog || false
   );
@@ -324,6 +325,7 @@ export default function AutomationForm({
       // Sent as false rather than omitted for non-admins, so an account that loses
       // admin cannot leave a stale true behind on a saved automation.
       publishToSiteBlog: isAdmin ? publishToSiteBlog : false,
+      generateThumbnail: isAdmin ? generateThumbnail : false,
       siteBlogStatus,
     };
 
@@ -959,6 +961,24 @@ export default function AutomationForm({
           />
         </div>
       </div>
+
+      {isAdmin && (
+        <label className="flex items-start gap-3 border-t border-gray-200 pt-4">
+          <input
+            type="checkbox"
+            checked={generateThumbnail}
+            onChange={(event) => setGenerateThumbnail(event.target.checked)}
+            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm">
+            <span className="font-medium text-gray-900">Make a thumbnail for each article</span>
+            <span className="mt-0.5 block text-xs text-gray-500">
+              A photo with your brand colour, title and logo, set as the featured image and sent with the
+              Shopify push. Edit any of them later in the Thumbnail studio.
+            </span>
+          </span>
+        </label>
+      )}
 
       <div className="border-t border-gray-200 pt-4">
         <h3 className="mb-1 text-sm font-semibold text-gray-900">Where to publish</h3>

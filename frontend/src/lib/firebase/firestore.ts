@@ -59,6 +59,8 @@ export interface BrandProfile extends BaseDocument {
    * token's app, which shows up publicly as "Shopify API".
    */
   shopifyAuthor?: string;
+  /** Storage path of the logo drawn on thumbnails. Read through /api/thumbnails/asset. */
+  thumbnailLogoPath?: string;
   socialMedia?: {
     facebook?: string;
     twitter?: string;
@@ -91,6 +93,11 @@ export interface Blog extends BaseDocument {
   };
   /** Search listing fields. Only Enhanced articles have them. */
   seo?: ArticleSeo;
+  /** The thumbnail set as this article's featured image. */
+  thumbnailId?: string;
+  /** Recorded when the thumbnail studio pushes the article, so later pushes update it. */
+  shopifyArticleId?: number;
+  shopifyBlogId?: number | string;
 }
 
 export interface GeneratedProduct extends BaseDocument {

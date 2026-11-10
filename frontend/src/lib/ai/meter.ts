@@ -18,6 +18,9 @@ const ANTHROPIC_CACHE_READ = 0.1;
 const ANTHROPIC_WEB_SEARCH = 10 / 1000;
 const PERPLEXITY_PER_MTOK = 1;
 const PERPLEXITY_PER_REQUEST = 5 / 1000;
+/** gpt-image-1: text prompt tokens and generated image tokens. */
+const OPENAI_IMAGE_INPUT_PER_MTOK = 5;
+const OPENAI_IMAGE_OUTPUT_PER_MTOK = 40;
 
 export interface MeterTotals {
   costUsd: number;
@@ -128,6 +131,15 @@ function record(scope: MeterScope, url: string, body: unknown): void {
     spend = priceAnthropic(model ?? '', usage as AnthropicUsage);
   } else if (url.includes('perplexity.ai')) {
     spend = pricePerplexity(usage as PerplexityUsage);
+  } else if (url.includes('api.openai.com/v1/images')) {
+    const { input_tokens = 0, output_tokens = 0 } = usage as { input_tokens?: number; output_tokens?: number };
+    spend = {
+      costUsd: (input_tokens * OPENAI_IMAGE_INPUT_PER_MTOK + output_tokens * OPENAI_IMAGE_OUTPUT_PER_MTOK) / 1_000_000,
+      inputTokens: input_tokens,
+      outputTokens: output_tokens,
+      webSearches: 0,
+      requests: 1,
+    };
   } else {
     return;
   }

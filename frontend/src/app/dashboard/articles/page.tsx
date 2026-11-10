@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getOnboarding, saveOnboarding, type OnboardingState } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
+import TutorialThumbnail from '@/components/thumbnail/TutorialThumbnail';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
 import { brandProfileOperations, BrandProfile, blogOperations, Blog } from '@/lib/firebase/firestore';
@@ -417,6 +418,14 @@ export default function ArticlesPage() {
   // Arriving from the welcome tutorial: its answers fill the form, and the first article
   // is sent as the tutorial's bonus.
   const [tutorial, setTutorial] = useState<OnboardingState | null>(null);
+  const [tutorialThumb, setTutorialThumb] = useState<{ blogId: string; brandId: string; title: string; keyword: string } | null>(null);
+  const showThumbnail = useCallback((blogId: string, image: { src: string; alt: string }) => {
+    setGeneratedArticles((prev) =>
+      prev.map((article) =>
+        article.id === blogId ? { ...article, seo: { ...(article.seo ?? {}), featuredImage: image } as typeof article.seo } : article
+      )
+    );
+  }, []);
   const generateButtonRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!user?.uid || !new URLSearchParams(window.location.search).has('tutorial')) return;
@@ -815,6 +824,12 @@ export default function ArticlesPage() {
                 has_website: Boolean(selectedProfile.websiteUrl),
               });
               saveOnboarding(user.uid, { status: 'completed', blogId: blog }).catch(() => {});
+              setTutorialThumb({
+                blogId: blog,
+                brandId: selectedProfile.id || '',
+                title: generatedContent.title || blogData.title,
+                keyword: currentKeyword,
+              });
               setTutorial(null);
               setExpandedArticle(0);
               toast.success(
@@ -2190,6 +2205,13 @@ export default function ArticlesPage() {
                 </div>
               )}
               
+              {tutorialThumb?.brandId && (
+                <TutorialThumbnail
+                  {...tutorialThumb}
+                  onReady={(image) => showThumbnail(tutorialThumb.blogId, image)}
+                />
+              )}
+
               {/* Articles Grid - Shows completed articles during generation */}
               {generatedArticles.length > 0 && (
                 <div
