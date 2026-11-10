@@ -11,6 +11,7 @@ import {
   toRecord,
 } from '@/lib/thumbnail/service';
 import { THUMBNAILS_COLLECTION, type ThumbnailTarget } from '@/lib/thumbnail/types';
+import { isLayout } from '@/lib/thumbnail/design';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -45,6 +46,7 @@ interface CreateBody {
   keyword?: string;
   target?: ThumbnailTarget | null;
   direction?: string;
+  layout?: string;
   /** The welcome tutorial's one thumbnail, allowed without the studio. */
   tutorial?: boolean;
 }
@@ -89,6 +91,7 @@ export async function POST(request: NextRequest) {
       keyword: body.keyword?.trim().slice(0, 160) || null,
       target: validTarget(body.target),
       direction: body.direction?.trim().slice(0, 300),
+      design: isLayout(body.layout) ? { layout: body.layout } : null,
     });
     return NextResponse.json({ thumbnail: await toRecord(snap, access) });
   } catch (error) {

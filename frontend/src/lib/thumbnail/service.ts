@@ -115,9 +115,16 @@ export function photoPrompt(input: {
   brandName?: string;
   businessType?: string;
   panelSide: 'left' | 'right';
+  layout?: ThumbnailDesign['layout'];
   direction?: string;
 }): string {
   const side = input.panelSide === 'right' ? 'left' : 'right';
+  const composition =
+    input.layout === 'bold-banner'
+      ? `Keep the main subject in the upper ${side} of the frame; the lower ${input.panelSide} area will carry a headline over a dark fade.`
+      : input.layout === 'center-stage'
+        ? 'Spread the scene across the full width with interest near the left and right edges; the centre will be covered by a text card.'
+        : `Keep the main subject in the ${side} 55% of the frame; the other side will be covered by a text panel.`;
   return [
     `Photorealistic editorial photograph for a blog article titled "${input.title}".`,
     input.keyword ? `Topic: ${input.keyword}.` : '',
@@ -125,7 +132,7 @@ export function photoPrompt(input: {
       ? `It is for ${[input.brandName, input.businessType].filter(Boolean).join(', a ')}.`
       : '',
     'Show a believable real-world scene that illustrates the topic: real people, equipment or products being used in a real setting, natural light, shallow depth of field, crisp detail.',
-    `Keep the main subject in the ${side} 55% of the frame; the other side will be covered by a text panel.`,
+    composition,
     input.direction ? `Art direction: ${input.direction}.` : '',
     'No text, letters, numbers, logos, watermarks or signage anywhere in the image.',
   ]
@@ -247,6 +254,7 @@ export async function createThumbnail(input: {
     title: input.title,
     brandName: brand.get('brandName'),
     brandColor: brand.get('thumbnailColor') || brand.get('brandColor'),
+    layout: input.design?.layout,
   });
   const design = normalizeDesign(
     {
@@ -264,6 +272,7 @@ export async function createThumbnail(input: {
       brandName: brand.get('brandName'),
       businessType: brand.get('businessType'),
       panelSide: design.panelSide,
+      layout: design.layout,
       direction: input.direction,
     }),
   );
@@ -331,6 +340,7 @@ export async function regeneratePhoto(uid: string, snap: DocumentSnapshot, direc
       brandName: brand.get('brandName'),
       businessType: brand.get('businessType'),
       panelSide: design.panelSide,
+      layout: design.layout,
       direction,
     }),
   );

@@ -1,9 +1,21 @@
+export type ThumbnailLayout = 'parts-plus' | 'bold-banner' | 'center-stage' | 'framed';
+
+export const THUMBNAIL_LAYOUTS: { value: ThumbnailLayout; label: string; description: string }[] = [
+  { value: 'parts-plus', label: 'Parts Plus Format', description: 'Photo with a torn brand-colour panel' },
+  { value: 'bold-banner', label: 'Bold Banner', description: 'Full photo, headline across the bottom' },
+  { value: 'center-stage', label: 'Center Stage', description: 'Full photo, headline on a centred card' },
+  { value: 'framed', label: 'Framed', description: 'Brand-colour page with a tilted photo print' },
+];
+
 /** Everything the editor can change. Saved with each thumbnail so it can be reopened. */
 export interface ThumbnailDesign {
+  /** Which layout draws it. Designs saved before layouts existed are Parts Plus. */
+  layout: ThumbnailLayout;
   /** Panel text. Rendered upper case. */
   title: string;
+  /** The side the text sits on: the panel in Parts Plus and Framed, the headline in Bold Banner. */
   panelSide: 'right' | 'left';
-  /** Share of the width the colour panel takes, 0.3 to 0.6. */
+  /** Share of the width the colour panel (or Center Stage's card) takes, 0.3 to 0.6. */
   panelWidth: number;
   panelColor: string;
   textColor: string;
@@ -43,16 +55,28 @@ export function contrastText(hex: string): string {
   return lum > 0.45 ? '#111111' : '#ffffff';
 }
 
-export function defaultDesign(input: { title: string; brandName?: string; brandColor?: string }): ThumbnailDesign {
+/** Text colours that read well on a layout: Bold Banner sets its headline over a dark photo. */
+export function layoutColors(layout: ThumbnailLayout, panelColor: string): { textColor: string; logoColor: string } {
+  if (layout === 'bold-banner') return { textColor: '#ffffff', logoColor: '#ffffff' };
+  const text = contrastText(panelColor);
+  return { textColor: text, logoColor: layout === 'parts-plus' ? '#ffffff' : text };
+}
+
+export const isLayout = (value: unknown): value is ThumbnailLayout => THUMBNAIL_LAYOUTS.some((l) => l.value === value);
+
+export function defaultDesign(input: { title: string; brandName?: string; brandColor?: string; layout?: ThumbnailLayout }): ThumbnailDesign {
   const panelColor = input.brandColor && HEX.test(input.brandColor) && input.brandColor.toLowerCase() !== '#000000'
     ? input.brandColor
     : '#5cb85c';
+  const layout = input.layout ?? 'parts-plus';
+  const colors = layoutColors(layout, panelColor);
   return {
+    layout,
     title: input.title,
     panelSide: 'right',
     panelWidth: 0.42,
     panelColor,
-    textColor: contrastText(panelColor),
+    textColor: colors.textColor,
     edge: 'torn',
     edgeSeed: Math.floor(Math.random() * 10_000),
     paperStrip: true,
@@ -63,7 +87,7 @@ export function defaultDesign(input: { title: string; brandName?: string; brandC
     logo: {
       mode: input.brandName ? 'text' : 'none',
       text: input.brandName ?? '',
-      color: '#ffffff',
+      color: colors.logoColor,
       scale: 1,
     },
   };
@@ -81,6 +105,7 @@ export function normalizeDesign(raw: unknown, fallbackTitle = ''): ThumbnailDesi
   const logo = (d.logo && typeof d.logo === 'object' ? d.logo : {}) as Partial<ThumbnailDesign['logo']>;
   const color = (value: unknown, fallback: string) => (typeof value === 'string' && HEX.test(value) ? value : fallback);
   return {
+    layout: isLayout(d.layout) ? d.layout : 'parts-plus',
     title: typeof d.title === 'string' ? d.title.slice(0, 160) : base.title,
     panelSide: d.panelSide === 'left' ? 'left' : 'right',
     panelWidth: clamp(d.panelWidth, 0.3, 0.6, base.panelWidth),

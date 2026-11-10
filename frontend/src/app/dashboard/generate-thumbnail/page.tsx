@@ -20,6 +20,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import { thumbnailApi, useAuthedImage } from '@/lib/thumbnail/client';
 import type { ThumbnailRecord, ThumbnailTarget } from '@/lib/thumbnail/types';
+import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
 import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
 import ThumbnailEditor, { targetValue, type LinkOption } from '@/components/thumbnail/ThumbnailEditor';
 
@@ -150,6 +151,7 @@ export default function ThumbnailStudioPage() {
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [customTitle, setCustomTitle] = useState('');
+  const [layout, setLayout] = useState<ThumbnailLayout>('parts-plus');
   const [making, setMaking] = useState<{ done: number; total: number; current: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState<Set<string>>(new Set());
@@ -301,7 +303,7 @@ export default function ThumbnailStudioPage() {
       try {
         const { thumbnail } = await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, '/api/thumbnails', {
           method: 'POST',
-          body: JSON.stringify({ brandId, ...job }),
+          body: JSON.stringify({ brandId, layout, ...job }),
         });
         setThumbnails((current) => [thumbnail, ...current]);
       } catch (error) {
@@ -479,6 +481,21 @@ export default function ThumbnailStudioPage() {
                 placeholder="Or type any title"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <span className="flex-shrink-0 font-medium">Style</span>
+                <select
+                  value={layout}
+                  onChange={(event) => setLayout(event.target.value as ThumbnailLayout)}
+                  disabled={Boolean(making)}
+                  className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  {THUMBNAIL_LAYOUTS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}: {option.description}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {making ? (
                 <div>
                   <div className="flex items-center justify-between text-xs text-gray-600">

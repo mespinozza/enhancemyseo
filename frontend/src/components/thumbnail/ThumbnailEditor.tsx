@@ -1,11 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { TokenUser as User } from '@/lib/thumbnail/client';
 import toast from 'react-hot-toast';
 import { ChevronDown, Download, ImagePlus, Loader2, RefreshCw, Save, Shuffle, Upload, X } from 'lucide-react';
-import { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, contrastText, type ThumbnailDesign } from '@/lib/thumbnail/design';
-import { drawThumbnail } from '@/lib/thumbnail/render';
+import {
+  THUMBNAIL_HEIGHT,
+  THUMBNAIL_LAYOUTS,
+  THUMBNAIL_WIDTH,
+  layoutColors,
+  type ThumbnailDesign,
+  type ThumbnailLayout,
+} from '@/lib/thumbnail/design';
+import { drawThumbnail, type ThumbnailImage } from '@/lib/thumbnail/render';
 import { ensureThumbnailFont, loadAuthedImage, loadFileImage, thumbnailApi } from '@/lib/thumbnail/client';
 import type { ThumbnailRecord, ThumbnailTarget } from '@/lib/thumbnail/types';
 
@@ -98,6 +105,64 @@ function ColorField({ value, onChange, swatches }: { value: string; onChange: (v
   );
 }
 
+/** The design as it would look in another layout, with that layout's readable colours. */
+export function inLayout(design: ThumbnailDesign, layout: ThumbnailLayout): ThumbnailDesign {
+  if (design.layout === layout) return design;
+  const colors = layoutColors(layout, design.panelColor);
+  return { ...design, layout, textColor: colors.textColor, logo: { ...design.logo, color: colors.logoColor } };
+}
+
+const PREVIEW_SCALE = 0.2;
+
+const PANEL_LABELS: Record<ThumbnailLayout, string> = {
+  'parts-plus': 'Panel',
+  'bold-banner': 'Accent',
+  'center-stage': 'Card',
+  framed: 'Background',
+};
+
+function StyleOption({
+  design,
+  photo,
+  logo,
+  ready,
+  active,
+  label,
+  onPick,
+}: {
+  design: ThumbnailDesign;
+  photo: ThumbnailImage | null;
+  logo: ThumbnailImage | null;
+  ready: boolean;
+  active: boolean;
+  label: string;
+  onPick: () => void;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const ctx = ref.current?.getContext('2d');
+    if (!ctx || !ready) return;
+    ctx.setTransform(PREVIEW_SCALE, 0, 0, PREVIEW_SCALE, 0, 0);
+    drawThumbnail(ctx, design, { photo, logo });
+  }, [design, photo, logo, ready]);
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={active}
+      className={`rounded-lg p-1 text-left transition ${active ? 'bg-blue-50 ring-2 ring-blue-500' : 'ring-1 ring-gray-200 hover:ring-gray-300'}`}
+    >
+      <canvas
+        ref={ref}
+        width={THUMBNAIL_WIDTH * PREVIEW_SCALE}
+        height={THUMBNAIL_HEIGHT * PREVIEW_SCALE}
+        className="block h-auto w-full rounded-md bg-gray-100"
+      />
+      <span className={`mt-1 block truncate px-0.5 text-[11px] font-medium ${active ? 'text-blue-700' : 'text-gray-600'}`}>{label}</span>
+    </button>
+  );
+}
+
 export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, links, onClose, onSaved, onLogoUploaded }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [design, setDesign] = useState<ThumbnailDesign>(thumbnail.design);
@@ -116,6 +181,7 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
     setDirty(true);
   }, []);
   const patchLogo = (change: Partial<ThumbnailDesign['logo']>) => patch({ logo: { ...design.logo, ...change } });
+  const previewDesign = useDeferredValue(design);
 
   useEffect(() => {
     ensureThumbnailFont().then(() => setFontReady(true));
@@ -329,6 +395,23 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
           </div>
 
           <div className="space-y-5 border-t border-gray-100 p-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
+            <Field label="Style">
+              <div className="grid grid-cols-2 gap-2">
+                {THUMBNAIL_LAYOUTS.map((option) => (
+                  <StyleOption
+                    key={option.value}
+                    design={inLayout(previewDesign, option.value)}
+                    photo={photo}
+                    logo={logo}
+                    ready={fontReady}
+                    active={design.layout === option.value}
+                    label={option.label}
+                    onPick={() => design.layout !== option.value && patch(inLayout(design, option.value))}
+                  />
+                ))}
+              </div>
+            </Field>
+
             <Field label="Title">
               <textarea
                 value={design.title}
@@ -342,24 +425,33 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
               <Slider value={design.textScale} min={0.6} max={1.3} step={0.05} onChange={(textScale) => patch({ textScale })} />
             </Field>
 
-            <Field label="Panel">
+            <Field label={PANEL_LABELS[design.layout]}>
               <div className="space-y-3">
-                <Segmented
-                  value={design.panelSide}
-                  options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
-                  onChange={(panelSide) => patch({ panelSide })}
-                />
-                <div>
-                  <div className="mb-1 flex justify-between text-[11px] text-gray-400">
-                    <span>Width</span>
-                    <span className="tabular-nums">{Math.round(design.panelWidth * 100)}%</span>
+                {design.layout !== 'center-stage' && (
+                  <div>
+                    {design.layout !== 'parts-plus' && (
+                      <div className="mb-1 text-[11px] text-gray-400">{design.layout === 'framed' ? 'Text side' : 'Headline side'}</div>
+                    )}
+                    <Segmented
+                      value={design.panelSide}
+                      options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
+                      onChange={(panelSide) => patch({ panelSide })}
+                    />
                   </div>
-                  <Slider value={design.panelWidth} min={0.3} max={0.6} step={0.01} onChange={(panelWidth) => patch({ panelWidth })} />
-                </div>
+                )}
+                {design.layout !== 'bold-banner' && (
+                  <div>
+                    <div className="mb-1 flex justify-between text-[11px] text-gray-400">
+                      <span>Width</span>
+                      <span className="tabular-nums">{Math.round(design.panelWidth * 100)}%</span>
+                    </div>
+                    <Slider value={design.panelWidth} min={0.3} max={0.6} step={0.01} onChange={(panelWidth) => patch({ panelWidth })} />
+                  </div>
+                )}
                 <ColorField
                   value={design.panelColor}
                   swatches={swatches}
-                  onChange={(panelColor) => patch({ panelColor, textColor: contrastText(panelColor) })}
+                  onChange={(panelColor) => patch({ panelColor, textColor: layoutColors(design.layout, panelColor).textColor })}
                 />
               </div>
             </Field>
@@ -368,6 +460,7 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
               <ColorField value={design.textColor} swatches={['#111111', '#ffffff', '#fde047']} onChange={(textColor) => patch({ textColor })} />
             </Field>
 
+            {design.layout === 'parts-plus' && (
             <Field label="Edge">
               <div className="space-y-2">
                 <Segmented
@@ -392,6 +485,7 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
                 )}
               </div>
             </Field>
+            )}
 
             <Field label="Photo">
               <div className="space-y-3">

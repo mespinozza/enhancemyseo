@@ -1,8 +1,8 @@
 import { THUMBNAIL_FONT, THUMBNAIL_HEIGHT as H, THUMBNAIL_WIDTH as W, type ThumbnailDesign } from './design';
 
 /**
- * Draws a thumbnail: photo on one side, a brand-colour panel with a torn edge on the
- * other, the title fitted line by line, and the logo under it.
+ * Draws a thumbnail in one of the layouts: the photo, the brand colour, the title fitted
+ * line by line like a poster, and the logo.
  *
  * Only standard 2D canvas calls are used, so the browser editor and the server
  * (@napi-rs/canvas, for automations) produce the same image.
@@ -205,32 +205,84 @@ function drawLogo(
   return pillH + firstPx * 1.05;
 }
 
-export function drawThumbnail(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages = {}) {
+/** The photo cropped into a box, or a grey placeholder while there is none. */
+function drawPhoto(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, photo: ThumbnailImage | null | undefined, x: number, y: number, w: number, h: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  if (photo) {
+    drawCover(ctx, photo, x, y, w, h, design);
+  } else {
+    const gradient = ctx.createLinearGradient(x, y, x + w, y + h);
+    gradient.addColorStop(0, '#d1d5db');
+    gradient.addColorStop(1, '#9ca3af');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, y, w, h);
+  }
+  ctx.restore();
+}
+
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** Draws the fitted title in a box and returns where its top landed. */
+function drawTitle(
+  ctx: CanvasRenderingContext2D,
+  design: ThumbnailDesign,
+  box: { left: number; right: number; top: number; bottom: number },
+  align: 'center' | 'left' | 'right',
+  valign: 'middle' | 'bottom' = 'middle',
+): number {
+  const lines = fitTitle(ctx, design.title, box.right - box.left, box.bottom - box.top, design.textScale);
+  const blockH = lines.reduce((sum, line) => sum + line.size * 1.06, 0);
+  const top = valign === 'bottom' ? box.bottom - blockH : box.top + (box.bottom - box.top - blockH) / 2;
+  const x = align === 'center' ? (box.left + box.right) / 2 : align === 'left' ? box.left : box.right;
+  let y = top;
+  ctx.fillStyle = design.textColor;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'alphabetic';
+  for (const line of lines) {
+    ctx.font = `${line.size}px "${THUMBNAIL_FONT}"`;
+    y += line.size * 1.06;
+    // Anton's caps sit high in the em box; this lands the baseline under them.
+    ctx.fillText(line.text, x, y - line.size * 0.16);
+  }
+  return top;
+}
+
+/** Title centred over the logo, the way every panel and card lays out its text. */
+function drawStack(
+  ctx: CanvasRenderingContext2D,
+  design: ThumbnailDesign,
+  images: ThumbnailImages,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+) {
+  const logoH = drawLogo(ctx, design, images.logo, (left + right) / 2, bottom, right - left);
+  const textBottom = logoH ? bottom - logoH - H * 0.07 : bottom - H * 0.03;
+  drawTitle(ctx, design, { left, right, top, bottom: textBottom }, 'center');
+}
+
+/** Photo on one side, a brand-colour panel with a torn, slanted or straight edge on the other. */
+function drawPartsPlus(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages) {
   const right = design.panelSide === 'right';
   const panelW = W * design.panelWidth;
   const edgeX = right ? W - panelW : panelW;
   const farX = right ? W + 20 : -20;
 
-  ctx.save();
-  ctx.clearRect(0, 0, W, H);
-
   // Photo, running a little under the panel so the torn edge never shows a gap.
   const photoX = right ? 0 : edgeX - 60;
-  const photoW = W - panelW + 60;
-  if (images.photo) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(photoX, 0, photoW, H);
-    ctx.clip();
-    drawCover(ctx, images.photo, photoX, 0, photoW, H, design);
-    ctx.restore();
-  } else {
-    const gradient = ctx.createLinearGradient(0, 0, W, H);
-    gradient.addColorStop(0, '#d1d5db');
-    gradient.addColorStop(1, '#9ca3af');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, W, H);
-  }
+  drawPhoto(ctx, design, images.photo, photoX, 0, W - panelW + 60, H);
 
   if (design.paperStrip && design.edge === 'torn') {
     ctx.save();
@@ -255,26 +307,123 @@ export function drawThumbnail(ctx: CanvasRenderingContext2D, design: ThumbnailDe
   const padX = panelW * 0.08;
   const contentLeft = right ? edgeX + inset + padX : padX;
   const contentRight = right ? W - padX : edgeX - inset - padX;
-  const contentW = contentRight - contentLeft;
-  const centerX = (contentLeft + contentRight) / 2;
+  drawStack(ctx, design, images, contentLeft, contentRight, H * 0.12, H * 0.93);
+}
 
-  const logoBottom = H * 0.93;
-  const logoH = drawLogo(ctx, design, images.logo, centerX, logoBottom, contentW);
-  const textTop = H * 0.12;
-  const textBottom = logoH ? logoBottom - logoH - H * 0.07 : H * 0.9;
+/** Full-bleed photo with the headline across the bottom over a dark fade. */
+function drawBoldBanner(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages) {
+  const left = design.panelSide === 'left';
+  drawPhoto(ctx, design, images.photo, 0, 0, W, H);
 
-  const lines = fitTitle(ctx, design.title, contentW, textBottom - textTop, design.textScale);
-  const blockH = lines.reduce((sum, line) => sum + line.size * 1.06, 0);
-  let y = textTop + (textBottom - textTop - blockH) / 2;
-  ctx.fillStyle = design.textColor;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  for (const line of lines) {
-    ctx.font = `${line.size}px "${THUMBNAIL_FONT}"`;
-    y += line.size * 1.06;
-    // Anton's caps sit high in the em box; this lands the baseline under them.
-    ctx.fillText(line.text, centerX, y - line.size * 0.16);
-  }
+  const fade = ctx.createLinearGradient(0, H * 0.25, 0, H);
+  fade.addColorStop(0, 'rgba(0,0,0,0)');
+  fade.addColorStop(0.55, 'rgba(0,0,0,0.55)');
+  fade.addColorStop(1, 'rgba(0,0,0,0.88)');
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, 0, W, H);
+  const side = ctx.createLinearGradient(left ? 0 : W, 0, left ? W * 0.75 : W * 0.25, 0);
+  side.addColorStop(0, 'rgba(0,0,0,0.45)');
+  side.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = side;
+  ctx.fillRect(0, 0, W, H);
 
+  const margin = W * 0.055;
+  const textW = W * 0.62;
+  const box = left
+    ? { left: margin, right: margin + textW, top: H * 0.36, bottom: H * 0.9 }
+    : { left: W - margin - textW, right: W - margin, top: H * 0.36, bottom: H * 0.9 };
+  const top = drawTitle(ctx, design, box, left ? 'left' : 'right', 'bottom');
+
+  // A brand-colour bar over the headline carries the colour the photo doesn't.
+  const barW = W * 0.085;
+  const barH = H * 0.022;
+  ctx.fillStyle = design.panelColor;
+  ctx.fillRect(left ? box.left : box.right - barW, top - H * 0.045, barW, barH);
+
+  const logoW = W * 0.24;
+  drawLogo(ctx, design, images.logo, left ? W - margin - logoW / 2 : margin + logoW / 2, H * 0.9, logoW);
+}
+
+/** Full-bleed photo, dimmed, with the headline on a centred brand-colour card. */
+function drawCenterStage(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages) {
+  drawPhoto(ctx, design, images.photo, 0, 0, W, H);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(0, 0, W, H);
+
+  const cardW = W * Math.min(0.8, 0.36 + design.panelWidth * 0.7);
+  const cardH = H * 0.74;
+  const x = (W - cardW) / 2;
+  const y = (H - cardH) / 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.4)';
+  ctx.shadowBlur = 48;
+  ctx.shadowOffsetY = 12;
+  ctx.fillStyle = design.panelColor;
+  roundedRect(ctx, x, y, cardW, cardH, H * 0.035);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  ctx.strokeStyle = design.textColor;
+  ctx.lineWidth = 3;
+  const inset = H * 0.022;
+  roundedRect(ctx, x + inset, y + inset, cardW - inset * 2, cardH - inset * 2, H * 0.022);
+  ctx.stroke();
+  ctx.restore();
+
+  drawStack(ctx, design, images, x + cardW * 0.09, x + cardW * 0.91, y + cardH * 0.12, y + cardH * 0.9);
+}
+
+/** A brand-colour page with the photo as a slightly tilted print beside the headline. */
+function drawFramed(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages) {
+  const right = design.panelSide === 'right';
+  const panelW = W * design.panelWidth;
+  ctx.fillStyle = design.panelColor;
+  ctx.fillRect(0, 0, W, H);
+
+  // One soft circle behind the text keeps a flat colour from looking empty.
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = lighten(design.panelColor, 0.18);
+  ctx.beginPath();
+  ctx.arc(right ? W * 0.92 : W * 0.08, H * 0.12, H * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const photoArea = W - panelW;
+  const frameW = photoArea - W * 0.085;
+  const frameH = H * 0.76;
+  const centerX = right ? photoArea / 2 + W * 0.012 : W - photoArea / 2 - W * 0.012;
+  const border = H * 0.018;
+  ctx.save();
+  ctx.translate(centerX, H / 2);
+  ctx.rotate(((right ? -1 : 1) * 2.2 * Math.PI) / 180);
+  ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  ctx.shadowBlur = 36;
+  ctx.shadowOffsetY = 10;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(-frameW / 2, -frameH / 2, frameW, frameH);
+  ctx.shadowColor = 'transparent';
+  drawPhoto(ctx, design, images.photo, -frameW / 2 + border, -frameH / 2 + border, frameW - border * 2, frameH - border * 2);
+  ctx.restore();
+
+  const pad = W * 0.045;
+  const left = right ? photoArea + pad * 0.6 : pad;
+  const textRight = right ? W - pad : panelW - pad * 0.6;
+  drawStack(ctx, design, images, left, textRight, H * 0.12, H * 0.93);
+}
+
+const LAYOUTS: Record<ThumbnailDesign['layout'], (ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages) => void> = {
+  'parts-plus': drawPartsPlus,
+  'bold-banner': drawBoldBanner,
+  'center-stage': drawCenterStage,
+  framed: drawFramed,
+};
+
+export function drawThumbnail(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages = {}) {
+  ctx.save();
+  ctx.clearRect(0, 0, W, H);
+  (LAYOUTS[design.layout] ?? drawPartsPlus)(ctx, design, images);
   ctx.restore();
 }
