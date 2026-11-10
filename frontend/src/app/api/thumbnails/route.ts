@@ -9,7 +9,6 @@ import {
   releaseTutorialThumbnail,
   thumbnailAccess,
   toRecord,
-  tutorialThumbnailsEnabled,
 } from '@/lib/thumbnail/service';
 import { THUMBNAILS_COLLECTION, type ThumbnailTarget } from '@/lib/thumbnail/types';
 
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
 
   const thumbnails = await Promise.all(docs.map((doc) => toRecord(doc, access)));
   return NextResponse.json(
-    { thumbnails, studio: access.studio, paid: access.paid, tutorialEnabled: tutorialThumbnailsEnabled(access) },
+    { thumbnails, studio: access.studio, paid: access.paid },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }
@@ -77,12 +76,8 @@ export async function POST(request: NextRequest) {
   }
 
   const access = await thumbnailAccess(uid, email);
-  let locked = false;
-  if (!access.studio) {
-    if (!body.tutorial || !(await claimTutorialThumbnail(uid, access))) {
-      return NextResponse.json({ error: 'Thumbnails are not available on your plan yet', code: 'not_allowed' }, { status: 403 });
-    }
-    locked = !access.paid;
+  if (!access.studio && (!body.tutorial || !(await claimTutorialThumbnail(uid, access)))) {
+    return NextResponse.json({ error: 'Thumbnails come with a paid plan', code: 'not_allowed' }, { status: 403 });
   }
 
   meterAs(uid);
@@ -94,7 +89,6 @@ export async function POST(request: NextRequest) {
       keyword: body.keyword?.trim().slice(0, 160) || null,
       target: validTarget(body.target),
       direction: body.direction?.trim().slice(0, 300),
-      locked,
     });
     return NextResponse.json({ thumbnail: await toRecord(snap, access) });
   } catch (error) {

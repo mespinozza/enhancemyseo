@@ -9,6 +9,7 @@ import {
   Check,
   ChevronRight,
   FileText,
+  ImageIcon,
   Infinity as InfinityIcon,
   Plus,
   Workflow,
@@ -22,6 +23,7 @@ import { AUTOMATIONS_COLLECTION } from '@/lib/automation/types';
 import { getFilteredNavigation, type SubscriptionTier } from '@/config/navigation';
 import WelcomeCard from '@/components/onboarding/WelcomeCard';
 import FeedbackCard from '@/components/dashboard/FeedbackCard';
+import { pendingTutorialThumbnail, type TutorialThumbnailArticle } from '@/components/thumbnail/TutorialThumbnail';
 
 const TIER_NAMES: Record<SubscriptionTier, string> = {
   free: 'Free',
@@ -141,6 +143,12 @@ export default function DashboardHome() {
     };
   }, [user?.uid, tier]);
 
+  // A thumbnail offered in the tutorial, now paid for: it is made on the articles page.
+  const [pendingThumb, setPendingThumb] = useState<TutorialThumbnailArticle | null>(null);
+  useEffect(() => {
+    if (tier !== 'free') setPendingThumb(pendingTutorialThumbnail());
+  }, [tier]);
+
   const firstName = user?.displayName?.trim().split(/\s+/)[0];
   const canAutomate = AUTOMATION_TIERS.includes(tier);
   const tools = useMemo(() => getFilteredNavigation(tier), [tier]);
@@ -187,6 +195,22 @@ export default function DashboardHome() {
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
       <WelcomeCard />
+
+      {pendingThumb && (
+        <Link
+          href="/dashboard/articles"
+          className="mb-6 flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm hover:bg-blue-100"
+        >
+          <ImageIcon className="h-5 w-5 flex-shrink-0 text-blue-600" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold text-gray-900">Your thumbnail is ready to make</span>
+            <span className="block truncate text-gray-600">For &ldquo;{pendingThumb.title}&rdquo;, set as its featured image</span>
+          </span>
+          <span className="inline-flex flex-shrink-0 items-center gap-1 font-semibold text-blue-700">
+            Get it <ArrowRight className="h-4 w-4" />
+          </span>
+        </Link>
+      )}
 
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>

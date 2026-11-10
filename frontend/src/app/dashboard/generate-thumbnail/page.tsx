@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Pencil,
+  RefreshCw,
   Search,
   ShoppingBag,
   Sparkles,
@@ -54,6 +55,7 @@ function ThumbnailCard({
   busy,
   onToggle,
   onOpen,
+  onRegenerate,
 }: {
   thumbnail: ThumbnailRecord;
   linkLabel: string | null;
@@ -61,6 +63,7 @@ function ThumbnailCard({
   busy: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  onRegenerate: () => void;
 }) {
   const { user } = useAuth();
   const authed = useAuthedImage(user, thumbnail.imageUrl ? null : thumbnail.previewUrl);
@@ -114,7 +117,19 @@ function ThumbnailCard({
               Open <ExternalLink className="h-3 w-3" />
             </a>
           )}
-          {thumbnail.locked && <Lock className="h-3.5 w-3.5 text-amber-500" />}
+          {thumbnail.locked ? (
+            <Lock className="h-3.5 w-3.5 text-amber-500" />
+          ) : (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              disabled={busy}
+              title="New photo, keeping the text and layout"
+              className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 hover:text-blue-600 disabled:opacity-50"
+            >
+              <RefreshCw className="h-3 w-3" /> New photo
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -138,6 +153,7 @@ export default function ThumbnailStudioPage() {
   const [making, setMaking] = useState<{ done: number; total: number; current: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState<Set<string>>(new Set());
+  const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
   const [pushStatus, setPushStatus] = useState<'draft' | 'published'>('draft');
   const [editing, setEditing] = useState<ThumbnailRecord | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
@@ -342,6 +358,32 @@ export default function ThumbnailStudioPage() {
     setSelected(new Set());
   };
 
+  const regenerate = async (ids: string[]) => {
+    if (!user || !ids.length) return;
+    setRegenerating((current) => new Set([...Array.from(current), ...ids]));
+    let failed = 0;
+    // One at a time: each is a full image generation.
+    for (const id of ids) {
+      try {
+        const { thumbnail } = await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, `/api/thumbnails/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ regenerate: true }),
+        });
+        setThumbnails((current) => current.map((t) => (t.id === id ? thumbnail : t)));
+      } catch {
+        failed++;
+      } finally {
+        setRegenerating((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }
+    }
+    if (failed) toast.error(`${failed} photo${failed === 1 ? '' : 's'} could not be remade`);
+    else toast.success(ids.length === 1 ? 'New photo ready' : `${ids.length} new photos ready`);
+  };
+
   const onSaved = (saved: ThumbnailRecord) => {
     setThumbnails((current) => current.map((t) => (t.id === saved.id ? saved : t)));
     setEditing(saved);
@@ -499,6 +541,15 @@ export default function ThumbnailStudioPage() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => regenerate(Array.from(selected).filter((id) => !regenerating.has(id)))}
+                    disabled={pushing.size > 0}
+                    title="A new photo for each, keeping your text and layout"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${regenerating.size ? 'animate-spin' : ''}`} /> New photo{selected.size === 1 ? '' : 's'} ({selected.size})
+                  </button>
+                  <button
+                    type="button"
                     onClick={push}
                     disabled={pushing.size > 0}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-green-700 disabled:opacity-60"
@@ -530,8 +581,9 @@ export default function ThumbnailStudioPage() {
                     thumbnail={thumbnail}
                     linkLabel={linkLabel(thumbnail.target)}
                     selected={selected.has(thumbnail.id)}
-                    busy={pushing.has(thumbnail.id)}
+                    busy={pushing.has(thumbnail.id) || regenerating.has(thumbnail.id)}
                     onToggle={() => toggleSelected(thumbnail.id)}
+                    onRegenerate={() => regenerate([thumbnail.id])}
                     onOpen={() => setEditing(thumbnail)}
                   />
                 ))}

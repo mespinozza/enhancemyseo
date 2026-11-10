@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getOnboarding, saveOnboarding, type OnboardingState } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
-import TutorialThumbnail from '@/components/thumbnail/TutorialThumbnail';
+import TutorialThumbnail, { pendingTutorialThumbnail, type TutorialThumbnailArticle } from '@/components/thumbnail/TutorialThumbnail';
 import { takeArticleHandoff } from '@/lib/keywords/handoff';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
@@ -419,7 +419,12 @@ export default function ArticlesPage() {
   // Arriving from the welcome tutorial: its answers fill the form, and the first article
   // is sent as the tutorial's bonus.
   const [tutorial, setTutorial] = useState<OnboardingState | null>(null);
-  const [tutorialThumb, setTutorialThumb] = useState<{ blogId: string; brandId: string; title: string; keyword: string } | null>(null);
+  const [tutorialThumb, setTutorialThumb] = useState<TutorialThumbnailArticle | null>(null);
+  // Offered on the tutorial article before upgrading: it is made on the next visit after.
+  useEffect(() => {
+    const pending = pendingTutorialThumbnail();
+    if (pending) setTutorialThumb((current) => current ?? pending);
+  }, []);
   const showThumbnail = useCallback((blogId: string, image: { src: string; alt: string }) => {
     setGeneratedArticles((prev) =>
       prev.map((article) =>
@@ -830,6 +835,8 @@ export default function ArticlesPage() {
                 brandId: selectedProfile.id || '',
                 title: generatedContent.title || blogData.title,
                 keyword: currentKeyword,
+                brandName: selectedProfile.brandName,
+                brandColor: selectedProfile.brandColor,
               });
               setTutorial(null);
               setExpandedArticle(0);
@@ -2104,6 +2111,13 @@ export default function ArticlesPage() {
       {/* Right Panel - Bulk Generation Results */}
       <div className="w-full md:w-1/2 p-4 md:p-6 bg-white flex flex-col md:h-full md:min-w-0">
         <div className="w-full flex flex-col md:h-full">
+          {tutorialThumb?.brandId && (
+            <TutorialThumbnail
+              key={tutorialThumb.blogId}
+              {...tutorialThumb}
+              onReady={(image) => showThumbnail(tutorialThumb.blogId, image)}
+            />
+          )}
           {/* Show content when generating OR has articles */}
           {(isGenerating || generatedArticles.length > 0) ? (
             <div className="flex flex-col md:h-full">
@@ -2218,13 +2232,6 @@ export default function ArticlesPage() {
                 </div>
               )}
               
-              {tutorialThumb?.brandId && (
-                <TutorialThumbnail
-                  {...tutorialThumb}
-                  onReady={(image) => showThumbnail(tutorialThumb.blogId, image)}
-                />
-              )}
-
               {/* Articles Grid - Shows completed articles during generation */}
               {generatedArticles.length > 0 && (
                 <div

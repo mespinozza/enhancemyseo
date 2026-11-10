@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TokenUser as User } from '@/lib/thumbnail/client';
 import toast from 'react-hot-toast';
-import { Download, ImagePlus, Loader2, RefreshCw, Save, Shuffle, Upload, X } from 'lucide-react';
+import { ChevronDown, Download, ImagePlus, Loader2, RefreshCw, Save, Shuffle, Upload, X } from 'lucide-react';
 import { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, contrastText, type ThumbnailDesign } from '@/lib/thumbnail/design';
 import { drawThumbnail } from '@/lib/thumbnail/render';
 import { ensureThumbnailFont, loadAuthedImage, loadFileImage, thumbnailApi } from '@/lib/thumbnail/client';
@@ -106,6 +106,7 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
   const [fontReady, setFontReady] = useState(false);
   const [link, setLink] = useState(targetValue(thumbnail.target));
   const [direction, setDirection] = useState('');
+  const [steerOpen, setSteerOpen] = useState(false);
   const [busy, setBusy] = useState<'save' | 'photo' | 'logo' | null>(null);
   const [dirty, setDirty] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
@@ -273,6 +274,51 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
                 height={THUMBNAIL_HEIGHT}
                 className="block h-auto w-full rounded-lg shadow-lg ring-1 ring-black/5"
               />
+              <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-3 sm:top-3">
+                <div className="flex overflow-hidden rounded-lg bg-white/95 text-sm font-medium text-gray-800 shadow-md ring-1 ring-black/10 backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={newPhoto}
+                    disabled={busy !== null}
+                    title="Make a new photo for this thumbnail"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {busy === 'photo' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    Regenerate photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSteerOpen((open) => !open)}
+                    disabled={busy !== null}
+                    aria-label="Describe the photo"
+                    aria-expanded={steerOpen}
+                    className="border-l border-gray-200 px-2 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <ChevronDown className={`h-4 w-4 transition ${steerOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+                {steerOpen && (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      setSteerOpen(false);
+                      newPhoto();
+                    }}
+                    className="flex w-72 max-w-[calc(100vw-3rem)] gap-1.5 rounded-lg bg-white p-1.5 shadow-lg ring-1 ring-black/10"
+                  >
+                    <input
+                      autoFocus
+                      value={direction}
+                      onChange={(event) => setDirection(event.target.value)}
+                      placeholder="e.g. close-up of a fryer filter pan"
+                      className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                    <button type="submit" className="rounded-md bg-blue-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-blue-700">
+                      Go
+                    </button>
+                  </form>
+                )}
+              </div>
               {(!fontReady || (thumbnail.photoUrl && !photo) || busy === 'photo') && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/60 text-sm text-gray-600 backdrop-blur-[1px]">
                   <Loader2 className="h-6 w-6 animate-spin text-blue-600" />

@@ -29,12 +29,12 @@ export async function thumbnailAccess(uid: string, email: string | null): Promis
 }
 
 /**
- * The tutorial's thumbnail costs an image generation, so it is off for everyone but
- * admins until TUTORIAL_THUMBNAILS=on, and then limited to one per account.
+ * The tutorial's thumbnail comes with a paid plan, one per account. Free accounts are
+ * shown what they would get, drawn in the browser, and never cost an image generation.
  */
 export async function claimTutorialThumbnail(uid: string, access: ThumbnailAccess): Promise<boolean> {
   if (access.studio) return true;
-  if (process.env.TUTORIAL_THUMBNAILS !== 'on') return false;
+  if (!access.paid) return false;
   initializeFirebaseAdmin();
   try {
     // No userId field, so the generic owner rule never hands it to the browser.
@@ -48,10 +48,6 @@ export async function claimTutorialThumbnail(uid: string, access: ThumbnailAcces
 export async function releaseTutorialThumbnail(uid: string): Promise<void> {
   initializeFirebaseAdmin();
   await getFirestore().collection(TUTORIAL_CLAIMS).doc(uid).delete().catch(() => undefined);
-}
-
-export function tutorialThumbnailsEnabled(access: ThumbnailAccess): boolean {
-  return access.studio || process.env.TUTORIAL_THUMBNAILS === 'on';
 }
 
 /* ------------------------------------------------------------------ storage ----- */
