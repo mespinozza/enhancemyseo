@@ -24,7 +24,6 @@ import { EVIDENCE } from '@/lib/proof/content';
 import { USAGE_LIMITS } from '@/lib/usage-limits';
 import { THUMBNAIL_LAYOUTS } from '@/lib/thumbnail/design';
 import {
-  CASE_STUDY_SAMPLES,
   FAQS,
   FEATURES,
   STEPS,
@@ -35,6 +34,7 @@ import { CtaButton, Reveal } from '@/components/proof/ProofProvider';
 import PlanCards from '@/components/proof/PlanCards';
 import ThumbnailCanvas from '@/components/thumbnail/landing/ThumbnailCanvas';
 import ThumbnailPlayground from '@/components/thumbnail/landing/ThumbnailPlayground';
+import SampleGallery from '@/components/thumbnail/landing/SampleGallery';
 import LandingView from '@/components/thumbnail/landing/LandingView';
 
 const PATH = '/services/thumbnail-generation';
@@ -233,8 +233,7 @@ export default function ThumbnailGenerationPage() {
               title={`${ARTICLES} Articles. ${ARTICLES} Thumbnails. ${evidence.totals.impressions} Impressions.`}
             >
               A commercial kitchen parts store on {evidence.platform}. Every article we published for
-              them went out with a thumbnail designed in EnhanceMySEO, in the layout now called the
-              Parts Plus Format. {evidence.range}.
+              them went out with a thumbnail designed in EnhanceMySEO. {evidence.range}.
             </SectionHeading>
           </Reveal>
 
@@ -258,7 +257,7 @@ export default function ThumbnailGenerationPage() {
             <div>
               <h3 className="text-2xl font-bold text-gray-900">One look, on every post</h3>
               <p className="mt-3 text-gray-600">
-                The same torn brand-colour panel, bold title and logo on every article. Across the
+                The same layout, brand colour, bold title and logo on every article. Across the
                 blog index, in Google and in shared links, readers learned to spot the store&apos;s
                 articles at a glance.
               </p>
@@ -284,27 +283,9 @@ export default function ThumbnailGenerationPage() {
           </Reveal>
 
           <Reveal className="mt-14">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {CASE_STUDY_SAMPLES.map((sample) => (
-                <article key={sample.title} className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 transition hover:-translate-y-1 hover:shadow-lg">
-                  <ThumbnailCanvas
-                    title={sample.title}
-                    layout={sample.layout}
-                    color={sample.color}
-                    brand={sample.brand}
-                    seed={sample.seed}
-                    label={`Example thumbnail: ${sample.title}`}
-                  />
-                  <div className="p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Blog · Guides</p>
-                    <p className="mt-1 text-sm font-semibold leading-snug text-gray-900">{sample.title}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
+            <SampleGallery />
             <p className="mt-4 text-center text-xs text-gray-500">
-              Examples in the Parts Plus Format. The client&apos;s own titles are kept private, and
-              their thumbnails use an AI photo made for each article.
+              Example thumbnails. Real ones use an AI photo made for each article.
             </p>
           </Reveal>
         </div>

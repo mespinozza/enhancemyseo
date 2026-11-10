@@ -5,27 +5,31 @@ import type { ThumbnailLayout } from './design';
  * from the proof page's EVIDENCE, so both pages always quote the same Search Console tiles.
  */
 
-/** The case study blog's panel colour, used for the Parts Plus examples. */
-export const CASE_STUDY_COLOR = '#5cb85c';
-
 export interface SampleThumbnail {
   title: string;
+  category: string;
   layout: ThumbnailLayout;
   color: string;
-  brand?: string;
   seed: number;
 }
 
-/**
- * Illustrative titles in the case study's niche. The client's real titles stay private,
- * as on the proof page.
- */
-export const CASE_STUDY_SAMPLES: SampleThumbnail[] = [
-  { title: 'Combi Oven Error Codes Explained', layout: 'parts-plus', color: CASE_STUDY_COLOR, seed: 11 },
-  { title: 'How To Descale A Commercial Steamer', layout: 'parts-plus', color: CASE_STUDY_COLOR, seed: 23 },
-  { title: 'Fryer Thermostat Troubleshooting Guide', layout: 'parts-plus', color: CASE_STUDY_COLOR, seed: 37 },
-  { title: 'Gaskets: When To Replace Them', layout: 'parts-plus', color: CASE_STUDY_COLOR, seed: 41 },
+/** Example articles across niches; the gallery shows a random few with a random style each. */
+export const SAMPLE_ARTICLES: { title: string; category: string }[] = [
+  { title: 'Combi Oven Error Codes Explained', category: 'Kitchen Equipment' },
+  { title: 'Best Running Shoes For Flat Feet', category: 'Footwear' },
+  { title: 'How To Choose A Dog Harness', category: 'Pet Supplies' },
+  { title: 'Retinol vs Vitamin C: Which First?', category: 'Skincare' },
+  { title: 'Espresso Grind Size Guide', category: 'Coffee' },
+  { title: 'Winter Tyres: When To Switch', category: 'Auto Parts' },
+  { title: 'How To Style A Small Living Room', category: 'Home Decor' },
+  { title: 'Protein Powder For Beginners', category: 'Nutrition' },
+  { title: 'Organic Cotton vs Bamboo Sheets', category: 'Bedding' },
+  { title: 'How To Clean A Cast Iron Pan', category: 'Cookware' },
+  { title: 'Choosing Your First Road Bike', category: 'Cycling' },
+  { title: 'Safe Sleep Tips For Newborns', category: 'Baby' },
 ];
+
+export const SAMPLE_COLORS = ['#2563eb', '#5cb85c', '#f97316', '#111827', '#db2777', '#7c3aed', '#0d9488', '#dc2626'];
 
 export const PLAYGROUND_COLORS = ['#2563eb', '#5cb85c', '#f97316', '#111827', '#db2777', '#facc15'];
 
