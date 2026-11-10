@@ -111,10 +111,7 @@ function Errors() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Errors</h1>
             <p className="mt-1 text-gray-600">
-              Failed article generations and automation runs, newest first. {events && `${today} in the last 24 hours.`}{' '}
-              <Link href="/admin/customers" className="text-blue-600 hover:underline">
-                Customers
-              </Link>
+              Failed article generations and automation runs, newest first. {events && `${today} in the last 24 hours.`}
             </p>
           </div>
           <button

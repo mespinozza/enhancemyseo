@@ -134,10 +134,7 @@ function Customers() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
             <p className="mt-1 text-gray-600">
-              Plans, revenue, usage and AI spend for every account.{' '}
-              <Link href="/admin/results" className="text-blue-600 hover:underline">
-                Case studies
-              </Link>
+              Plans, revenue, usage and AI spend for every account.
             </p>
           </div>
           <button

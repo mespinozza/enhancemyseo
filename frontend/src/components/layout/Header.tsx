@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { AlertTriangle, BarChart3, ChevronDown, FileText, LogOut, Menu, Settings, Users, X } from 'lucide-react';
+import { ChevronDown, FileText, LogOut, Menu, Settings, Shield, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -241,36 +241,13 @@ export default function Header() {
                       </Link>
 
                       {isAdmin && (
-                        <>
-                          <Link
-                            href="/blogs"
-                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            <FileText className="h-4 w-4 text-gray-400" />
-                            Admin blogs
-                          </Link>
-                          <Link
-                            href="/admin/customers"
-                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            <Users className="h-4 w-4 text-gray-400" />
-                            Admin customers
-                          </Link>
-                          <Link
-                            href="/admin/results"
-                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            <BarChart3 className="h-4 w-4 text-gray-400" />
-                            Admin case studies
-                          </Link>
-                          <Link
-                            href="/admin/errors"
-                            className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            <AlertTriangle className="h-4 w-4 text-gray-400" />
-                            Admin errors
-                          </Link>
-                        </>
+                        <Link
+                          href="/admin"
+                          className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Shield className="h-4 w-4 text-gray-400" />
+                          Admin portal
+                        </Link>
                       )}
 
                       <button
@@ -337,32 +314,12 @@ export default function Header() {
                   Brand profiles
                 </Link>
                 {isAdmin && (
-                  <>
-                    <Link
-                      href="/blogs"
-                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      Admin blogs
-                    </Link>
-                    <Link
-                      href="/admin/customers"
-                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      Admin customers
-                    </Link>
-                    <Link
-                      href="/admin/results"
-                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      Admin case studies
-                    </Link>
-                    <Link
-                      href="/admin/errors"
-                      className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      Admin errors
-                    </Link>
-                  </>
+                  <Link
+                    href="/admin"
+                    className="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Admin portal
+                  </Link>
                 )}
                 <button
                   type="button"

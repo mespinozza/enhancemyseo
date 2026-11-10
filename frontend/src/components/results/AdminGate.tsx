@@ -33,7 +33,7 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
           <ShieldAlert className="mx-auto h-10 w-10 text-gray-400" />
           <h1 className="mt-4 text-xl font-semibold text-gray-900">Access restricted</h1>
           <p className="mt-2 text-gray-600">
-            Case study management is only available to administrators.
+            The admin portal is only available to administrators.
           </p>
         </div>
       </div>
