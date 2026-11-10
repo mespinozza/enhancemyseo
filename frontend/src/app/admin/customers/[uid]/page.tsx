@@ -4,13 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { ArrowLeft, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Copy, ExternalLink, Loader2, RotateCcw, X } from 'lucide-react';
+import StorefrontPreview from '@/components/article-preview/StorefrontPreview';
 import AdminGate from '@/components/results/AdminGate';
 import { useAuth } from '@/lib/firebase/auth-context';
 import DailyCostChart from '@/components/admin/DailyCostChart';
 import {
   ASSIGNABLE_PLANS,
   PLAN_LABELS,
+  type AdminArticle,
   type CustomerDetail,
   type Plan,
 } from '@/lib/admin/customers';
@@ -59,6 +61,32 @@ function Customer() {
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [saving, setSaving] = useState(false);
   const [planChoice, setPlanChoice] = useState<Plan | ''>('');
+
+  const [viewing, setViewing] = useState<{ id: string; article: AdminArticle | null } | null>(null);
+
+  const openArticle = async (id: string) => {
+    if (!user) return;
+    setViewing({ id, article: null });
+    try {
+      const response = await fetch(
+        `/api/admin/customers/${encodeURIComponent(uid)}/articles/${encodeURIComponent(id)}`,
+        { headers: { Authorization: `Bearer ${await user.getIdToken()}` } },
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to load article');
+      setViewing((current) => (current?.id === id ? { id, article: result } : current));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load article');
+      setViewing(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!viewing) return;
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setViewing(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewing]);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -319,9 +347,22 @@ function Customer() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {detail.articles.map((article) => (
-                    <tr key={article.id}>
+                    <tr
+                      key={article.id}
+                      onClick={() => openArticle(article.id)}
+                      className="cursor-pointer transition-colors hover:bg-blue-50/50"
+                    >
                       <td className="max-w-md px-5 py-2.5">
-                        <div className="truncate font-medium text-gray-900">{article.title}</div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openArticle(article.id);
+                          }}
+                          className="block max-w-full truncate text-left font-medium text-blue-700 hover:underline"
+                        >
+                          {article.title}
+                        </button>
                         {article.keyword && <div className="truncate text-xs text-gray-500">{article.keyword}</div>}
                       </td>
                       <td className="whitespace-nowrap px-5 py-2.5 text-gray-600">
@@ -413,6 +454,84 @@ function Customer() {
           </Section>
         </div>
       </div>
+
+      {viewing && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-6"
+          onClick={() => setViewing(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Article"
+            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold text-gray-900">
+                  {viewing.article?.title ?? 'Loading article…'}
+                </h2>
+                {viewing.article && (
+                  <p className="truncate text-xs text-gray-500">
+                    {[
+                      viewing.article.keyword,
+                      viewing.article.brandName,
+                      viewing.article.status === 'published' ? 'Published' : 'Draft',
+                      shortDate(viewing.article.createdAt),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {viewing.article && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigator.clipboard
+                        .writeText(viewing.article?.content ?? '')
+                        .then(() => toast.success('HTML copied'))
+                        .catch(() => toast.error('Could not copy'))
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy HTML
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setViewing(null)}
+                  aria-label="Close"
+                  className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-gray-50 p-3 sm:p-5">
+              {viewing.article ? (
+                viewing.article.content ? (
+                  <StorefrontPreview
+                    title={viewing.article.title}
+                    html={viewing.article.content}
+                    seo={viewing.article.seo ?? undefined}
+                    domain={viewing.article.website ?? undefined}
+                    date={viewing.article.createdAt ? new Date(viewing.article.createdAt) : undefined}
+                  />
+                ) : (
+                  <Empty>This article has no content saved.</Empty>
+                )
+              ) : (
+                <div className="flex justify-center py-16">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {pending && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

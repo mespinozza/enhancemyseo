@@ -1,3 +1,5 @@
+import type { ArticleSeo } from '@/lib/article/enhanced/types';
+
 export type Plan = 'free' | 'kickstart' | 'seo_takeover' | 'agency' | 'admin';
 
 export const PLAN_LABELS: Record<Plan, string> = {
@@ -123,6 +125,19 @@ export interface CustomerDetail {
   usage: CustomerUsageMonth[];
   dailyCost: DailyCost[];
   actions: AdminActionEntry[];
+}
+
+/** One customer article with its body, opened from the customer page. */
+export interface AdminArticle {
+  id: string;
+  title: string;
+  content: string;
+  keyword: string | null;
+  status: string | null;
+  createdAt: string | null;
+  seo: ArticleSeo | null;
+  brandName: string | null;
+  website: string | null;
 }
 
 /** Plans an admin can assign by hand. Granting admin stays a deliberate database edit. */

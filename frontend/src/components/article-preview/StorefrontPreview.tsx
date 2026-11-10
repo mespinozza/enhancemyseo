@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Lock } from 'lucide-react';
 import type { ArticleSeo } from '@/lib/article/enhanced/types';
 import { handleFromTitle, readingMinutes, storefrontBody } from '@/lib/article/storefront';
+import { sanitizeArticleHtml } from '@/lib/article/sanitize';
 
 interface StorefrontPreviewProps {
   title: string;
@@ -32,7 +33,7 @@ function hostOf(domain?: string): string {
  * the featured image, title and date, then the body in a narrow reading column.
  */
 export default function StorefrontPreview({ title, html, seo, domain, author, date = new Date() }: StorefrontPreviewProps) {
-  const body = useMemo(() => withSafeImages(storefrontBody(html)), [html]);
+  const body = useMemo(() => withSafeImages(sanitizeArticleHtml(storefrontBody(html))), [html]);
   const minutes = useMemo(() => readingMinutes(html), [html]);
   const image = seo?.featuredImage?.src;
 
