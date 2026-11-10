@@ -115,7 +115,7 @@ function topics(inventory: StoreInventory, titles: string[], storefront: string)
   return { collections, vendors, productTypes };
 }
 
-const storefrontFor = (website: unknown, shopDomain: string) =>
+export const storefrontFor = (website: unknown, shopDomain: string) =>
   (typeof website === 'string' && /^https?:\/\//.test(website.trim()) ? website.trim() : `https://${shopDomain}`).replace(/\/+$/, '');
 
 export async function storeOverview(uid: string, brandId: string, fresh = false): Promise<StoreOverview> {
@@ -207,7 +207,7 @@ function similar(a: Set<string>, b: Set<string>): boolean {
 }
 
 let client: Anthropic | null = null;
-function anthropic(): Anthropic {
+export function anthropic(): Anthropic {
   if (!client) {
     const key = process.env.ANTHROPIC_API_KEY?.trim();
     if (!key) throw new Error('ANTHROPIC_API_KEY is not configured');

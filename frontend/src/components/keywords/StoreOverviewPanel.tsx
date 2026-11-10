@@ -12,6 +12,8 @@ interface Props {
   loading: boolean;
   error: string | null;
   building: boolean;
+  /** What the per-topic button does, e.g. "Plan collections". */
+  actionLabel: string;
   onBuild: (focus: string) => void;
   onRefresh: () => void;
 }
@@ -37,8 +39,8 @@ function Coverage({ covered }: { covered: number }) {
   );
 }
 
-export default function StoreOverviewPanel({ brandName, overview, loading, error, building, onBuild, onRefresh }: Props) {
-  const [open, setOpen] = useState(true);
+export default function StoreOverviewPanel({ brandName, overview, loading, error, building, actionLabel, onBuild, onRefresh }: Props) {
+  const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('gaps');
   const [query, setQuery] = useState('');
   const [shown, setShown] = useState(PAGE);
@@ -212,7 +214,7 @@ export default function StoreOverviewPanel({ brandName, overview, loading, error
                         className="inline-flex flex-shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
                       >
                         {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                        Build keywords
+                        {actionLabel}
                       </button>
                     </li>
                   ))}

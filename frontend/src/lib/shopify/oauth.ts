@@ -22,15 +22,20 @@ export const SHOPIFY_CONNECTIONS_COLLECTION = 'shopifyConnections';
 /**
  * What the app actually calls, and nothing more.
  *
- * `read_products` covers products and collections, which articles link to.
+ * `write_products` covers reading products and collections, which articles link to, and
+ * creating the long-tail smart collections planned on the Keyword collections page.
+ * `write_publications` puts those collections on the Online Store; without it they exist
+ * but no shopper can see them.
  * `write_content` covers blogs, articles, and pages: reading them to link to, creating
- * articles when pushing, and setting an article's image from the thumbnail tool. It
- * implies read access, so no separate `read_content` is requested.
+ * articles when pushing, and setting an article's image from the thumbnail tool.
+ * Each write scope implies its read scope, so none is requested separately.
  *
  * Widening this later forces every connected merchant to re-authorize, so it is worth
- * keeping honest rather than asking for everything up front.
+ * keeping honest rather than asking for everything up front. Merchants connected before
+ * the collection scopes keep working for everything else and are asked to reconnect only
+ * when they try to create collections.
  */
-export const SHOPIFY_SCOPES = 'read_products,write_content';
+export const SHOPIFY_SCOPES = 'write_products,write_content,write_publications';
 
 const TOKEN_PATH = '/admin/oauth/access_token';
 
