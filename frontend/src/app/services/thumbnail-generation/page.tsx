@@ -349,7 +349,7 @@ export default function ThumbnailGenerationPage() {
                     </span>
                     {option.value === 'parts-plus' && (
                       <span className="flex-shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 ring-1 ring-inset ring-green-200">
-                        Case study format
+                        Generated 3M+ impressions
                       </span>
                     )}
                   </figcaption>
