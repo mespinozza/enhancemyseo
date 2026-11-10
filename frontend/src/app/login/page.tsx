@@ -133,14 +133,15 @@ function PurchaseIntentHandler() {
   return null; // This component doesn't render anything
 }
 
-// "Get Started" and free-signup buttons link here with ?signup=1. Watching the query string
-// (not just the first load) means clicking one while already on this page still opens Sign Up.
-function SignupTabFromUrl({ onSignup }: { onSignup: () => void }) {
+// The tab follows ?signup=1: "Get Started" links add it, "Sign in" links to plain /login drop it,
+// and the tabs themselves rewrite it. Watching the query string (not just the first load) means
+// clicking either link while already on this page still switches to the right tab.
+function TabFromUrl({ onTab }: { onTab: (toLogin: boolean) => void }) {
   const wantsSignup = useSearchParams().get('signup') === '1';
-  const onSignupRef = useRef(onSignup);
-  onSignupRef.current = onSignup;
+  const onTabRef = useRef(onTab);
+  onTabRef.current = onTab;
   useEffect(() => {
-    if (wantsSignup) onSignupRef.current();
+    onTabRef.current(!wantsSignup);
   }, [wantsSignup]);
   return null;
 }
@@ -159,6 +160,15 @@ function LoginForm() {
   const signupForm = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
+
+  const router = useRouter();
+  const chooseTab = (toLogin: boolean) => {
+    const params = new URLSearchParams(window.location.search);
+    if (toLogin) params.delete('signup');
+    else params.set('signup', '1');
+    const query = params.toString();
+    router.replace(query ? `/login?${query}` : '/login', { scroll: false });
+  };
 
   const activeForm = isLogin ? loginForm : signupForm;
   const { formState: { isSubmitting } } = activeForm;
@@ -211,14 +221,14 @@ function LoginForm() {
   return (
     <div className="min-h-screen flex flex-col py-12 sm:px-6 lg:px-8 bg-gray-50">
       <Suspense fallback={null}>
-        <SignupTabFromUrl onSignup={() => switchTab(false)} />
+        <TabFromUrl onTab={switchTab} />
       </Suspense>
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white shadow sm:rounded-lg">
           {/* Tabs */}
           <div className="flex border-b">
             <button
-              onClick={() => switchTab(true)}
+              onClick={() => chooseTab(true)}
               className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${
                 isLogin ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -226,7 +236,7 @@ function LoginForm() {
               Sign In
             </button>
             <button
-              onClick={() => switchTab(false)}
+              onClick={() => chooseTab(false)}
               className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${
                 !isLogin ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
               }`}
