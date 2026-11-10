@@ -36,7 +36,7 @@ export const navigationGroups: NavigationGroup[] = [
         name: 'Thumbnail',
         href: '/dashboard/generate-thumbnail',
         icon: Image,
-        requiredSubscription: ['admin'] // Admin only
+        requiredSubscription: ['kickstart', 'seo_takeover', 'agency', 'admin'] // Paid plans; matches THUMBNAIL_TIERS
       },
     ],
   },

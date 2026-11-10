@@ -23,7 +23,7 @@ import { AUTOMATIONS_COLLECTION } from '@/lib/automation/types';
 import { getFilteredNavigation, type SubscriptionTier } from '@/config/navigation';
 import WelcomeCard from '@/components/onboarding/WelcomeCard';
 import FeedbackCard from '@/components/dashboard/FeedbackCard';
-import { pendingTutorialThumbnail, type TutorialThumbnailArticle } from '@/components/thumbnail/TutorialThumbnail';
+import { pendingTutorialThumbnail, type TutorialThumbnailArticle } from '@/lib/thumbnail/tutorial-pending';
 
 const TIER_NAMES: Record<SubscriptionTier, string> = {
   free: 'Free',

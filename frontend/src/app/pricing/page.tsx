@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/firebase/auth-context';
 import {
@@ -18,7 +18,9 @@ import {
   ChevronDown,
   ArrowRight,
   Mail,
+  ImageIcon,
 } from 'lucide-react';
+import { pendingTutorialThumbnail } from '@/lib/thumbnail/tutorial-pending';
 import Reviews from '@/components/home/Reviews';
 import DoneForYouOffer from '@/components/pricing/DoneForYouOffer';
 import { PLANS, type Plan } from '@/lib/plans';
@@ -93,6 +95,12 @@ export default function PricingPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [isAnnual, setIsAnnual] = useState(true);
+  // Arriving from the tutorial's thumbnail offer: remind them what the upgrade unlocks.
+  const [pendingThumbnail, setPendingThumbnail] = useState<string | null>(null);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('from') !== 'tutorial-thumbnail') return;
+    setPendingThumbnail(pendingTutorialThumbnail()?.title ?? null);
+  }, []);
 
   const handlePlanClick = async (plan: Plan) => {
     if (plan.monthlyPrice === 0) {
@@ -133,6 +141,17 @@ export default function PricingPage() {
 
       {/* ── Hero ── */}
       <section className="bg-gradient-to-b from-blue-50 to-white pt-20 pb-12 px-4 text-center">
+        {pendingThumbnail && (
+          <div className="mx-auto mb-6 flex max-w-xl items-center gap-3 rounded-xl border border-blue-200 bg-white px-4 py-3 text-left text-sm shadow-sm">
+            <ImageIcon className="h-5 w-5 flex-shrink-0 text-blue-600" />
+            <span className="min-w-0">
+              <span className="block font-semibold text-gray-900">Your thumbnail is waiting</span>
+              <span className="block text-gray-600">
+                Pick any paid plan and we&apos;ll make it for &ldquo;{pendingThumbnail}&rdquo; right after checkout.
+              </span>
+            </span>
+          </div>
+        )}
         <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold text-blue-700 mb-6">
           <Zap className="w-3.5 h-3.5" /> Simple, transparent pricing
         </div>
@@ -280,6 +299,7 @@ export default function PricingPage() {
                   ['AI-written, brand-aware content', true, true, true],
                   ['Embedded product & collection links', true, true, true],
                   ['Bulk generation', false, true, true],
+                  ['Article thumbnails with your branding', false, true, true],
                   ['Automated publishing schedule', false, false, true],
                   ['Priority support', false, true, true],
                   ['24/7 support', false, false, true],

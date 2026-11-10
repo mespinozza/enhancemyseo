@@ -19,7 +19,7 @@ import {
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import { thumbnailApi, useAuthedImage } from '@/lib/thumbnail/client';
-import type { ThumbnailRecord, ThumbnailTarget } from '@/lib/thumbnail/types';
+import { THUMBNAIL_TIERS, type ThumbnailRecord, type ThumbnailTarget } from '@/lib/thumbnail/types';
 import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
 import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
 import ThumbnailEditor, { targetValue, type LinkOption } from '@/components/thumbnail/ThumbnailEditor';
@@ -162,7 +162,7 @@ export default function ThumbnailStudioPage() {
   const stopRef = useRef(false);
 
   useEffect(() => {
-    if (user && subscription_status && subscription_status !== 'admin') router.push('/dashboard/articles');
+    if (user && subscription_status && !THUMBNAIL_TIERS.includes(subscription_status)) router.push('/dashboard/articles');
   }, [user, subscription_status, router]);
 
   useEffect(() => {

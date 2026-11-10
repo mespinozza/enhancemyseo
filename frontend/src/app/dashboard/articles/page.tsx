@@ -3,7 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getOnboarding, saveOnboarding, type OnboardingState } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
-import TutorialThumbnail, { pendingTutorialThumbnail, type TutorialThumbnailArticle } from '@/components/thumbnail/TutorialThumbnail';
+import TutorialThumbnail, {
+  pendingTutorialThumbnail,
+  TutorialThumbnailTeaser,
+  type TutorialThumbnailArticle,
+} from '@/components/thumbnail/TutorialThumbnail';
+import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
 import { takeArticleHandoff } from '@/lib/keywords/handoff';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { useUsageRefresh } from '@/lib/usage-refresh-context';
@@ -458,6 +463,7 @@ export default function ArticlesPage() {
       markFieldAsTouched('brandProfile');
     }
   }, [tutorial?.brandId, isLoadingProfiles, brandProfiles]);
+  const tutorialBrandProfile = tutorial?.brandId ? brandProfiles.find((profile) => profile.id === tutorial.brandId) : undefined;
 
   // The tutorial already collected everything, so the article starts as soon as the form holds it.
   const tutorialStartedRef = useRef(false);
@@ -2117,6 +2123,14 @@ export default function ArticlesPage() {
                     </>
                   )}
                 </p>
+                {isGenerating && tutorial.keyword && (
+                  <TutorialThumbnailTeaser
+                    keyword={tutorial.keyword}
+                    brandName={tutorialBrandProfile?.brandName}
+                    brandColor={tutorialBrandProfile?.brandColor}
+                    paid={THUMBNAIL_TIERS.includes(subscription_status || 'free')}
+                  />
+                )}
               </div>
             )}
 

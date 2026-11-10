@@ -6,6 +6,7 @@ import { AlertTriangle, Info, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/firebase/auth-context';
 import type { KeywordAutomationDraft } from '@/lib/keywords/handoff';
+import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
 import type { BrandProfile } from '@/lib/firebase/firestore';
 import { createAutomation, updateAutomation } from '@/lib/firebase/automations';
 import {
@@ -77,6 +78,7 @@ export default function AutomationForm({
 }: AutomationFormProps) {
   const { user, subscription_status } = useAuth();
   const isAdmin = subscription_status === 'admin';
+  const canThumbnail = THUMBNAIL_TIERS.includes(subscription_status || 'free');
   const [isSaving, setIsSaving] = useState(false);
 
   const [name, setName] = useState(existing?.name || draft?.name || '');
@@ -330,7 +332,7 @@ export default function AutomationForm({
       // Sent as false rather than omitted for non-admins, so an account that loses
       // admin cannot leave a stale true behind on a saved automation.
       publishToSiteBlog: isAdmin ? publishToSiteBlog : false,
-      generateThumbnail: isAdmin ? generateThumbnail : false,
+      generateThumbnail: canThumbnail ? generateThumbnail : false,
       siteBlogStatus,
     };
 
@@ -967,7 +969,7 @@ export default function AutomationForm({
         </div>
       </div>
 
-      {isAdmin && (
+      {canThumbnail && (
         <label className="flex items-start gap-3 border-t border-gray-200 pt-4">
           <input
             type="checkbox"

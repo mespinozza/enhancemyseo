@@ -2,6 +2,9 @@ import type { ThumbnailDesign } from './design';
 
 export const THUMBNAILS_COLLECTION = 'thumbnails';
 
+/** Plans with the Thumbnail studio and automation thumbnails. */
+export const THUMBNAIL_TIERS: readonly string[] = ['kickstart', 'seo_takeover', 'agency', 'admin'];
+
 /** What a thumbnail illustrates: an article in this app, or one already in Shopify. */
 export type ThumbnailTarget =
   | { kind: 'blog'; blogId: string }

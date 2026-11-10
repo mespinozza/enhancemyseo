@@ -2,47 +2,107 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Download, ImageIcon, Pencil, ShoppingBag, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Download, ImageIcon, Pencil, Repeat, ShoppingBag, Sparkles, X } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { track } from '@/lib/analytics';
 import { ensureThumbnailFont, thumbnailApi } from '@/lib/thumbnail/client';
-import { defaultDesign, THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH } from '@/lib/thumbnail/design';
+import {
+  defaultDesign,
+  isLayout,
+  THUMBNAIL_HEIGHT,
+  THUMBNAIL_LAYOUTS,
+  THUMBNAIL_WIDTH,
+  type ThumbnailLayout,
+} from '@/lib/thumbnail/design';
 import { drawThumbnail } from '@/lib/thumbnail/render';
+import { samplePhoto } from '@/lib/thumbnail/sample';
 import type { ThumbnailRecord } from '@/lib/thumbnail/types';
+import {
+  clearPendingTutorialThumbnail as clearPending,
+  savePendingTutorialThumbnail as savePending,
+  type TutorialThumbnailArticle,
+} from '@/lib/thumbnail/tutorial-pending';
 
-export interface TutorialThumbnailArticle {
-  blogId: string;
-  brandId: string;
-  title: string;
-  keyword?: string | null;
-  brandName?: string;
-  brandColor?: string;
-}
+export { pendingTutorialThumbnail, type TutorialThumbnailArticle } from '@/lib/thumbnail/tutorial-pending';
 
 interface Props extends TutorialThumbnailArticle {
   /** Called with the public image once the thumbnail is set as the featured image. */
   onReady?: (image: { src: string; alt: string }) => void;
 }
 
-const PENDING_KEY = 'tutorial-thumbnail:pending';
 const startedKey = (blogId: string) => `tutorial-thumbnail:${blogId}`;
 
-/** The tutorial article a free account was offered a thumbnail for, kept until they upgrade or decline. */
-export function pendingTutorialThumbnail(): TutorialThumbnailArticle | null {
-  try {
-    const raw = localStorage.getItem(PENDING_KEY);
-    return raw ? (JSON.parse(raw) as TutorialThumbnailArticle) : null;
-  } catch {
-    return null;
-  }
+/** A keyword as a headline, for the preview shown before the article has its title. */
+const headline = (keyword: string) => keyword.replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Draws the mock-up: the real title and brand colour over a stand-in photo. */
+function useMockCanvas(
+  ref: React.RefObject<HTMLCanvasElement | null>,
+  input: { title: string; brandName?: string; brandColor?: string; layout: ThumbnailLayout; enabled: boolean },
+) {
+  const { title, brandName, brandColor, layout, enabled } = input;
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    ensureThumbnailFont().then(() => {
+      const ctx = ref.current?.getContext('2d');
+      if (!ctx || cancelled) return;
+      const design = defaultDesign({ title, brandName, brandColor, layout });
+      drawThumbnail(ctx, design, { photo: samplePhoto(design.panelColor) });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ref, title, brandName, brandColor, layout, enabled]);
 }
 
-const clearPending = () => localStorage.removeItem(PENDING_KEY);
+/**
+ * A first look while the tutorial article is being written: the topic as a thumbnail,
+ * turning through the styles. It only plants the idea; the offer comes with the article.
+ */
+export function TutorialThumbnailTeaser({
+  keyword,
+  brandName,
+  brandColor,
+  paid,
+}: {
+  keyword: string;
+  brandName?: string;
+  brandColor?: string;
+  paid: boolean;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setIndex((i) => (i + 1) % THUMBNAIL_LAYOUTS.length), 3200);
+    return () => clearInterval(timer);
+  }, []);
+  useMockCanvas(ref, { title: headline(keyword), brandName, brandColor, layout: THUMBNAIL_LAYOUTS[index].value, enabled: true });
+
+  return (
+    <div className="mt-3 flex items-center gap-3 rounded-lg bg-white/70 p-2.5 ring-1 ring-blue-100">
+      <canvas
+        ref={ref}
+        width={THUMBNAIL_WIDTH}
+        height={THUMBNAIL_HEIGHT}
+        className="block aspect-video w-28 flex-shrink-0 rounded-md shadow-sm ring-1 ring-black/5 sm:w-36"
+      />
+      <p className="min-w-0 text-xs text-blue-900 sm:text-sm">
+        <span className="block font-semibold">{paid ? 'A thumbnail is coming with it' : 'Coming up: your article’s thumbnail'}</span>
+        <span className="mt-0.5 block text-blue-800/80">
+          {paid
+            ? 'Once the article is written, we’ll design its featured image with your title and brand colour.'
+            : 'Once it’s written, you’ll see how it could look as a featured image on your blog.'}
+        </span>
+      </p>
+    </div>
+  );
+}
 
 /**
  * The tutorial's first article comes with a thumbnail on a paid plan. Free accounts see
- * a mock-up of it drawn in the browser, never an image generation, and an upgrade offer;
- * once they upgrade, the thumbnail is made for that same article.
+ * a mock-up of it drawn in the browser, never an image generation, in the style they pick,
+ * and an upgrade offer; once they upgrade, the thumbnail is made in that style for that article.
  */
 export default function TutorialThumbnail({ onReady, ...article }: Props) {
   const { blogId, brandId, title, keyword, brandName, brandColor } = article;
@@ -50,6 +110,7 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
   const [state, setState] = useState<'checking' | 'making' | 'upsell' | 'ready' | 'hidden'>('checking');
   const [thumbnail, setThumbnail] = useState<ThumbnailRecord | null>(null);
   const [studio, setStudio] = useState(false);
+  const [layout, setLayout] = useState<ThumbnailLayout>(isLayout(article.layout) ? article.layout : 'parts-plus');
   const started = useRef(false);
   const mockRef = useRef<HTMLCanvasElement>(null);
 
@@ -66,7 +127,7 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
         setStudio(existing.studio);
         let made = existing.thumbnails.find((t) => !t.locked) ?? null;
         if (!made && !existing.paid) {
-          localStorage.setItem(PENDING_KEY, JSON.stringify(article));
+          savePending({ ...article, layout });
           track('tutorial_thumbnail_upsell_shown');
           return setState('upsell');
         }
@@ -77,10 +138,10 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
           made = (
             await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, '/api/thumbnails', {
               method: 'POST',
-              body: JSON.stringify({ tutorial: true, brandId, title, keyword, target: { kind: 'blog', blogId } }),
+              body: JSON.stringify({ tutorial: true, brandId, title, keyword, layout, target: { kind: 'blog', blogId } }),
             })
           ).thumbnail;
-          track('tutorial_thumbnail_ready');
+          track('tutorial_thumbnail_ready', { layout });
         }
         clearPending();
         setThumbnail(made);
@@ -95,50 +156,103 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per article
   }, [user, blogId]);
 
-  useEffect(() => {
-    if (state !== 'upsell') return;
-    let cancelled = false;
-    ensureThumbnailFont().then(() => {
-      const ctx = mockRef.current?.getContext('2d');
-      if (!ctx || cancelled) return;
-      drawThumbnail(ctx, defaultDesign({ title, brandName, brandColor }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [state, title, brandName, brandColor]);
+  useMockCanvas(mockRef, { title, brandName, brandColor, layout, enabled: state === 'upsell' });
 
   if (state === 'hidden' || state === 'checking') return null;
 
   const dismiss = () => {
     clearPending();
-    track('tutorial_thumbnail_upsell_dismissed');
+    track('tutorial_thumbnail_upsell_dismissed', { layout });
     setState('hidden');
   };
 
-  return (
-    <div className="relative mb-4 overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
-      {state === 'upsell' && (
+  const pickLayout = (value: ThumbnailLayout) => {
+    setLayout(value);
+    savePending({ ...article, layout: value });
+    track('tutorial_thumbnail_style_pick', { layout: value });
+  };
+
+  if (state === 'upsell') {
+    return (
+      <div className="relative mb-4 overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
         <button
           type="button"
           onClick={dismiss}
           aria-label="No thanks"
-          className="absolute right-2 top-2 rounded-md p-1 text-gray-400 hover:bg-white/70 hover:text-gray-600"
+          className="absolute right-2 top-2 z-10 rounded-md p-1 text-gray-400 hover:bg-white/70 hover:text-gray-600"
         >
           <X className="h-4 w-4" />
         </button>
-      )}
+        <div className="grid gap-4 p-4 sm:grid-cols-[minmax(0,20rem)_1fr]">
+          <div>
+            <div className="relative overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-blue-100">
+              <canvas ref={mockRef} width={THUMBNAIL_WIDTH} height={THUMBNAIL_HEIGHT} className="block aspect-video h-auto w-full" />
+              <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                <ImageIcon className="h-3 w-3" /> Preview: yours gets a photo made for this topic
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Thumbnail style">
+              {THUMBNAIL_LAYOUTS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={layout === option.value}
+                  onClick={() => pickLayout(option.value)}
+                  className={`truncate rounded-md px-2 py-1 text-xs font-medium transition ${
+                    layout === option.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-blue-300'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-w-0 pr-6">
+            <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              <Sparkles className="h-3.5 w-3.5" /> One last touch
+            </p>
+            <h3 className="mt-1 font-semibold text-gray-900">Give this article a thumbnail that stands out</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              This is your title in your brand colour. Pick a style, and on a paid plan we&apos;ll add a photo made for the topic
+              and set it as the featured image.
+            </p>
+            <ul className="mt-2 space-y-1 text-sm text-gray-600">
+              <li className="flex items-start gap-2">
+                <ImageIcon className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" /> Made for this article as soon as you upgrade
+              </li>
+              <li className="flex items-start gap-2">
+                <ShoppingBag className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" /> Sent to Shopify with the article as its featured image
+              </li>
+              <li className="flex items-start gap-2">
+                <Repeat className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" /> A thumbnail for every article after, edited in the Thumbnail studio
+              </li>
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <Link
+                href="/pricing?from=tutorial-thumbnail"
+                onClick={() => track('tutorial_thumbnail_upgrade_click', { layout })}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+              >
+                Upgrade and add this thumbnail <ArrowRight className="h-4 w-4" />
+              </Link>
+              <button type="button" onClick={dismiss} className="text-sm font-medium text-gray-500 hover:text-gray-700">
+                Not now
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Paid plans start with Kickstart. Your article is already saved either way.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative mb-4 overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
       <div className="grid gap-4 p-4 sm:grid-cols-[minmax(0,18rem)_1fr] sm:items-center">
         <div className="relative aspect-video overflow-hidden rounded-lg bg-white ring-1 ring-blue-100">
-          {state === 'upsell' ? (
-            <>
-              <canvas ref={mockRef} width={THUMBNAIL_WIDTH} height={THUMBNAIL_HEIGHT} className="block h-full w-full" />
-              <div className="absolute inset-y-0 left-0 flex w-[58%] flex-col items-center justify-center gap-1 text-center text-[11px] font-medium text-gray-600">
-                <ImageIcon className="h-5 w-5" />
-                A photo made for your topic
-              </div>
-            </>
-          ) : state === 'making' || !thumbnail ? (
+          {state === 'making' || !thumbnail ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs text-blue-700">
               <span className="absolute inset-0 animate-pulse bg-gradient-to-r from-blue-100 via-white to-blue-100" />
               <ImageIcon className="relative h-6 w-6" />
@@ -150,29 +264,11 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
           )}
         </div>
 
-        <div className="min-w-0 pr-6">
+        <div className="min-w-0">
           <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-            <Sparkles className="h-3.5 w-3.5" /> {state === 'upsell' ? 'Add a thumbnail to this article' : 'Your article’s thumbnail'}
+            <Sparkles className="h-3.5 w-3.5" /> Your article’s thumbnail
           </p>
-          {state === 'upsell' ? (
-            <>
-              <h3 className="mt-1 font-semibold text-gray-900">Want a thumbnail with this article?</h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Upgrade now and we&apos;ll make it for this article straight away, then with every article after.
-              </p>
-              <ul className="mt-2 space-y-1 text-sm text-gray-600">
-                <li className="flex items-center gap-2"><ImageIcon className="h-4 w-4 text-blue-600" /> A photo made for the topic, your title and brand colour</li>
-                <li className="flex items-center gap-2"><ShoppingBag className="h-4 w-4 text-blue-600" /> Set as the featured image and pushed to Shopify</li>
-              </ul>
-              <Link
-                href="/pricing"
-                onClick={() => track('tutorial_thumbnail_upgrade_click')}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-              >
-                Upgrade to get it <ArrowRight className="h-4 w-4" />
-              </Link>
-            </>
-          ) : state === 'making' ? (
+          {state === 'making' ? (
             <>
               <h3 className="mt-1 font-semibold text-gray-900">We&apos;re making a featured image to match</h3>
               <p className="mt-1 text-sm text-gray-600">A photo for the topic, your brand colour, the title and your name, sized for your blog. About 30 seconds.</p>
@@ -180,7 +276,9 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
           ) : (
             <>
               <h3 className="mt-1 font-semibold text-gray-900">Thumbnail ready and set as the featured image</h3>
-              <p className="mt-1 text-sm text-gray-600">It goes to Shopify with the article.</p>
+              <p className="mt-1 text-sm text-gray-600">
+                It goes to Shopify with the article.{studio ? ' Change the style, photo or colours any time in the Thumbnail studio.' : ''}
+              </p>
               {studio ? (
                 <Link
                   href="/dashboard/generate-thumbnail"

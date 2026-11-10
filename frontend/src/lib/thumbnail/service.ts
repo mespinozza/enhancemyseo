@@ -9,10 +9,9 @@ import {
 } from '@/lib/shopify/credentials';
 import { defaultDesign, normalizeDesign, type ThumbnailDesign } from './design';
 import { renderThumbnailPng } from './server';
-import { THUMBNAILS_COLLECTION, type ThumbnailRecord, type ThumbnailTarget } from './types';
+import { THUMBNAIL_TIERS, THUMBNAILS_COLLECTION, type ThumbnailRecord, type ThumbnailTarget } from './types';
 
-/** Plans with the thumbnail studio. Admin only while it is being tested. */
-const STUDIO_TIERS = new Set(['admin']);
+const STUDIO_TIERS = new Set(THUMBNAIL_TIERS);
 /** Plans whose tutorial thumbnail arrives unlocked. */
 const PAID_TIERS = new Set(['kickstart', 'seo_takeover', 'agency', 'admin']);
 const TUTORIAL_CLAIMS = 'thumbnailTutorialClaims';
