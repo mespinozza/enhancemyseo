@@ -50,7 +50,7 @@ export default function Pricing() {
   const router = useRouter();
 
   const handlePricingClick = () => {
-    router.push('/register');
+    router.push('/login?signup=1');
   };
 
   const handleEnterpriseClick = () => {

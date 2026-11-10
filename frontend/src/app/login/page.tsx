@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { FcGoogle } from 'react-icons/fc';
 import { Eye, EyeOff } from 'lucide-react';
 import { createCheckoutSession } from '@/lib/stripe';
@@ -133,6 +133,18 @@ function PurchaseIntentHandler() {
   return null; // This component doesn't render anything
 }
 
+// "Get Started" and free-signup buttons link here with ?signup=1. Watching the query string
+// (not just the first load) means clicking one while already on this page still opens Sign Up.
+function SignupTabFromUrl({ onSignup }: { onSignup: () => void }) {
+  const wantsSignup = useSearchParams().get('signup') === '1';
+  const onSignupRef = useRef(onSignup);
+  onSignupRef.current = onSignup;
+  useEffect(() => {
+    if (wantsSignup) onSignupRef.current();
+  }, [wantsSignup]);
+  return null;
+}
+
 function LoginForm() {
   const { login, register: registerUser, signInWithGoogle } = useAuth();
   const [error, setError] = useState('');
@@ -147,11 +159,6 @@ function LoginForm() {
   const signupForm = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
-
-  // Free-signup buttons link here with ?signup=1, so new visitors land on the right tab.
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('signup') === '1') setIsLogin(false);
-  }, []);
 
   const activeForm = isLogin ? loginForm : signupForm;
   const { formState: { isSubmitting } } = activeForm;
@@ -203,6 +210,9 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen flex flex-col py-12 sm:px-6 lg:px-8 bg-gray-50">
+      <Suspense fallback={null}>
+        <SignupTabFromUrl onSignup={() => switchTab(false)} />
+      </Suspense>
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white shadow sm:rounded-lg">
           {/* Tabs */}

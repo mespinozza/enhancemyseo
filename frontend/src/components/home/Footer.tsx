@@ -19,7 +19,7 @@ export default function Footer() {
 
   const handleGenerateClick = () => {
     if (!user) {
-      router.push('/register');
+      router.push('/login?signup=1');
     } else {
       router.push('/dashboard');
     }

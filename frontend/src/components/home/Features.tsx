@@ -65,7 +65,7 @@ export default function Features() {
     : DEMO_CARDS[0].id;
 
   const handleGenerateClick = () => {
-    router.push(user ? '/dashboard' : '/register');
+    router.push(user ? '/dashboard' : '/login?signup=1');
   };
 
   return (
