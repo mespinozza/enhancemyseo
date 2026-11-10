@@ -9,6 +9,7 @@ import TutorialThumbnail, {
   type TutorialThumbnailArticle,
 } from '@/components/thumbnail/TutorialThumbnail';
 import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
+import { articleStats } from '@/lib/thumbnail/tutorial-pending';
 import { fetchCredits, useCreditReturn } from '@/lib/credits/client';
 import BuyCredits from '@/components/credits/BuyCredits';
 import { takeArticleHandoff } from '@/lib/keywords/handoff';
@@ -865,6 +866,7 @@ export default function ArticlesPage() {
                 keyword: currentKeyword,
                 brandName: selectedProfile.brandName,
                 brandColor: selectedProfile.brandColor,
+                stats: articleStats(generatedContent.content || '', [selectedProfile.websiteUrl, selectedProfile.shopifyStoreUrl]),
               });
               setTutorial(null);
               setExpandedArticle(0);

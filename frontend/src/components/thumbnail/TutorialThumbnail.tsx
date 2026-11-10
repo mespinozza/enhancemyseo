@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Download, ImageIcon, Pencil, Repeat, ShoppingBag, Sparkles, X } from 'lucide-react';
+import { Download, ImageIcon, Pencil, Sparkles } from 'lucide-react';
+import TutorialUpgrade from './TutorialUpgrade';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { track } from '@/lib/analytics';
 import { ensureThumbnailFont, thumbnailApi } from '@/lib/thumbnail/client';
@@ -173,79 +174,33 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
   };
 
   if (state === 'upsell') {
-    return (
-      <div className="relative mb-4 overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
-        <button
-          type="button"
-          onClick={dismiss}
-          aria-label="No thanks"
-          className="absolute right-2 top-2 z-10 rounded-md p-1 text-gray-400 hover:bg-white/70 hover:text-gray-600"
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <div className="grid gap-4 p-4 sm:grid-cols-[minmax(0,20rem)_1fr]">
-          <div>
-            <div className="relative overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-blue-100">
-              <canvas ref={mockRef} width={THUMBNAIL_WIDTH} height={THUMBNAIL_HEIGHT} className="block aspect-video h-auto w-full" />
-              <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                <ImageIcon className="h-3 w-3" /> Preview: yours gets a photo made for this topic
-              </span>
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Thumbnail style">
-              {THUMBNAIL_LAYOUTS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={layout === option.value}
-                  onClick={() => pickLayout(option.value)}
-                  className={`truncate rounded-md px-2 py-1 text-xs font-medium transition ${
-                    layout === option.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-blue-300'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="min-w-0 pr-6">
-            <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-              <Sparkles className="h-3.5 w-3.5" /> One last touch
-            </p>
-            <h3 className="mt-1 font-semibold text-gray-900">Give this article a thumbnail that stands out</h3>
-            <p className="mt-1 text-sm text-gray-600">
-              This is your title in your brand colour. Pick a style, and on a paid plan we&apos;ll add a photo made for the topic
-              and set it as the featured image.
-            </p>
-            <ul className="mt-2 space-y-1 text-sm text-gray-600">
-              <li className="flex items-start gap-2">
-                <ImageIcon className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" /> Made for this article as soon as you upgrade
-              </li>
-              <li className="flex items-start gap-2">
-                <ShoppingBag className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" /> Sent to Shopify with the article as its featured image
-              </li>
-              <li className="flex items-start gap-2">
-                <Repeat className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" /> A thumbnail for every article after, edited in the Thumbnail studio
-              </li>
-            </ul>
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <Link
-                href="/pricing?from=tutorial-thumbnail"
-                onClick={() => track('tutorial_thumbnail_upgrade_click', { layout })}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-              >
-                Upgrade and add this thumbnail <ArrowRight className="h-4 w-4" />
-              </Link>
-              <button type="button" onClick={dismiss} className="text-sm font-medium text-gray-500 hover:text-gray-700">
-                Not now
-              </button>
-            </div>
-            <p className="mt-2 text-xs text-gray-500">Paid plans start with Kickstart. Your article is already saved either way.</p>
-          </div>
+    const preview = (
+      <>
+        <div className="relative overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-blue-100">
+          <canvas ref={mockRef} width={THUMBNAIL_WIDTH} height={THUMBNAIL_HEIGHT} className="block aspect-video h-auto w-full" />
+          <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+            <ImageIcon className="h-3 w-3" /> Preview: yours gets a photo made for this topic
+          </span>
         </div>
-      </div>
+        <div className="mt-2 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Thumbnail style">
+          {THUMBNAIL_LAYOUTS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={layout === option.value}
+              onClick={() => pickLayout(option.value)}
+              className={`truncate rounded-md px-2 py-1 text-xs font-medium transition ${
+                layout === option.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-blue-300'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </>
     );
+    return <TutorialUpgrade preview={preview} stats={article.stats} onDismiss={dismiss} />;
   }
 
   return (
