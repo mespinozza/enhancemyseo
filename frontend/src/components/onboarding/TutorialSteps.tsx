@@ -25,6 +25,7 @@ import type { OnboardingState } from '@/lib/onboarding/state';
 import { track } from '@/lib/analytics';
 import type { AnalyzeResponse, TopicSuggestion } from '@/app/api/onboarding/analyze/route';
 import TonePicker from '@/components/TonePicker';
+import KeywordIdeaButton from '@/components/keywords/KeywordIdeaButton';
 import { closestToneLabel } from '@/lib/article/enhanced/tones';
 
 export const STEPS = ['Website', 'Business', 'Connect', 'Topic'] as const;
@@ -910,13 +911,24 @@ export function TopicStep({
       <label htmlFor="custom" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">
         Or write your own article keyword
       </label>
-      <input
-        id="custom"
-        value={custom}
-        onChange={(e) => setCustom(e.target.value)}
-        placeholder="how to waterproof a hiking backpack"
-        className={inputClass}
-      />
+      <div className="relative">
+        <input
+          id="custom"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          placeholder="how to waterproof a hiking backpack"
+          className={`${inputClass} pr-40`}
+        />
+        <KeywordIdeaButton
+          brandId={state.brandId}
+          value={custom}
+          onKeyword={setCustom}
+          className="absolute right-2 top-1/2 -translate-y-1/2"
+        />
+      </div>
+      <p className="mt-1.5 text-xs text-gray-500">
+        Leave it empty and we&apos;ll suggest one from your business, or type an idea and we&apos;ll sharpen it.
+      </p>
 
       <div className="mt-6 flex items-center justify-between gap-3">
         <BackButton onClick={onBack} />

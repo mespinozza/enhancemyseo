@@ -14,6 +14,7 @@ import { thumbnailApi } from '@/lib/thumbnail/client';
 import { loadThumbnailPrefs, saveThumbnailPrefs } from '@/lib/thumbnail/prefs';
 import { announceUsageChange } from '@/lib/allowance';
 import ThumbnailOption from '@/components/thumbnail/ThumbnailOption';
+import KeywordIdeaButton from '@/components/keywords/KeywordIdeaButton';
 import {
   articleStats,
   clearPendingTutorialUpgrade,
@@ -2014,17 +2015,23 @@ export default function ArticlesPage() {
                   <div className="space-y-2">
                     {keywords.map((keyword, index) => (
                       <div key={index} className="flex items-center space-x-2">
-                        <div className="flex-1">
+                        <div className="relative flex-1">
                           <input
                             type="text"
                             value={keyword}
                             onChange={(e) => updateKeyword(index, e.target.value)}
                             onFocus={() => index === 0 && markFieldAsTouched('keyword')}
                             onBlur={() => index === 0 && markFieldAsTouched('keyword')}
-                            className={`block w-full rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 ${
+                            className={`block w-full rounded-md pr-36 shadow-sm focus:border-blue-500 focus:ring-blue-500 ${
                               index === 0 && !keyword.trim() && touchedFields.keyword ? 'border-red-300' : 'border-gray-300'
                             }`}
                             placeholder={index === 0 ? "Enter your main keyword (required)" : `Keyword ${index + 1} (optional)`}
+                          />
+                          <KeywordIdeaButton
+                            brandId={selectedBrandId || undefined}
+                            value={keyword}
+                            onKeyword={(idea) => updateKeyword(index, idea)}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2"
                           />
                         </div>
                         
