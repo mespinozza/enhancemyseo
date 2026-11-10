@@ -58,13 +58,23 @@ async function saveObject(path: string, bytes: Buffer, contentType: string, publ
   initializeFirebaseAdmin();
   const bucket = getStorage().bucket();
   const token = publicUrl ? randomUUID() : null;
-  await bucket.file(path).save(bytes, {
-    contentType,
-    metadata: {
-      cacheControl: 'public, max-age=31536000, immutable',
-      ...(token && { metadata: { firebaseStorageDownloadTokens: token } }),
-    },
-  });
+  try {
+    await bucket.file(path).save(bytes, {
+      contentType,
+      metadata: {
+        cacheControl: 'public, max-age=31536000, immutable',
+        ...(token && { metadata: { firebaseStorageDownloadTokens: token } }),
+      },
+    });
+  } catch (error) {
+    if (/bucket does not exist/i.test(error instanceof Error ? error.message : String(error))) {
+      throw new Error(
+        `Image storage is not set up: the bucket "${bucket.name}" does not exist. Create it under Firebase console > Storage, ` +
+          'then set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET to its name.',
+      );
+    }
+    throw error;
+  }
   return token ? publicUrlFor(bucket.name, path, token) : null;
 }
 
