@@ -22,8 +22,10 @@ import { TutorialReadyOffer } from '@/components/thumbnail/TutorialThumbnail';
 import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
 import {
   clearPendingTutorialUpgrade,
+  clearTutorialThumbnailSkipped,
   pendingTutorialUpgrade,
   savePendingTutorialUpgrade,
+  saveTutorialThumbnailSkipped,
 } from '@/lib/thumbnail/tutorial-pending';
 import {
   STEPS,
@@ -438,9 +440,11 @@ function TutorialFlow({
     track('onboarding_step_complete', { step: 4, step_name: 'Topic' });
   };
 
-  const handOff = async (keyword: string) => {
+  const handOff = async (keyword: string, { skippedThumbnail = false } = {}) => {
     setHandingOff(true);
     clearPendingTutorialUpgrade();
+    if (skippedThumbnail) saveTutorialThumbnailSkipped();
+    else clearTutorialThumbnailSkipped();
     // Awaited: the articles page reads this to fill in its form.
     await saveOnboarding(user.uid, { step: 5, keyword }).catch((error) => console.warn('Could not save the topic:', error));
     router.push('/dashboard/articles?tutorial=1');
@@ -513,9 +517,10 @@ function TutorialFlow({
             brandName={brand?.brandName}
             brandColor={brand?.brandColor}
             ready={ready}
-            onSkip={() => handOff(offer)}
+            onSkip={() => handOff(offer, { skippedThumbnail: true })}
             onBack={() => setOffer(null)}
             onBeforeCheckout={async (layout) => {
+              clearTutorialThumbnailSkipped();
               savePendingTutorialUpgrade(offer, layout);
               await saveOnboarding(user.uid, { step: 5, keyword: offer });
             }}

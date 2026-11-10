@@ -17,7 +17,9 @@ import ThumbnailOption from '@/components/thumbnail/ThumbnailOption';
 import {
   articleStats,
   clearPendingTutorialUpgrade,
+  clearTutorialThumbnailSkipped,
   pendingTutorialUpgrade,
+  tutorialThumbnailSkipped,
   type TutorialUpgrade,
 } from '@/lib/thumbnail/tutorial-pending';
 import { fetchCredits, useCreditReturn } from '@/lib/credits/client';
@@ -30,7 +32,7 @@ import BrandProfileForm from '@/components/brand/BrandProfileForm';
 import UsageTracker from '@/components/usage/UsageTracker';
 import { getUserUsage, canPerformAction } from '@/lib/usage-limits';
 import { toast } from 'react-hot-toast';
-import { AlertTriangle, Download, Copy, Plus, RefreshCw, Sparkles, X, Check, Pencil, Star, Lock, LayoutGrid, List, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, Download, Copy, FileText, Plus, RefreshCw, Sparkles, X, Check, Pencil, Star, Lock, LayoutGrid, List, ShoppingBag } from 'lucide-react';
 import Link from 'next/link';
 import {
   getFavoriteBrands,
@@ -440,7 +442,12 @@ export default function ArticlesPage() {
   const [tutorialThumb, setTutorialThumb] = useState<TutorialThumbnailArticle | null>(null);
   // Upgraded on the tutorial's offer before writing: the article comes with its thumbnail.
   const [tutorialUpgrade, setTutorialUpgrade] = useState<TutorialUpgrade | null>(null);
-  useEffect(() => setTutorialUpgrade(pendingTutorialUpgrade()), []);
+  // Declined on that offer: the article is written without one.
+  const [tutorialNoThumb, setTutorialNoThumb] = useState(false);
+  useEffect(() => {
+    setTutorialUpgrade(pendingTutorialUpgrade());
+    setTutorialNoThumb(tutorialThumbnailSkipped());
+  }, []);
   // Kept on screen after the run, where a toast would have vanished.
   const [failedArticles, setFailedArticles] = useState<{ keyword: string; message: string }[]>([]);
   const [retryPending, setRetryPending] = useState(false);
@@ -939,8 +946,10 @@ export default function ArticlesPage() {
                 brandColor: selectedProfile.brandColor,
                 stats: articleStats(generatedContent.content || '', [selectedProfile.websiteUrl, selectedProfile.shopifyStoreUrl]),
                 ...(tutorialUpgrade && { layout: tutorialUpgrade.layout }),
+                ...(tutorialNoThumb && { offerOnly: true }),
               });
               clearPendingTutorialUpgrade();
+              clearTutorialThumbnailSkipped();
               setTutorial(null);
               setExpandedArticle(0);
               toast.success(
@@ -2226,7 +2235,18 @@ export default function ArticlesPage() {
                     </>
                   )}
                 </p>
-                {isGenerating && tutorial.keyword && (
+                {isGenerating && tutorial.keyword && tutorialNoThumb && (
+                  <p className="mt-3 flex items-start gap-2 rounded-lg bg-white/70 p-2.5 text-xs text-blue-900 ring-1 ring-blue-100 sm:text-sm">
+                    <FileText className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+                    <span>
+                      <span className="font-semibold">The full article, free.</span>{' '}
+                      <span className="text-blue-800/80">
+                        It&apos;s written without a thumbnail. You can add one later on a paid plan.
+                      </span>
+                    </span>
+                  </p>
+                )}
+                {isGenerating && tutorial.keyword && !tutorialNoThumb && (
                   <TutorialThumbnailTeaser
                     keyword={tutorial.keyword}
                     brandName={tutorialBrandProfile?.brandName}

@@ -219,7 +219,7 @@ export default function TutorialThumbnail({ onReady, ...article }: Props) {
         );
         setStudio(existing.studio);
         let made = existing.thumbnails.find((t) => !t.locked) ?? null;
-        if (!made && !existing.paid) {
+        if (!made && (!existing.paid || article.offerOnly)) {
           savePending({ ...article, layout });
           track('tutorial_thumbnail_upsell_shown');
           return setState('upsell');

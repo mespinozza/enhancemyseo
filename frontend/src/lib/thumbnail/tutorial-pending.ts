@@ -11,6 +11,8 @@ export interface TutorialThumbnailArticle {
   layout?: ThumbnailLayout;
   /** What the article contains, shown back to the writer on the offer. */
   stats?: ArticleStats;
+  /** Declined before writing: show the offer again, never make one on this visit. */
+  offerOnly?: boolean;
 }
 
 export interface ArticleStats {
@@ -47,8 +49,9 @@ export function pendingTutorialThumbnail(): TutorialThumbnailArticle | null {
   }
 }
 
+// Kept without `offerOnly`: after upgrading, the pending thumbnail is to be made.
 export const savePendingTutorialThumbnail = (article: TutorialThumbnailArticle) =>
-  localStorage.setItem(PENDING_KEY, JSON.stringify(article));
+  localStorage.setItem(PENDING_KEY, JSON.stringify({ ...article, offerOnly: undefined }));
 
 export const clearPendingTutorialThumbnail = () => localStorage.removeItem(PENDING_KEY);
 
@@ -77,3 +80,19 @@ export const savePendingTutorialUpgrade = (keyword: string, layout: ThumbnailLay
   localStorage.setItem(UPGRADE_KEY, JSON.stringify({ keyword, layout, atMs: Date.now() } satisfies TutorialUpgrade));
 
 export const clearPendingTutorialUpgrade = () => localStorage.removeItem(UPGRADE_KEY);
+
+const SKIP_KEY = 'tutorial-article:no-thumbnail';
+
+/** The writer chose the free article without its thumbnail on the tutorial's offer. */
+export const saveTutorialThumbnailSkipped = () => localStorage.setItem(SKIP_KEY, String(Date.now()));
+
+export function tutorialThumbnailSkipped(): boolean {
+  try {
+    const at = Number(localStorage.getItem(SKIP_KEY));
+    return Boolean(at) && Date.now() - at < UPGRADE_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+export const clearTutorialThumbnailSkipped = () => localStorage.removeItem(SKIP_KEY);
