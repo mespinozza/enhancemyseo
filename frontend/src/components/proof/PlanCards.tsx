@@ -64,7 +64,7 @@ export default function PlanCards({ recommended }: { recommended: 'kickstart' | 
 
     setBusy(plan.key);
     try {
-      await createCheckoutSession(priceId, await user.getIdToken());
+      if (!(await createCheckoutSession(priceId, await user.getIdToken()))) setBusy(null);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
       setBusy(null);

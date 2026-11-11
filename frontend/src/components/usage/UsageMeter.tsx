@@ -11,13 +11,16 @@ const LABELS: Record<AllowanceKind, string> = {
   thumbnails: 'Thumbnail photos',
 };
 
+/** Plans with a bigger self-serve plan above them on the pricing page. */
+const UPGRADABLE = new Set(['free', 'kickstart']);
+
 /**
  * A one-line version of the usage tracker for tool headers: the month's allowance as a short
  * bar, with a way to get more only once it is running out.
  */
 export default function UsageMeter({ kind, onTopUp }: { kind: AllowanceKind; onTopUp?: () => void }) {
   const { allowance } = useAllowance(kind);
-  if (!allowance) return <div className="h-[3.25rem] w-60 animate-pulse rounded-lg bg-gray-100" />;
+  if (!allowance) return <div className="h-[3.25rem] w-64 animate-pulse rounded-lg bg-gray-100" />;
   return <UsageMeterView allowance={allowance} onTopUp={onTopUp} />;
 }
 
@@ -36,7 +39,7 @@ export function UsageMeterView({ allowance, onTopUp }: { allowance: Allowance; o
 
   return (
     <div
-      className={`w-60 rounded-lg border px-3 py-2 shadow-sm ${out ? 'border-red-200 bg-red-50' : low ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'}`}
+      className={`w-64 rounded-lg border px-3 py-2 shadow-sm ${out ? 'border-red-200 bg-red-50' : low ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'}`}
       title="Resets monthly. Extras never expire."
     >
       <div className="flex items-center justify-between gap-2 text-xs">
@@ -62,16 +65,15 @@ export function UsageMeterView({ allowance, onTopUp }: { allowance: Allowance; o
             </>
           )}
         </span>
-        {out && allowance.canBuy && onTopUp ? (
+        {(out || low) && allowance.canBuy && onTopUp && (
           <button type="button" onClick={onTopUp} className="text-[11px] font-semibold text-blue-600 hover:text-blue-800">
             Top up
           </button>
-        ) : (
-          (out || low) && (
-            <Link href="/pricing" className="text-[11px] font-semibold text-blue-600 hover:text-blue-800">
-              Upgrade
-            </Link>
-          )
+        )}
+        {(out || low) && UPGRADABLE.has(allowance.tier) && (
+          <Link href="/pricing" className="text-[11px] font-semibold text-blue-600 hover:text-blue-800">
+            Upgrade
+          </Link>
         )}
       </div>
     </div>

@@ -65,7 +65,7 @@ export default function DoneForYouOffer({ className = '' }: { className?: string
 
     setIsStarting(true);
     try {
-      await createCheckoutSession(DONE_FOR_YOU.priceId, await user.getIdToken());
+      if (!(await createCheckoutSession(DONE_FOR_YOU.priceId, await user.getIdToken()))) setIsStarting(false);
     } catch (error) {
       console.error('Done-for-you checkout error:', error);
       alert(`Payment Error: ${error instanceof Error ? error.message : 'Something went wrong. Please try again.'}`);

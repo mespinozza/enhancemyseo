@@ -109,48 +109,70 @@ export const describePrice = (
   return null;
 };
 
+const PLAN_NAMES: Record<string, string> = { kickstart: 'Kickstart', seo_takeover: 'SEO Takeover', done_for_you: DONE_FOR_YOU.name };
+
+/** What the subscriber is asked before their card on file is charged for a plan change. */
+function confirmPlanChange(priceId: string, amountDue: number): boolean {
+  const price = describePrice(priceId);
+  const name = price ? `${PLAN_NAMES[price.plan] ?? price.plan} ${price.interval === 'year' ? 'annual' : 'monthly'}` : 'this plan';
+  const dollars = `$${(Math.abs(amountDue) / 100).toFixed(2)}`;
+  const charge =
+    amountDue > 0
+      ? `Your card on file will be charged ${dollars} now for the rest of this billing period.`
+      : amountDue < 0
+        ? `Your unused time becomes ${dollars} of credit toward your next bills.`
+        : 'There is nothing extra to pay today.';
+  return window.confirm(`Switch your subscription to ${name}?\n\n${charge}`);
+}
+
 /**
- * Creates a checkout session for subscription payment
+ * Starts paying for a plan: Stripe checkout for a first subscription, or, for an existing
+ * subscriber, a confirmed change of plan on the subscription they already have.
  * @param priceId - The Stripe price ID for the subscription plan
  * @param userToken - The Firebase user ID token for authentication
- * @returns The checkout session URL
+ * @returns The URL being opened, or null if the subscriber declined the change
  */
 export const createCheckoutSession = async (
   priceId: string,
   userToken: string,
   options: { cancelPath?: string } = {}
-): Promise<string> => {
+): Promise<string | null> => {
   try {
     console.log('Creating checkout session for priceId:', priceId);
-    
-    const response = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${userToken}`,
-      },
-      // The ad that brought the visitor rides along into the Stripe metadata, so a
-      // subscription can be traced back to its campaign.
-      body: JSON.stringify({ priceId, attribution: readAttribution(), cancelPath: options.cancelPath }),
-    });
 
-    console.log('Response status:', response.status);
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      console.error('API Error:', errorData);
-      throw new Error(`Failed to create checkout session: ${errorData.error || response.statusText}`);
+    const request = (extra: Record<string, unknown> = {}) =>
+      fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userToken}`,
+        },
+        // The ad that brought the visitor rides along into the Stripe metadata, so a
+        // subscription can be traced back to its campaign.
+        body: JSON.stringify({ priceId, attribution: readAttribution(), cancelPath: options.cancelPath, ...extra }),
+      });
+    const read = async (response: Response) => {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('API Error:', errorData);
+        throw new Error(errorData.error || response.statusText);
+      }
+      return response.json();
+    };
+
+    let data = await read(await request());
+    if (data.confirm) {
+      if (!confirmPlanChange(priceId, data.confirm.amountDue)) return null;
+      data = await read(await request({ confirm: true, prorationDate: data.confirm.prorationDate }));
     }
-
-    const data = await response.json();
     console.log('Response data:', data);
     
-    // Redirect to Stripe checkout
+    // Redirect to Stripe checkout, or to the dashboard once a plan change has gone through
     if (data.checkoutUrl) {
       const price = describePrice(priceId);
       if (price) {
         const fromPlan = typeof data.currentPlan === 'string' ? data.currentPlan : null;
-        rememberCheckout({ priceId, ...price, fromPlan });
+        rememberCheckout({ priceId, ...price, ...(data.switched ? { value: Number(data.charged) || 0 } : {}), fromPlan });
         track(
           'begin_checkout',
           { currency: 'USD', value: price.value, plan: price.plan, interval: price.interval, from_plan: fromPlan },

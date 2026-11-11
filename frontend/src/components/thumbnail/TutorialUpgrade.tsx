@@ -84,7 +84,7 @@ export default function TutorialUpgrade({
       const priceId = getPriceId(planKey, annual);
       if (!priceId) throw new Error('That plan is not available right now');
       await onBeforeCheckout?.();
-      await createCheckoutSession(priceId, await user.getIdToken(), { cancelPath });
+      if (!(await createCheckoutSession(priceId, await user.getIdToken(), { cancelPath }))) setBusy(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not start checkout');
       setBusy(false);

@@ -121,7 +121,7 @@ function PurchaseIntentHandler() {
 
       // Get user token and create checkout session
       const userToken = await user!.getIdToken();
-      await createCheckoutSession(priceId, userToken);
+      if (!(await createCheckoutSession(priceId, userToken))) router.push('/dashboard');
     } catch (error) {
       console.error('Purchase intent error:', error);
       alert(`Payment Error: ${error instanceof Error ? error.message : 'Something went wrong. Please try again.'}`);

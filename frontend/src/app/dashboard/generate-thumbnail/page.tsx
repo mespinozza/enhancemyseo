@@ -549,7 +549,12 @@ export default function ThumbnailStudioPage() {
               )}
               {outOfPhotos && (
                 <div ref={revealTopUp}>
-                  <BuyCredits kind="images" compact title="You've used this month's thumbnail photos" returnTo="/dashboard/generate-thumbnail" />
+                  <BuyCredits
+                    kind="images"
+                    compact
+                    title={photos && photos.left > 0 ? 'Get more thumbnail photos' : "You've used this month's thumbnail photos"}
+                    returnTo="/dashboard/generate-thumbnail"
+                  />
                 </div>
               )}
             </div>
