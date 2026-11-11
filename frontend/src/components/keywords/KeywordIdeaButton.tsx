@@ -16,6 +16,7 @@ export default function KeywordIdeaButton({
   onKeyword,
   className = '',
   compact = false,
+  fillAll,
 }: {
   brandId: string | undefined;
   value: string;
@@ -23,10 +24,13 @@ export default function KeywordIdeaButton({
   className?: string;
   /** Icon only, for repeated rows where a full label on every line is noise. */
   compact?: boolean;
+  /** Fills every empty row of a list at once, with distinct keywords. */
+  fillAll?: { empty: number; avoid: string[]; onKeywords: (keywords: string[]) => void };
 }) {
   const { user } = useAuth();
   const [busy, setBusy] = useState(false);
-  const seed = value.trim();
+  const filling = Boolean(fillAll && fillAll.empty > 0);
+  const seed = filling ? '' : value.trim();
 
   const generate = async () => {
     if (!user || !brandId) {
@@ -34,14 +38,21 @@ export default function KeywordIdeaButton({
       return;
     }
     setBusy(true);
-    track('keyword_idea', { seeded: Boolean(seed) });
+    track('keyword_idea', { seeded: Boolean(seed), count: filling ? fillAll!.empty : 1 });
     try {
       const response = await fetch('/api/keywords/idea', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
-        body: JSON.stringify({ brandId, seed }),
+        body: JSON.stringify(filling ? { brandId, count: fillAll!.empty, avoid: fillAll!.avoid } : { brandId, seed }),
       });
       const data = await response.json().catch(() => ({}));
+      if (filling) {
+        if (!response.ok || !Array.isArray(data.keywords) || !data.keywords.length) {
+          throw new Error(data.error || 'Could not come up with keywords');
+        }
+        fillAll!.onKeywords(data.keywords);
+        return;
+      }
       if (!response.ok || !data.keyword) throw new Error(data.error || 'Could not come up with a keyword');
       onKeyword(data.keyword);
     } catch (error) {
@@ -51,8 +62,12 @@ export default function KeywordIdeaButton({
     }
   };
 
-  const label = busy ? 'Thinking…' : seed ? 'Improve with AI' : 'Surprise me';
-  const hint = seed ? 'Turn what you typed into a keyword for your brand' : 'Suggest a keyword from your brand profile';
+  const label = busy ? 'Thinking…' : filling ? 'Generate for all' : seed ? 'Improve with AI' : 'Surprise me';
+  const hint = filling
+    ? 'Fill every empty keyword with a different idea from your brand profile'
+    : seed
+    ? 'Turn what you typed into a keyword for your brand'
+    : 'Suggest a keyword from your brand profile';
 
   if (compact) {
     return (

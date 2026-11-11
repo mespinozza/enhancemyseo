@@ -2041,6 +2041,19 @@ export default function ArticlesPage() {
                             value={keyword}
                             onKeyword={(idea) => updateKeyword(index, idea)}
                             compact={index > 0}
+                            fillAll={
+                              index === 0 && keywords.length > 1
+                                ? {
+                                    empty: keywords.filter((k) => !k.trim()).length,
+                                    avoid: keywords.map((k) => k.trim()).filter(Boolean),
+                                    onKeywords: (ideas) =>
+                                      setKeywords((current) => {
+                                        let next = 0;
+                                        return current.map((k) => (k.trim() || next >= ideas.length ? k : ideas[next++]));
+                                      }),
+                                  }
+                                : undefined
+                            }
                             className="absolute right-1.5 top-1/2 -translate-y-1/2"
                           />
                         </div>

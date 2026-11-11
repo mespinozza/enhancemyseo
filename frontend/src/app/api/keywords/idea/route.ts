@@ -29,7 +29,8 @@ const clean = (value: unknown, max: number) => (typeof value === 'string' ? valu
 /**
  * One article keyword for a brand. With a seed, it is refined into a keyword worth writing
  * for; without one, it is picked from the brand profile. Keywords the brand already has
- * articles for are avoided.
+ * articles for, and any in `avoid`, are avoided. Without a seed, `count` > 1 returns that
+ * many distinct keywords as `keywords`.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireSignedIn(request);
@@ -46,6 +47,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const brandId = clean(body.brandId, 128);
   const seed = clean(body.seed, 200);
+  const count = Math.min(10, Math.max(1, Math.floor(Number(body.count) || 1)));
+  const avoid: string[] = Array.isArray(body.avoid)
+    ? body.avoid.map((k: unknown) => clean(k, 120).toLowerCase()).filter(Boolean).slice(0, 20)
+    : [];
   if (!brandId) return NextResponse.json({ error: 'Pick a brand profile first' }, { status: 400 });
 
   initializeFirebaseAdmin();
@@ -63,7 +68,9 @@ export async function POST(request: NextRequest) {
         .map((doc) => clean(doc.get('keyword'), 120).toLowerCase())
         .filter(Boolean)
     )
-  ).slice(0, 60);
+  )
+    .slice(0, 60)
+    .concat(avoid);
 
   const profile = [
     `Brand: ${clean(brand.get('brandName'), 120) || 'Not specified'}`,
@@ -72,7 +79,10 @@ export async function POST(request: NextRequest) {
     `Website: ${clean(brand.get('shopifyStoreUrl'), 200) || clean(brand.get('websiteUrl'), 200) || 'Not specified'}`,
   ].join('\n');
 
-  const task = seed
+  const many = !seed && count > 1;
+  const task = many
+    ? `Pick ${count} keywords for this brand's next articles: questions or needs its customers search for before buying, that an article can answer and link to what the brand sells. Each must cover a different topic or intent, not reworded versions of one idea.`
+    : seed
     ? `The writer typed this idea: "${seed}". Turn it into the single best article keyword for this brand: keep its meaning and topic, make it a phrase real customers type into Google, and fit it to what the brand sells. If it is already a good keyword, return it tidied up.`
     : 'Pick the single best keyword for this brand\'s next article: a question or need its customers search for before buying, that an article can answer and link to what the brand sells.';
 
@@ -86,24 +96,31 @@ ${task}
 Rules:
 - 3 to 8 words, lowercase, no quotes or punctuation at the end.
 - Long-tail and specific, with clear search intent; no brand names unless the writer used one.
-- Reply with the keyword only, nothing else.`;
+${many ? `- Reply with exactly ${count} keywords, one per line, nothing else.` : '- Reply with the keyword only, nothing else.'}`;
 
   meterAs(uid);
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, fetch: meteredFetch });
     const response = await anthropic.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 60,
+      max_tokens: many ? 40 * count : 60,
       messages: [{ role: 'user', content: prompt }],
     });
     const text = response.content.find((block) => block.type === 'text');
-    const keyword = (text && text.type === 'text' ? text.text : '')
-      .split('\n')[0]
-      .replace(/^["'\s-]+|["'.\s]+$/g, '')
-      .toLowerCase()
-      .slice(0, 120);
-    if (keyword.split(/\s+/).length < 2) throw new Error('No keyword came back');
-    return NextResponse.json({ keyword });
+    const taken = new Set(existing);
+    const keywords = (text && text.type === 'text' ? text.text : '')
+      .split('\n')
+      .map((line) =>
+        line
+          .replace(/^\s*(\d+[.)]|[-*•])\s*/, '')
+          .replace(/^["'\s-]+|["'.\s]+$/g, '')
+          .toLowerCase()
+          .slice(0, 120)
+      )
+      .filter((k) => k.split(/\s+/).length >= 2 && (!many || (!taken.has(k) && Boolean(taken.add(k)))))
+      .slice(0, many ? count : 1);
+    if (!keywords.length) throw new Error('No keyword came back');
+    return NextResponse.json(many ? { keywords } : { keyword: keywords[0] });
   } catch (error) {
     console.error('Keyword idea failed:', error);
     return NextResponse.json({ error: 'Could not come up with a keyword. Try again.' }, { status: 502 });
