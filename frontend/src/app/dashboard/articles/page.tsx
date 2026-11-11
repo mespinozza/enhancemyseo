@@ -1956,7 +1956,7 @@ export default function ArticlesPage() {
                   {subscription_status === 'admin' && (
                     <button
                       onClick={toggleBulkMode}
-                      className="flex items-center space-x-1 px-3 py-1 text-xs bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full hover:from-purple-700 hover:to-blue-700 transition-all shadow-sm"
+                      className="flex items-center space-x-1 px-3 py-1 text-xs bg-gradient-to-r from-blue-700 to-blue-500 text-white rounded-full hover:from-blue-800 hover:to-blue-600 transition-all shadow-sm"
                       title={bulkMode ? "Switch to normal mode" : "Switch to bulk mode"}
                     >
                       <Sparkles size={12} />
