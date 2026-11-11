@@ -189,7 +189,7 @@ export default function DashboardHome() {
         : []),
     ];
     return { steps, done: steps.filter((s) => s.done).length };
-  }, [overview, canAutomate]);
+  }, [overview, automates]);
 
   const used = overview?.used ?? 0;
   const limit = overview?.limit ?? 'unlimited';

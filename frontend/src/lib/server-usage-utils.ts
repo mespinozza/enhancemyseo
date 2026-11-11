@@ -26,8 +26,8 @@ const UPGRADE_SUGGESTIONS = {
   },
   kickstart: {
     nextTier: 'seo_takeover',
-    message: 'Upgrade to SEO Takeover for 90 articles, 30 keywords, and automated scheduling per month',
-    urgency: 'Need more content? SEO Takeover gives you 3.6x more generations plus hands-free automation!'
+    message: 'Upgrade to SEO Takeover for 90 articles, 30 keywords and 5 automations per month',
+    urgency: 'Need more content? SEO Takeover gives you 3.6x more generations and 5 automations!'
   },
   seo_takeover: {
     nextTier: 'agency',

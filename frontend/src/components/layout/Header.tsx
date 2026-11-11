@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react';
 const SERVICES = [
   { href: '/services/article-generation', label: 'Article Generation' },
   { href: '/services/thumbnail-generation', label: 'Thumbnail Generation' },
+  { href: '/services/seo-growth-automation', label: 'SEO Growth Automation' },
 ];
 
 const COMING_SOON_SERVICES = [

@@ -95,6 +95,11 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
+                <Link href="/services/seo-growth-automation" className="text-gray-400 hover:text-white transition-colors">
+                  SEO Growth Automation
+                </Link>
+              </li>
+              <li>
                 <Link href="/blog" className="text-gray-400 hover:text-white transition-colors">
                   Our Blog
                 </Link>

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Hero from '@/components/home/Hero';
 import Features from '@/components/home/Features';
 import ThumbnailShowcase from '@/components/home/ThumbnailShowcase';
+import AutomationShowcase from '@/components/home/AutomationShowcase';
 import Reviews from '@/components/home/Reviews';
 import Pricing from '@/components/home/Pricing';
 import { IMPRESSIONS_HEADLINE } from '@/lib/thumbnail/landing';
@@ -24,6 +25,7 @@ export default function HomePage() {
       <Hero />
       <Features />
       <ThumbnailShowcase />
+      <AutomationShowcase />
       <Reviews />
       <Pricing />
     </main>

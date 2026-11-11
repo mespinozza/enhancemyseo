@@ -381,7 +381,7 @@ export const PLAN_COPY = {
   seo_takeover: {
     cta: 'Automate My Content',
     audience: 'For growing stores that want publishing to run itself.',
-    why: 'Scheduling unlocks hands-free publishing: set it daily or weekly and articles generate and push to Shopify without you. 90 a month covers a large catalog in months, not years.',
+    why: 'Five automations keep several topics or brands publishing at once, with articles and thumbnails pushed to Shopify without you. 90 a month covers a large catalog in months, not years.',
   },
   done_for_you: {
     cta: 'Explore Done For You',
