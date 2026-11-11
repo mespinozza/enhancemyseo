@@ -2031,7 +2031,7 @@ export default function ArticlesPage() {
                             onChange={(e) => updateKeyword(index, e.target.value)}
                             onFocus={() => index === 0 && markFieldAsTouched('keyword')}
                             onBlur={() => index === 0 && markFieldAsTouched('keyword')}
-                            className={`block w-full rounded-md pr-36 shadow-sm focus:border-blue-500 focus:ring-blue-500 ${
+                            className={`block w-full rounded-md ${index === 0 ? 'pr-36' : 'pr-11'} shadow-sm focus:border-blue-500 focus:ring-blue-500 ${
                               index === 0 && !keyword.trim() && touchedFields.keyword ? 'border-red-300' : 'border-gray-300'
                             }`}
                             placeholder={index === 0 ? "Enter your main keyword (required)" : `Keyword ${index + 1} (optional)`}
@@ -2040,6 +2040,7 @@ export default function ArticlesPage() {
                             brandId={selectedBrandId || undefined}
                             value={keyword}
                             onKeyword={(idea) => updateKeyword(index, idea)}
+                            compact={index > 0}
                             className="absolute right-1.5 top-1/2 -translate-y-1/2"
                           />
                         </div>
