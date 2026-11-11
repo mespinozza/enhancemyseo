@@ -3,6 +3,7 @@ import { Check, Copy, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, BrandProfile } from '@/lib/firebase/firestore';
 import SearchConsoleSection from './SearchConsoleSection';
+import BrandLogoSection from './BrandLogoSection';
 import ShopifyConnectSection from './ShopifyConnectSection';
 
 interface BrandProfileFormProps {
@@ -240,6 +241,17 @@ export default function BrandProfileForm({ existingProfile, onSave, onCancel }: 
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             />
           </div>
+        </div>
+
+        <div>
+          <span className="block text-sm font-medium text-gray-700">Thumbnail Logo</span>
+          <p className="mb-2 text-sm text-gray-500">Drawn on every thumbnail for this brand, so your articles look consistent.</p>
+          <BrandLogoSection
+            brandId={existingProfile?.id}
+            brandName={formData.brandName}
+            logoPath={existingProfile?.thumbnailLogoPath}
+            logoStyle={existingProfile?.thumbnailLogo}
+          />
         </div>
 
         <div className="flex items-start gap-3">

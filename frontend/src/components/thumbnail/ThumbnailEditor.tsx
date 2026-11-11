@@ -3,12 +3,14 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { TokenUser as User } from '@/lib/thumbnail/client';
 import toast from 'react-hot-toast';
-import { ChevronDown, Download, ImagePlus, Loader2, RefreshCw, Save, Shuffle, Upload, X } from 'lucide-react';
+import { BadgeCheck, ChevronDown, Download, ImagePlus, Loader2, RefreshCw, Save, Shuffle, Upload, X } from 'lucide-react';
 import {
   THUMBNAIL_HEIGHT,
   THUMBNAIL_LAYOUTS,
   THUMBNAIL_WIDTH,
   layoutColors,
+  sameLogoStyle,
+  type BrandLogoStyle,
   type ThumbnailDesign,
   type ThumbnailLayout,
 } from '@/lib/thumbnail/design';
@@ -31,10 +33,14 @@ interface Props {
   thumbnail: ThumbnailRecord;
   brandColor?: string;
   logoUrl: string | null;
+  /** The brand profile's saved logo, which new thumbnails start from. */
+  logoStyle: BrandLogoStyle | null;
+  brandName?: string;
   links: LinkOption[];
   onClose: () => void;
   onSaved: (thumbnail: ThumbnailRecord) => void;
   onLogoUploaded: (logoUrl: string) => void;
+  onLogoStyleSaved: (style: BrandLogoStyle) => void;
 }
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -163,7 +169,19 @@ function StyleOption({
   );
 }
 
-export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, links, onClose, onSaved, onLogoUploaded }: Props) {
+export default function ThumbnailEditor({
+  user,
+  thumbnail,
+  brandColor,
+  logoUrl,
+  logoStyle,
+  brandName,
+  links,
+  onClose,
+  onSaved,
+  onLogoUploaded,
+  onLogoStyleSaved,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [design, setDesign] = useState<ThumbnailDesign>(thumbnail.design);
   const [photo, setPhoto] = useState<HTMLImageElement | null>(null);
@@ -172,7 +190,7 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
   const [link, setLink] = useState(targetValue(thumbnail.target));
   const [direction, setDirection] = useState('');
   const [steerOpen, setSteerOpen] = useState(false);
-  const [busy, setBusy] = useState<'save' | 'photo' | 'logo' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'photo' | 'logo' | 'logoStyle' | null>(null);
   const [dirty, setDirty] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
 
@@ -295,13 +313,33 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
       setLogo(await loadFileImage(file));
       patchLogo({ mode: 'image' });
       onLogoUploaded(url);
-      toast.success('Logo saved for this brand');
+      await saveLogoStyle({ ...design.logo, mode: 'image' }, true);
+      toast.success(`Logo saved to ${brandName || 'your brand'} profile. New thumbnails will use it.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setBusy(null);
     }
   };
+
+  const saveLogoStyle = async (logoDesign: ThumbnailDesign['logo'], quiet = false) => {
+    const style: BrandLogoStyle = { mode: logoDesign.mode, text: logoDesign.text, scale: logoDesign.scale };
+    if (!quiet) setBusy('logoStyle');
+    try {
+      await thumbnailApi(user, '/api/thumbnails/logo', {
+        method: 'PATCH',
+        body: JSON.stringify({ brandId: thumbnail.brandId, style }),
+      });
+      onLogoStyleSaved(style);
+      if (!quiet) toast.success(`Logo saved to ${brandName || 'your brand'} profile`);
+    } catch (error) {
+      if (quiet) throw error;
+      toast.error(error instanceof Error ? error.message : 'Could not save the logo');
+    } finally {
+      if (!quiet) setBusy(null);
+    }
+  };
+  const logoSaved = sameLogoStyle(design.logo, logoStyle);
 
   const download = async () => {
     const url = URL.createObjectURL(await pngBlob());
@@ -561,6 +599,27 @@ export default function ThumbnailEditor({ user, thumbnail, brandColor, logoUrl, 
                   {busy === 'logo' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : logo ? <Upload className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
                   {logo ? 'Replace logo image' : 'Upload a logo (PNG with transparency works best)'}
                 </button>
+                <div className="flex min-h-[2rem] items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs">
+                  {logoSaved ? (
+                    <span className="flex items-center gap-1.5 text-green-700">
+                      <BadgeCheck className="h-3.5 w-3.5 flex-shrink-0" />
+                      Saved to brand profile, used on new thumbnails
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-gray-500">{logoStyle ? 'Differs from your brand profile' : 'Not saved to your brand profile'}</span>
+                      <button
+                        type="button"
+                        onClick={() => saveLogoStyle(design.logo)}
+                        disabled={busy !== null}
+                        className="inline-flex flex-shrink-0 items-center gap-1 font-semibold text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      >
+                        {busy === 'logoStyle' && <Loader2 className="h-3 w-3 animate-spin" />}
+                        Save to brand profile
+                      </button>
+                    </>
+                  )}
+                </div>
                 <input
                   ref={logoInput}
                   type="file"

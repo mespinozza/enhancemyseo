@@ -21,6 +21,7 @@ import {
 import { db } from './config';
 import type { IntegrationType } from '@/types/content-selection';
 import type { ArticleFormat, ArticleSeo } from '@/lib/article/enhanced/types';
+import type { BrandLogoStyle } from '@/lib/thumbnail/design';
 
 // Base interface for all document types
 interface BaseDocument {
@@ -61,6 +62,8 @@ export interface BrandProfile extends BaseDocument {
   shopifyAuthor?: string;
   /** Storage path of the logo drawn on thumbnails. Read through /api/thumbnails/asset. */
   thumbnailLogoPath?: string;
+  /** How the logo is drawn on new thumbnails, saved from the thumbnail editor. */
+  thumbnailLogo?: BrandLogoStyle;
   socialMedia?: {
     facebook?: string;
     twitter?: string;

@@ -93,10 +93,37 @@ export function defaultDesign(input: { title: string; brandName?: string; brandC
   };
 }
 
-const clamp = (value: unknown, min: number, max: number, fallback: number) => {
+/**
+ * The part of the logo a brand keeps across thumbnails. Colour is left out: it follows
+ * the layout, so a colour that reads on one layout would vanish on another.
+ */
+export type BrandLogoStyle = Pick<ThumbnailDesign['logo'], 'mode' | 'text' | 'scale'>;
+
+export function normalizeLogoStyle(raw: unknown): BrandLogoStyle | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const style = raw as Partial<BrandLogoStyle>;
+  if (style.mode !== 'image' && style.mode !== 'text' && style.mode !== 'none') return null;
+  return {
+    mode: style.mode,
+    text: typeof style.text === 'string' ? style.text.slice(0, 60) : '',
+    scale: clamp(style.scale, 0.5, 1.6, 1),
+  };
+}
+
+export const sameLogoStyle = (logo: ThumbnailDesign['logo'], style: BrandLogoStyle | null | undefined) =>
+  Boolean(style) && logo.mode === style!.mode && Math.abs(logo.scale - style!.scale) < 0.001 && (logo.mode !== 'text' || logo.text === style!.text);
+
+/** The brand's saved logo over a design's defaults; an image logo needs an uploaded image. */
+export function applyLogoStyle(logo: ThumbnailDesign['logo'], style: BrandLogoStyle | null, hasImage: boolean): ThumbnailDesign['logo'] {
+  if (!style) return hasImage ? { ...logo, mode: 'image' } : logo;
+  const mode = style.mode === 'image' && !hasImage ? (style.text || logo.text ? 'text' : 'none') : style.mode;
+  return { ...logo, mode, scale: style.scale, text: style.text || logo.text };
+}
+
+function clamp(value: unknown, min: number, max: number, fallback: number) {
   const n = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
   return Math.min(max, Math.max(min, n));
-};
+}
 
 /** Accepts a design from a request body, filling and bounding every field. */
 export function normalizeDesign(raw: unknown, fallbackTitle = ''): ThumbnailDesign {

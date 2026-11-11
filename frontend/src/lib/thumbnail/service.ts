@@ -7,7 +7,7 @@ import { meteredFetch } from '@/lib/ai/meter';
 import {
   resolveShopifyCredentials,
 } from '@/lib/shopify/credentials';
-import { defaultDesign, normalizeDesign, type ThumbnailDesign } from './design';
+import { applyLogoStyle, defaultDesign, normalizeDesign, normalizeLogoStyle, type BrandLogoStyle, type ThumbnailDesign } from './design';
 import { renderThumbnailPng } from './server';
 import { THUMBNAIL_TIERS, THUMBNAILS_COLLECTION, type ThumbnailRecord, type ThumbnailTarget } from './types';
 
@@ -258,7 +258,7 @@ export async function createThumbnail(input: {
   const design = normalizeDesign(
     {
       ...base,
-      ...(logoPath && { logo: { ...base.logo, mode: 'image' } }),
+      logo: applyLogoStyle(base.logo, normalizeLogoStyle(brand.get('thumbnailLogo')), Boolean(logoPath)),
       ...input.design,
     },
     input.title,
@@ -364,9 +364,33 @@ export async function saveBrandLogo(uid: string, brandId: string, bytes: Buffer,
   const path = `${ownPrefix(uid)}logos/${brandId}-${Date.now()}.${extension}`;
   await saveObject(path, bytes, contentType, false);
   const previous: string | undefined = brand.get('thumbnailLogoPath');
-  await brand.ref.update({ thumbnailLogoPath: path });
+  const style = normalizeLogoStyle(brand.get('thumbnailLogo'));
+  await brand.ref.update({
+    thumbnailLogoPath: path,
+    thumbnailLogo: { text: style?.text ?? brand.get('brandName') ?? '', scale: style?.scale ?? 1, mode: 'image' },
+  });
   if (previous && previous !== path) await deleteObject(previous);
   return path;
+}
+
+/** How the brand's logo is drawn on every future thumbnail. */
+export async function saveBrandLogoStyle(uid: string, brandId: string, style: BrandLogoStyle) {
+  initializeFirebaseAdmin();
+  const brand = await brandFor(uid, brandId);
+  await brand.ref.update({ thumbnailLogo: style });
+}
+
+/** Removes the brand's logo image; new thumbnails fall back to the brand name. */
+export async function removeBrandLogo(uid: string, brandId: string) {
+  initializeFirebaseAdmin();
+  const brand = await brandFor(uid, brandId);
+  const previous: string | undefined = brand.get('thumbnailLogoPath');
+  const style = normalizeLogoStyle(brand.get('thumbnailLogo'));
+  await brand.ref.update({
+    thumbnailLogoPath: FieldValue.delete(),
+    ...(style?.mode === 'image' && { thumbnailLogo: { ...style, mode: 'text' } }),
+  });
+  if (previous) await deleteObject(previous);
 }
 
 /**

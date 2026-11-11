@@ -653,6 +653,8 @@ export default function ThumbnailStudioPage() {
           thumbnail={editing}
           brandColor={brand?.brandColor}
           logoUrl={logoUrl}
+          logoStyle={brand?.thumbnailLogo ?? (brand?.thumbnailLogoPath ? { mode: 'image', text: brand.brandName ?? '', scale: 1 } : null)}
+          brandName={brand?.brandName}
           links={linkOptions}
           onClose={() => setEditing(null)}
           onSaved={onSaved}
@@ -661,6 +663,9 @@ export default function ThumbnailStudioPage() {
             const path = new URL(url, window.location.origin).searchParams.get('path') ?? undefined;
             setBrands((current) => current.map((b) => (b.id === brandId ? { ...b, thumbnailLogoPath: path } : b)));
           }}
+          onLogoStyleSaved={(style) =>
+            setBrands((current) => current.map((b) => (b.id === brandId ? { ...b, thumbnailLogo: style } : b)))
+          }
         />
       )}
     </div>
