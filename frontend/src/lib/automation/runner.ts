@@ -20,6 +20,7 @@ import {
 import { initializeFirebaseAdmin } from '@/lib/firebase/admin';
 import { meterAs } from '@/lib/ai/meter';
 import { internalBaseUrl } from '@/lib/internal-url';
+import { INTERNAL_TIMEOUT_MS, internalFetch } from '@/lib/internal-fetch';
 import { recordError } from '@/lib/errors/record';
 import { createThumbnail, thumbnailAccess } from '@/lib/thumbnail/service';
 import { isLayout } from '@/lib/thumbnail/design';
@@ -278,15 +279,27 @@ async function generateArticle(
 
   let response: Response;
   for (let attempt = 0; ; attempt += 1) {
-    response = await fetch(`${internalBaseUrl()}/api/generate-article`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-        ...automationKeyHeader(),
-      },
-      body,
-    });
+    try {
+      response = await internalFetch(`${internalBaseUrl()}/api/generate-article`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+          ...automationKeyHeader(),
+        },
+        body,
+      });
+    } catch (cause) {
+      // No response at all: the server restarted mid-run or generation outlasted the timeout.
+      await blogRef.delete().catch(() => undefined);
+      const timedOut = cause instanceof Error && /timeout/i.test(`${cause.message} ${(cause.cause as Error | undefined)?.message ?? ''}`);
+      throw new Error(
+        timedOut
+          ? `Article generation took longer than ${INTERNAL_TIMEOUT_MS / 60_000} minutes and was abandoned`
+          : 'Lost the connection to article generation (the server may have restarted). The next run will try again.',
+        { cause }
+      );
+    }
 
     if (response.status !== 429 || attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) break;
 
@@ -393,7 +406,7 @@ async function pushToShopify(
     throw new Error('Auto-push is on but the brand profile has no Shopify store URL');
   }
 
-  const response = await fetch(`${internalBaseUrl()}/api/shopify/push-article`, {
+  const response = await internalFetch(`${internalBaseUrl()}/api/shopify/push-article`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
