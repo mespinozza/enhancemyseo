@@ -1,6 +1,6 @@
 'use client';
 
-import { Check } from 'lucide-react';
+import { Check, TrendingUp } from 'lucide-react';
 import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
 import ThumbnailCanvas from './ThumbnailCanvas';
 
@@ -63,6 +63,15 @@ export default function StylePicker({
             <span className={`block truncate px-2 py-1.5 text-xs font-medium ${selected ? 'text-blue-700' : 'text-gray-700'}`}>
               {option.label}
             </span>
+            {option.value === 'parts-plus' && (
+              <span
+                title="The format behind our case study's 3M+ impressions"
+                className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow"
+              >
+                <TrendingUp className="h-3 w-3" strokeWidth={2.5} />
+                3M+ impressions
+              </span>
+            )}
             {selected && (
               <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white shadow">
                 <Check className="h-3 w-3" strokeWidth={3} />
