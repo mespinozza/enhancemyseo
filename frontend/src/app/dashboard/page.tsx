@@ -20,6 +20,7 @@ import { db } from '@/lib/firebase/config';
 import { blogOperations, brandProfileOperations, type Blog, type BrandProfile } from '@/lib/firebase/firestore';
 import { getUsageDisplay, getUserUsage } from '@/lib/usage-limits';
 import { useAllowance } from '@/lib/allowance';
+import { automationLimit, canAutomate } from '@/lib/automation/limits';
 import { AUTOMATIONS_COLLECTION } from '@/lib/automation/types';
 import { getFilteredNavigation, type SubscriptionTier } from '@/config/navigation';
 import WelcomeCard from '@/components/onboarding/WelcomeCard';
@@ -41,8 +42,6 @@ const TIER_BADGES: Record<SubscriptionTier, string> = {
   agency: 'bg-amber-50 text-amber-700 ring-amber-200',
   admin: 'bg-green-50 text-green-700 ring-green-200',
 };
-
-const AUTOMATION_TIERS: SubscriptionTier[] = ['seo_takeover', 'agency', 'admin'];
 
 interface Overview {
   used: number;
@@ -116,14 +115,14 @@ export default function DashboardHome() {
     if (!user?.uid) return;
     let cancelled = false;
     const uid = user.uid;
-    const canAutomate = AUTOMATION_TIERS.includes(tier);
+    const automates = canAutomate(tier);
     (async () => {
       const [usage, recent, total, brands, automations] = await Promise.allSettled([
         getUserUsage(uid),
         blogOperations.getRecent(uid, 5),
         getCountFromServer(query(collection(db, 'blogs'), where('userId', '==', uid))).then((s) => s.data().count),
         brandProfileOperations.getAll(uid),
-        canAutomate
+        automates
           ? getDocs(query(collection(db, AUTOMATIONS_COLLECTION), where('userId', '==', uid))).then((s) => ({
               total: s.size,
               enabled: s.docs.filter((d) => d.data().enabled).length,
@@ -153,7 +152,8 @@ export default function DashboardHome() {
   }, [tier]);
 
   const firstName = user?.displayName?.trim().split(/\s+/)[0];
-  const canAutomate = AUTOMATION_TIERS.includes(tier);
+  const automates = canAutomate(tier);
+  const activeLimit = automationLimit(tier);
   const tools = useMemo(() => getFilteredNavigation(tier), [tier]);
 
   const setup = useMemo(() => {
@@ -177,7 +177,7 @@ export default function DashboardHome() {
         done: (overview.total ?? overview.recent.length) > 0,
         href: '/dashboard/articles',
       },
-      ...(canAutomate
+      ...(automates
         ? [
             {
               label: 'Automate your publishing',
@@ -302,12 +302,16 @@ export default function DashboardHome() {
           action="Manage"
         />
 
-        {canAutomate ? (
+        {automates ? (
           <StatCard
             icon={Workflow}
             label="Automations"
             value={overview ? (overview.automations?.enabled ?? 0) : <Skeleton className="h-8 w-10" />}
-            detail={overview ? `active of ${overview.automations?.total ?? 0} set up` : undefined}
+            detail={
+              overview
+                ? `${activeLimit === Infinity ? 'active' : `active of ${activeLimit} allowed`} · ${overview.automations?.total ?? 0} set up`
+                : undefined
+            }
             href="/dashboard/automate"
             action={(overview?.automations?.total ?? 0) > 0 ? 'Open automations' : 'Set one up'}
           />
@@ -316,8 +320,8 @@ export default function DashboardHome() {
             icon={Workflow}
             label="Automations"
             value={<span className="text-base font-semibold text-gray-700">Publish on autopilot</span>}
-            detail="Scheduled articles from your keywords, on SEO Takeover and above."
-            href="/#pricing"
+            detail="Scheduled articles from your keywords, from the Kickstart plan."
+            href="/services/seo-growth-automation"
             action="See plans"
           />
         )}

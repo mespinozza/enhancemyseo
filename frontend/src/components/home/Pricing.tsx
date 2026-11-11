@@ -7,6 +7,7 @@ import { createCheckoutSession, getPriceId, getDisplayPrice, getOriginalPrice, g
 import { useRef, useState } from 'react';
 import DoneForYouOffer from '@/components/pricing/DoneForYouOffer';
 import { USAGE_LIMITS } from '@/lib/usage-limits';
+import { describeAutomationLimit } from '@/lib/automation/limits';
 
 const FEATURES = [
   {
@@ -83,6 +84,7 @@ export default function Pricing() {
       features: [
         "25 article generations per month",
         `${USAGE_LIMITS.kickstart.thumbnails} branded thumbnails per month`,
+        `${describeAutomationLimit('kickstart')} running on a schedule`,
         "Advanced article customization",
         "Bulk article generation",
         "Product & collection integration",
@@ -100,7 +102,7 @@ export default function Pricing() {
       features: [
         "90 article generations per month",
         `${USAGE_LIMITS.seo_takeover.thumbnails} thumbnails per month, made automatically`,
-        "Automated scheduling & hands-free publishing",
+        `${describeAutomationLimit('seo_takeover')} with hands-free publishing`,
         "Premium SEO optimization",
         "Advanced product selection modes",
         "Automatic content integration",

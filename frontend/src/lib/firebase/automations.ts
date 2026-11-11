@@ -102,6 +102,7 @@ export async function setAutomationEnabled(
 ): Promise<void> {
   await updateDoc(doc(db, AUTOMATIONS_COLLECTION, automation.id as string), {
     enabled,
+    pausedReason: null,
     // Re-anchor on enable so a long-disabled automation does not fire the instant it is
     // switched back on because its stored `nextRunAt` is in the past.
     ...(enabled ? { nextRunAt: Timestamp.fromDate(computeNextRun(automation.schedule)) } : {}),

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Loader2, Pencil, Play, Trash2 } from 'lucide-react';
 import { describeSchedule, monthKey } from '@/lib/automation/schedule';
 import type { Automation } from '@/lib/automation/types';
@@ -91,6 +92,15 @@ export default function AutomationCard({
           <p className="mt-1 truncate text-sm text-gray-600" title={summary}>
             {summary}
           </p>
+          {!automation.enabled && automation.pausedReason === 'plan_limit' && (
+            <p className="mt-1.5 text-xs font-medium text-amber-700">
+              Paused by your plan&apos;s automation limit.{' '}
+              <Link href="/pricing" className="underline hover:text-amber-900">
+                Upgrade
+              </Link>{' '}
+              or pause another automation to switch this back on.
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">

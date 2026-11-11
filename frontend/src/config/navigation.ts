@@ -1,4 +1,5 @@
 import { FileText, Key, Package, LayoutGrid, Image, Workflow, LucideIcon } from 'lucide-react';
+import { AUTOMATION_TIERS } from '@/lib/automation/limits';
 
 // All subscription tiers in the system
 export type SubscriptionTier = 'free' | 'kickstart' | 'seo_takeover' | 'agency' | 'admin';
@@ -64,7 +65,7 @@ export const navigationGroups: NavigationGroup[] = [
         name: 'Tools',
         href: '/dashboard/automate',
         icon: Workflow,
-        requiredSubscription: ['seo_takeover', 'agency', 'admin'] // SEO Takeover and above only
+        requiredSubscription: AUTOMATION_TIERS as SubscriptionTier[],
       },
     ],
   },

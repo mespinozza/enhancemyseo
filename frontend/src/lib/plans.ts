@@ -1,5 +1,6 @@
 import { getAnnualPrice, getDisplayPrice } from '@/lib/stripe';
 import { USAGE_LIMITS } from '@/lib/usage-limits';
+import { describeAutomationLimit } from '@/lib/automation/limits';
 
 /**
  * The self-serve plans as sold on /pricing and /proof. Prices come from the Stripe
@@ -20,6 +21,7 @@ export interface Plan {
 }
 
 const articles = (plan: Plan['key']) => `${USAGE_LIMITS[plan].articles} articles per month`;
+const automations = (plan: Plan['key']) => `${describeAutomationLimit(plan)} running on a schedule`;
 
 export const PLANS: Plan[] = [
   {
@@ -38,7 +40,7 @@ export const PLANS: Plan[] = [
       { label: 'Community support', included: true },
       { label: 'Bulk generation', included: false },
       { label: 'Article thumbnails', included: false },
-      { label: 'Automated scheduling', included: false },
+      { label: 'SEO growth automations', included: false },
       { label: 'Priority support', included: false },
     ],
   },
@@ -58,8 +60,8 @@ export const PLANS: Plan[] = [
       { label: 'Bulk article generation', included: true },
       { label: 'Product & collection linking', included: true },
       { label: 'Article thumbnails with your branding', included: true },
+      { label: automations('kickstart'), included: true },
       { label: 'Priority email support', included: true },
-      { label: 'Automated scheduling', included: false },
     ],
   },
   {
@@ -79,8 +81,8 @@ export const PLANS: Plan[] = [
       { label: 'Bulk article generation', included: true },
       { label: 'Product & collection linking', included: true },
       { label: 'Article thumbnails, made automatically', included: true },
+      { label: automations('seo_takeover'), included: true },
       { label: '24/7 Priority support', included: true },
-      { label: 'Automated scheduling', included: true },
     ],
   },
 ];

@@ -238,7 +238,7 @@ export const canPerformAction = async (
   // Check if they have enough remaining for the bulk request
   if (requestedCount > remaining) {
     const upgradeMessages = {
-      kickstart: 'Upgrade to SEO Takeover for 90 articles, 30 keywords, and automated scheduling per month!',
+      kickstart: 'Upgrade to SEO Takeover for 90 articles, 30 keywords, and 5 automations per month!',
       seo_takeover: 'Upgrade to Agency for unlimited articles and keywords!',
       agency: 'You\'re on the highest tier! Limits reset monthly.',
       admin: 'You have unlimited access.'

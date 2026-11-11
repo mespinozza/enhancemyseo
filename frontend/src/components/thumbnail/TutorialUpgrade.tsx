@@ -207,7 +207,7 @@ export default function TutorialUpgrade({
                 <span className="block text-sm font-semibold text-gray-900">{option.name}</span>
                 <span className="mt-0.5 block text-xs text-gray-600">
                   {monthly(key)} articles a month, thumbnails included
-                  {key === 'seo_takeover' ? ', automated publishing' : ''}
+                  {key === 'seo_takeover' ? ', 5 automations' : ', 1 automation'}
                 </span>
                 <span className="mt-1.5 block text-sm">
                   <strong className="text-gray-900">${annual ? option.annualMonthlyPrice : option.monthlyPrice}</strong>

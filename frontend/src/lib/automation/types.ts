@@ -106,6 +106,8 @@ export interface Automation {
   brandId: string;
   name: string;
   enabled: boolean;
+  /** Set by the runner when it switched this off because the plan's limit was reached. */
+  pausedReason?: 'plan_limit' | null;
   trigger: AutomationTrigger;
   /** Rotated in order for the `topicList` trigger. */
   topics: string[];
@@ -198,6 +200,7 @@ export type AutomationDraft = Omit<
   | 'claimedAt'
   | 'lastRunAt'
   | 'monthUsage'
+  | 'pausedReason'
   | 'nextRunAt'
   | 'recentContentTypes'
 >;

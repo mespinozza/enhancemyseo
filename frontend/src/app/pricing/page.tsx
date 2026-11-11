@@ -52,7 +52,7 @@ const FAQS = [
   },
   {
     q: 'What is automated scheduling?',
-    a: 'SEO Takeover users can set a publishing schedule — daily or weekly — and the tool generates and optionally pushes articles to Shopify with no manual input needed.',
+    a: 'An automation writes articles for your brand on a daily or weekly schedule, from your topic list or your best Search Console queries, and can push them to Shopify as drafts or live posts. Kickstart runs 1 automation at a time and SEO Takeover runs 5.',
   },
   {
     q: 'Do you offer refunds?',
@@ -304,7 +304,7 @@ export default function PricingPage() {
                   ['Embedded product & collection links', true, true, true],
                   ['Bulk generation', false, true, true],
                   ['Article thumbnails with your branding', false, true, true],
-                  ['Automated publishing schedule', false, false, true],
+                  ['SEO growth automations', false, '1', '5'],
                   ['Priority support', false, true, true],
                   ['24/7 support', false, false, true],
                   ['Access to new features first', false, false, true],

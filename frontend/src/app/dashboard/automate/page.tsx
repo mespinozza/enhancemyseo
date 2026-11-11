@@ -24,6 +24,7 @@ import { QUOTA_EXHAUSTED_MESSAGE, isQuotaExhausted } from '@/lib/firebase/quota'
 import AutomationForm from '@/components/automation/AutomationForm';
 import { takeAutomationDraft, type KeywordAutomationDraft } from '@/lib/keywords/handoff';
 import AutomationCard, { formatWhen } from '@/components/automation/AutomationCard';
+import { automationLimit, canAutomate, describeAutomationLimit } from '@/lib/automation/limits';
 import type { Automation, AutomationRun, AutomationRunStatus } from '@/lib/automation/types';
 import { ContentTypeBadge } from '@/components/ContentTypePicker';
 import { ToneBadge } from '@/components/TonePicker';
@@ -55,7 +56,7 @@ function elapsedSince(value?: { toDate(): Date } | null): string {
 }
 
 export default function AutomatePage() {
-  const { user } = useAuth();
+  const { user, subscription_status } = useAuth();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
@@ -147,8 +148,17 @@ export default function AutomatePage() {
   }, []);
 
   const hasActiveRun = runs.some(isActive);
+  const limit = automationLimit(subscription_status);
+  const activeCount = automations.filter((automation) => automation.enabled).length;
+  const atLimit = activeCount >= limit;
 
   const handleToggle = async (automation: Automation) => {
+    if (!automation.enabled && atLimit) {
+      toast.error(
+        `Your plan runs ${limit} automation${limit === 1 ? '' : 's'} at a time. Pause another one or upgrade to switch this on.`
+      );
+      return;
+    }
     try {
       await setAutomationEnabled(automation, !automation.enabled);
       toast.success(automation.enabled ? 'Automation paused' : 'Automation turned on');
@@ -204,6 +214,33 @@ export default function AutomatePage() {
     );
   }
 
+  if (subscription_status && !canAutomate(subscription_status)) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-xl rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <Workflow className="mx-auto h-10 w-10 text-blue-600" />
+          <h1 className="mt-4 text-xl font-bold text-gray-900">Put your blog on autopilot</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Automations write and publish articles for your brand on a schedule. Kickstart runs{' '}
+            {describeAutomationLimit('kickstart').toLowerCase()} and SEO Takeover runs{' '}
+            {describeAutomationLimit('seo_takeover').toLowerCase()}.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Link href="/pricing" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              See plans
+            </Link>
+            <Link
+              href="/services/seo-growth-automation"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              How automations work
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -212,6 +249,19 @@ export default function AutomatePage() {
           <p className="text-gray-600">
             Write articles on a schedule without opening the dashboard.
           </p>
+          {limit !== Infinity && (
+            <p className={`mt-2 text-sm ${atLimit ? 'font-medium text-amber-700' : 'text-gray-500'}`}>
+              {activeCount} of {limit} active automation{limit === 1 ? '' : 's'} on your plan
+              {atLimit && (
+                <>
+                  {' · '}
+                  <Link href="/pricing" className="underline hover:text-amber-900">
+                    Upgrade for more
+                  </Link>
+                </>
+              )}
+            </p>
+          )}
         </div>
 
         {!showForm && brandProfiles.length > 0 && (

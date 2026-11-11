@@ -36,6 +36,7 @@ import {
   type AutomationRunStatus,
 } from './types';
 import { computeNextRun, monthKey } from './schedule';
+import { PLAN_LIMIT_PAUSE_MESSAGE, automationLimit, automationsWithinLimit } from './limits';
 import {
   rankGscCandidates,
   rankGscPageCandidates,
@@ -1014,6 +1015,50 @@ export async function reapStaleClaims(): Promise<number> {
   return reaped;
 }
 
+/**
+ * Whether the owner's plan still covers this automation. Automation documents are written
+ * from the browser, so the plan's limit is enforced here, where the work happens: an
+ * automation beyond it is switched off, oldest kept, with a run saying why.
+ */
+async function withinPlan(db: Firestore, automation: Automation): Promise<boolean> {
+  const user = await db.collection('users').doc(automation.userId).get();
+  const tier = (user.get('subscription_status') as string | undefined) || 'free';
+  const limit = automationLimit(tier);
+  if (limit === Infinity) return true;
+
+  let covered = false;
+  if (limit > 0) {
+    const enabled = await db
+      .collection(AUTOMATIONS_COLLECTION)
+      .where('userId', '==', automation.userId)
+      .where('enabled', '==', true)
+      .get();
+    const list = enabled.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Automation);
+    // A paused automation being run by hand counts as if it were switched on.
+    if (!list.some((other) => other.id === automation.id)) list.push(automation);
+    covered = automationsWithinLimit(list, tier).has(automation.id as string);
+  }
+  if (covered) return true;
+
+  const now = Timestamp.now();
+  const message = PLAN_LIMIT_PAUSE_MESSAGE(tier);
+  await db.collection(AUTOMATIONS_COLLECTION).doc(automation.id as string).update({ enabled: false, pausedReason: 'plan_limit' });
+  await db.collection(AUTOMATION_RUNS_COLLECTION).add({
+    userId: automation.userId,
+    automationId: automation.id,
+    automationName: automation.name,
+    status: 'skipped',
+    trigger: automation.trigger,
+    keyword: '',
+    triggerReason: 'Plan limit',
+    pushedToShopify: false,
+    error: message,
+    startedAt: now,
+    finishedAt: now,
+  });
+  return false;
+}
+
 export interface TickSummary {
   claimed: number;
   reaped: number;
@@ -1044,6 +1089,7 @@ export async function processDueAutomations(limit = 10): Promise<TickSummary> {
 
     summary.claimed += 1;
     try {
+      if (!(await withinPlan(db, automation))) continue;
       const outcomes = await runAutomation(automation);
       summary.outcomes.push(...outcomes);
     } finally {
@@ -1082,6 +1128,11 @@ export async function claimForManualRun(userId: string, automationId: string): P
   const claimedMs = automation.claimedAt ? automation.claimedAt.toMillis() : 0;
   if (claimedMs && Date.now() - claimedMs < STALE_CLAIM_MS) {
     throw new AutomationAccessError('This automation is already running', 409);
+  }
+
+  if (!(await withinPlan(db, automation))) {
+    const user = await db.collection('users').doc(userId).get();
+    throw new AutomationAccessError(PLAN_LIMIT_PAUSE_MESSAGE((user.get('subscription_status') as string | undefined) || 'free'), 403);
   }
 
   await db.collection(AUTOMATIONS_COLLECTION).doc(automationId).update({ claimedAt: Timestamp.now() });
