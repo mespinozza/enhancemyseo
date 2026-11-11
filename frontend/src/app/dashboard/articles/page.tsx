@@ -2216,6 +2216,9 @@ export default function ArticlesPage() {
                 needed={bulkMode ? parseBulkKeywords(bulkKeywordsText).length || 1 : keywords.filter((k) => k.trim()).length || 1}
                 context="articles"
                 returnTo="/dashboard/articles"
+                sampleTitle={(bulkMode ? parseBulkKeywords(bulkKeywordsText)[0] : keywords[0])?.replace(/\b\w/g, (c) => c.toUpperCase())}
+                brandColor={brandProfiles.find((p) => p.id === selectedBrandId)?.brandColor}
+                brandName={brandProfiles.find((p) => p.id === selectedBrandId)?.brandName}
               />
             )}
 

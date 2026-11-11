@@ -32,7 +32,7 @@ import {
 } from '@/lib/thumbnail/landing';
 import { CtaButton, Reveal } from '@/components/proof/ProofProvider';
 import PlanCards from '@/components/proof/PlanCards';
-import ThumbnailCanvas from '@/components/thumbnail/landing/ThumbnailCanvas';
+import ThumbnailCanvas from '@/components/thumbnail/ThumbnailCanvas';
 import ThumbnailPlayground from '@/components/thumbnail/landing/ThumbnailPlayground';
 import SampleGallery from '@/components/thumbnail/landing/SampleGallery';
 import LandingView from '@/components/landing/LandingView';

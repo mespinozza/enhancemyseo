@@ -8,7 +8,7 @@ import { track } from '@/lib/analytics';
 import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
 import { PLAYGROUND_COLORS, PLAYGROUND_DEFAULT_TITLE } from '@/lib/thumbnail/landing';
 import { PRIMARY_CTA } from '@/components/proof/ProofProvider';
-import ThumbnailCanvas from './ThumbnailCanvas';
+import ThumbnailCanvas from '@/components/thumbnail/ThumbnailCanvas';
 
 const MAX_TITLE = 70;
 

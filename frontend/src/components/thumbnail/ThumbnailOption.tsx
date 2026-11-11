@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { AlertTriangle, ImageIcon, Lock } from 'lucide-react';
 import BuyCredits from '@/components/credits/BuyCredits';
 import { describeAllowance, useAllowance } from '@/lib/allowance';
-import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
+import type { ThumbnailLayout } from '@/lib/thumbnail/design';
+import StylePicker from './StylePicker';
 
 /**
  * "Add a thumbnail to each article", for generating by hand and for automations. Shows the
@@ -19,7 +20,14 @@ export default function ThumbnailOption({
   needed,
   context,
   returnTo,
+  sampleTitle,
+  brandColor,
+  brandName,
 }: {
+  /** Drawn in the style previews, so they show this brand's thumbnails. */
+  sampleTitle?: string;
+  brandColor?: string;
+  brandName?: string;
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
   layout: ThumbnailLayout;
@@ -76,23 +84,7 @@ export default function ThumbnailOption({
 
       {enabled && (
         <div className="mt-3 space-y-2 pl-7">
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Thumbnail style">
-            {THUMBNAIL_LAYOUTS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={layout === option.value}
-                title={option.description}
-                onClick={() => onLayoutChange(option.value)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                  layout === option.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-blue-300'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <StylePicker value={layout} onChange={onLayoutChange} title={sampleTitle} color={brandColor} brand={brandName} columns={4} />
           <p className="text-xs text-gray-600">
             {describeAllowance(allowance)}.{' '}
             {context === 'articles'

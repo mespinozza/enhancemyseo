@@ -984,6 +984,8 @@ export default function AutomationForm({
           needed={projectedPerMonth}
           context="automation"
           returnTo="/dashboard/automate"
+          brandColor={selectedBrand?.brandColor}
+          brandName={selectedBrand?.brandName}
         />
       </div>
 

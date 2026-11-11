@@ -20,8 +20,9 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import { thumbnailApi, useAuthedImage } from '@/lib/thumbnail/client';
 import { THUMBNAIL_TIERS, type ThumbnailRecord, type ThumbnailTarget } from '@/lib/thumbnail/types';
-import { THUMBNAIL_LAYOUTS, type ThumbnailLayout } from '@/lib/thumbnail/design';
+import type { ThumbnailLayout } from '@/lib/thumbnail/design';
 import BuyCredits from '@/components/credits/BuyCredits';
+import StylePicker from '@/components/thumbnail/StylePicker';
 import { useCreditReturn } from '@/lib/credits/client';
 import { announceUsageChange, describeAllowance, useAllowance } from '@/lib/allowance';
 import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
@@ -501,21 +502,17 @@ export default function ThumbnailStudioPage() {
                 placeholder="Or type any title"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
-              <label className="flex items-center gap-2 text-xs text-gray-600">
-                <span className="flex-shrink-0 font-medium">Style</span>
-                <select
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-gray-600">Style</p>
+                <StylePicker
                   value={layout}
-                  onChange={(event) => setLayout(event.target.value as ThumbnailLayout)}
+                  onChange={setLayout}
+                  title={customTitle || sources.find((source) => picked.has(source.value))?.title}
+                  color={brand?.brandColor}
+                  brand={brand?.brandName}
                   disabled={Boolean(making)}
-                  className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                >
-                  {THUMBNAIL_LAYOUTS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}: {option.description}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                />
+              </div>
               {making ? (
                 <div>
                   <div className="flex items-center justify-between text-xs text-gray-600">

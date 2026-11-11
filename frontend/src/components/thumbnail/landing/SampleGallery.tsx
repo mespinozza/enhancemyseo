@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { THUMBNAIL_LAYOUTS } from '@/lib/thumbnail/design';
 import { SAMPLE_ARTICLES, SAMPLE_COLORS, type SampleThumbnail } from '@/lib/thumbnail/landing';
-import ThumbnailCanvas from './ThumbnailCanvas';
+import ThumbnailCanvas from '@/components/thumbnail/ThumbnailCanvas';
 
 const COUNT = 4;
 
