@@ -446,7 +446,7 @@ export default function ThumbnailStudioPage() {
         </div>
       ) : (
         <div className="mt-6 grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <section className="flex max-h-[calc(100vh-10rem)] flex-col rounded-xl border border-gray-200 bg-white shadow-sm lg:sticky lg:top-6">
+          <section className="flex max-h-[calc(100vh-10rem)] flex-col overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-sm lg:sticky lg:top-6">
             <div className="border-b border-gray-100 p-4">
               <h2 className="font-semibold text-gray-900">Make thumbnails</h2>
               <div className="mt-3 grid grid-cols-2 rounded-lg bg-gray-100 p-0.5">
