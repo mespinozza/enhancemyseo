@@ -23,6 +23,7 @@ import { THUMBNAIL_TIERS, type ThumbnailRecord, type ThumbnailTarget } from '@/l
 import type { ThumbnailLayout } from '@/lib/thumbnail/design';
 import BuyCredits from '@/components/credits/BuyCredits';
 import StylePicker from '@/components/thumbnail/StylePicker';
+import UsageMeter from '@/components/usage/UsageMeter';
 import { useCreditReturn } from '@/lib/credits/client';
 import { announceUsageChange, describeAllowance, useAllowance } from '@/lib/allowance';
 import type { StudioArticle } from '@/app/api/thumbnails/articles/route';
@@ -167,6 +168,7 @@ export default function ThumbnailStudioPage() {
   const [editing, setEditing] = useState<ThumbnailRecord | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const stopRef = useRef(false);
+  const revealTopUp = useCallback((node: HTMLDivElement | null) => node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), []);
 
   useEffect(() => {
     if (user && subscription_status && !THUMBNAIL_TIERS.includes(subscription_status)) router.push('/dashboard/articles');
@@ -424,19 +426,22 @@ export default function ThumbnailStudioPage() {
           <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Thumbnail studio</h1>
           <p className="mt-1 text-sm text-gray-500">Featured images for your articles: a photo, your brand colour and the title, ready for Shopify.</p>
         </div>
-        {brands.length > 0 && (
-          <select
-            value={brandId}
-            onChange={(event) => setBrandId(event.target.value)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
-          >
-            {brands.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.brandName}
-              </option>
-            ))}
-          </select>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <UsageMeter kind="thumbnails" onTopUp={() => setOutOfPhotos(true)} />
+          {brands.length > 0 && (
+            <select
+              value={brandId}
+              onChange={(event) => setBrandId(event.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+            >
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.brandName}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </header>
 
       {!loading && brands.length === 0 ? (
@@ -537,18 +542,15 @@ export default function ThumbnailStudioPage() {
                 </button>
               )}
               <p className="text-center text-[11px] text-gray-400">About 30 seconds each. You can edit every one before it goes anywhere.</p>
-              {photos && (
-                <p
-                  className={`text-center text-xs ${
-                    !photos.unlimited && pickCount > photos.left ? 'font-medium text-amber-700' : 'text-gray-500'
-                  }`}
-                >
-                  {describeAllowance(photos)}.
-                  {!photos.unlimited && pickCount > photos.left && ` Only the first ${photos.left} can be made.`}
+              {photos && !photos.unlimited && pickCount > photos.left && (
+                <p className="text-center text-xs font-medium text-amber-700">
+                  {describeAllowance(photos)}. Only the first {photos.left} can be made.
                 </p>
               )}
               {outOfPhotos && (
-                <BuyCredits kind="images" compact title="You've used this month's thumbnail photos" returnTo="/dashboard/generate-thumbnail" />
+                <div ref={revealTopUp}>
+                  <BuyCredits kind="images" compact title="You've used this month's thumbnail photos" returnTo="/dashboard/generate-thumbnail" />
+                </div>
               )}
             </div>
           </section>
