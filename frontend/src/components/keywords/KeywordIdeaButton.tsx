@@ -57,7 +57,7 @@ export default function KeywordIdeaButton({
       className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 ${className}`}
     >
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-      {busy ? 'Thinking…' : seed ? 'Improve with AI' : 'Generate with AI'}
+      {busy ? 'Thinking…' : seed ? 'Improve with AI' : 'Surprise me'}
     </button>
   );
 }
