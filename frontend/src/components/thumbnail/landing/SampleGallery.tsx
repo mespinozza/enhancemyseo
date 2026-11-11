@@ -37,12 +37,12 @@ const INITIAL: SampleThumbnail[] = SAMPLE_ARTICLES.slice(0, COUNT).map((article,
   seed: index + 11,
 }));
 
-export default function SampleGallery() {
+export default function SampleGallery({ className = 'grid gap-4 sm:grid-cols-2 lg:grid-cols-4' }: { className?: string }) {
   const [samples, setSamples] = useState(INITIAL);
   useEffect(() => setSamples(randomSamples()), []);
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className={className}>
       {samples.map((sample) => (
         <article
           key={sample.title}

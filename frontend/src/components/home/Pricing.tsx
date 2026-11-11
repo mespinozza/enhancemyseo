@@ -6,6 +6,7 @@ import { Check, Image, BarChart3, FileText, Table, Link2, Search } from 'lucide-
 import { createCheckoutSession, getPriceId, getDisplayPrice, getOriginalPrice, getAnnualPrice } from '@/lib/stripe';
 import { useRef, useState } from 'react';
 import DoneForYouOffer from '@/components/pricing/DoneForYouOffer';
+import { USAGE_LIMITS } from '@/lib/usage-limits';
 
 const FEATURES = [
   {
@@ -81,6 +82,7 @@ export default function Pricing() {
       description: "Ideal for growing businesses",
       features: [
         "25 article generations per month",
+        `${USAGE_LIMITS.kickstart.thumbnails} branded thumbnails per month`,
         "Advanced article customization",
         "Bulk article generation",
         "Product & collection integration",
@@ -97,6 +99,7 @@ export default function Pricing() {
       description: "For serious content creators",
       features: [
         "90 article generations per month",
+        `${USAGE_LIMITS.seo_takeover.thumbnails} thumbnails per month, made automatically`,
         "Automated scheduling & hands-free publishing",
         "Premium SEO optimization",
         "Advanced product selection modes",

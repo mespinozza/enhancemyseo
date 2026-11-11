@@ -43,8 +43,8 @@ export default function Hero() {
               </h1>
               
               <p className="text-lg sm:text-xl text-gray-600 mb-8">
-                On-brand, fact-checked articles built around your products, published
-                to your Shopify blog on autopilot.
+                On-brand, fact-checked articles built around your products, each with an
+                eye-catching thumbnail, published to your Shopify blog on autopilot.
               </p>
               
               <div className="flex gap-3 sm:gap-4">

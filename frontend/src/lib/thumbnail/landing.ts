@@ -5,6 +5,12 @@ import type { ThumbnailLayout } from './design';
  * from the proof page's EVIDENCE, so both pages always quote the same Search Console tiles.
  */
 
+/** Articles in the case study, every one published with a thumbnail from the tool. */
+export const CASE_STUDY_ARTICLES = 250;
+
+/** Rounded headline figure for impressions across client sites; the case study tiles give the exact count. */
+export const IMPRESSIONS_HEADLINE = '3M+';
+
 export interface SampleThumbnail {
   title: string;
   category: string;

@@ -29,6 +29,8 @@ import {
   STEPS,
   STYLE_SAMPLE_TITLE,
   WHY_POINTS,
+  CASE_STUDY_ARTICLES,
+  IMPRESSIONS_HEADLINE,
 } from '@/lib/thumbnail/landing';
 import { CtaButton, Reveal } from '@/components/proof/ProofProvider';
 import PlanCards from '@/components/proof/PlanCards';
@@ -41,7 +43,7 @@ import SectionHeading from '@/components/landing/SectionHeading';
 const PATH = '/services/thumbnail-generation';
 const [CASE_STUDY_SLUG] = Object.keys(EVIDENCE);
 const evidence = EVIDENCE[CASE_STUDY_SLUG];
-const ARTICLES = 250;
+const ARTICLES = CASE_STUDY_ARTICLES;
 
 const TITLE = 'AI Blog Thumbnail Generator for Featured Images | EnhanceMySEO';
 const DESCRIPTION = `Create on-brand blog thumbnails and featured images with AI: a photo made for each topic, your title, colours and logo, pushed to Shopify in one click. The format behind ${evidence.totals.impressions} Google impressions.`;
@@ -330,7 +332,7 @@ export default function ThumbnailGenerationPage() {
                     </span>
                     {option.value === 'parts-plus' && (
                       <span className="flex-shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 ring-1 ring-inset ring-green-200">
-                        Generated 3M+ impressions
+                        Generated {IMPRESSIONS_HEADLINE} impressions
                       </span>
                     )}
                   </figcaption>
