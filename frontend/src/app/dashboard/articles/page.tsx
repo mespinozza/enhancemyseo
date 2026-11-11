@@ -15,6 +15,7 @@ import { loadThumbnailPrefs, saveThumbnailPrefs } from '@/lib/thumbnail/prefs';
 import { announceUsageChange } from '@/lib/allowance';
 import ThumbnailOption from '@/components/thumbnail/ThumbnailOption';
 import KeywordIdeaButton from '@/components/keywords/KeywordIdeaButton';
+import KeywordListGenerator from '@/components/keywords/KeywordListGenerator';
 import {
   articleStats,
   clearPendingTutorialUpgrade,
@@ -1982,6 +1983,14 @@ export default function ArticlesPage() {
               {bulkMode ? (
                 /* Bulk Mode: Large Textarea */
                 <div>
+                  <KeywordListGenerator
+                    brandId={selectedBrandId || undefined}
+                    queued={parseBulkKeywords(bulkKeywordsText)}
+                    onKeywords={(list) => {
+                      setBulkKeywordsText((current) => [...parseBulkKeywords(current), ...list].join('\n'));
+                      markFieldAsTouched('keyword');
+                    }}
+                  />
                   <textarea
                     value={bulkKeywordsText}
                     onChange={(e) => setBulkKeywordsText(e.target.value)}

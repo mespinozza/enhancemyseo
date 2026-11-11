@@ -64,7 +64,7 @@ const INVENTORY_TTL_MS = 10 * 60 * 1000;
 const inventoryCache = new Map<string, { at: number; shopDomain: string; inventory: StoreInventory }>();
 
 /** The store's inventory, reused for a few minutes so viewing it and then building doesn't fetch twice. */
-async function loadInventory(uid: string, brandId: string, fresh = false) {
+export async function loadInventory(uid: string, brandId: string, fresh = false) {
   const key = `${uid}:${brandId}`;
   const cached = inventoryCache.get(key);
   if (!fresh && cached && Date.now() - cached.at < INVENTORY_TTL_MS) return cached;
@@ -74,7 +74,7 @@ async function loadInventory(uid: string, brandId: string, fresh = false) {
   return entry;
 }
 
-async function appArticleTitles(uid: string, brandId: string): Promise<string[]> {
+export async function appArticleTitles(uid: string, brandId: string): Promise<string[]> {
   const snap = await getFirestore()
     .collection('blogs')
     .where('userId', '==', uid)
@@ -93,7 +93,7 @@ function coverage(name: string, articles: Set<string>[]): number {
   return articles.filter((article) => needed.every((w) => article.has(w))).length;
 }
 
-function topics(inventory: StoreInventory, titles: string[], storefront: string) {
+export function topics(inventory: StoreInventory, titles: string[], storefront: string) {
   const articleWords = titles.map(words);
   // A collection holding nearly the whole catalogue ("Best Selling", "All") is a sort order, not a topic.
   const catchAll = (c: { products: number }) => inventory.totalProducts > 50 && c.products >= inventory.totalProducts * 0.9;
@@ -153,7 +153,7 @@ export async function storeOverview(uid: string, brandId: string, fresh = false)
   };
 }
 
-function storeSummary(
+export function storeSummary(
   brand: { name: string; businessType?: string; website?: string },
   inventory: StoreInventory,
   focus: string | null,
@@ -195,11 +195,11 @@ Rules:
 Call ${TOOL.name} with the result.`;
 }
 
-function words(text: string): Set<string> {
+export function words(text: string): Set<string> {
   return new Set(looseKeywordKey(text).split(' ').filter((w) => w.length > 2));
 }
 
-function similar(a: Set<string>, b: Set<string>): boolean {
+export function similar(a: Set<string>, b: Set<string>): boolean {
   if (!a.size || !b.size) return false;
   let shared = 0;
   for (const w of a) if (b.has(w)) shared += 1;
