@@ -210,6 +210,7 @@ export async function toRecord(snap: DocumentSnapshot, access: ThumbnailAccess):
     keyword: data.keyword ?? null,
     target: data.target ?? null,
     design: normalizeDesign(data.design, data.title),
+    logoPath: data.logoPath ?? null,
     imageUrl: locked ? null : imageUrl,
     previewUrl: `${asset(data.imagePath)}${locked ? '&preview=1' : ''}&v=${data.updatedAt?.toMillis?.() ?? 0}`,
     photoUrl: locked ? null : asset(data.photoPath),
@@ -312,8 +313,10 @@ export async function saveEdit(uid: string, snap: DocumentSnapshot, design: Thum
   const data = snap.data() as StoredThumbnail;
   const imagePath = `${ownPrefix(uid)}${snap.id}/thumbnail-${Date.now()}.png`;
   const imageUrl = await saveObject(imagePath, png, 'image/png', true);
+  const brand = await brandFor(uid, data.brandId).catch(() => null);
   await snap.ref.update({
     design,
+    logoPath: brand?.get('thumbnailLogoPath') ?? null,
     title: design.title || data.title,
     imagePath,
     imageUrl,
@@ -351,9 +354,34 @@ export async function regeneratePhoto(uid: string, snap: DocumentSnapshot, direc
   const imagePath = `${folder}/thumbnail-${Date.now()}.png`;
   await saveObject(photoPath, photo, 'image/jpeg', false);
   const imageUrl = await saveObject(imagePath, png, 'image/png', true);
-  await snap.ref.update({ photoPath, imagePath, imageUrl, updatedAt: Timestamp.now() });
+  await snap.ref.update({ photoPath, imagePath, imageUrl, logoPath, updatedAt: Timestamp.now() });
   await Promise.all([deleteObject(data.photoPath), deleteObject(data.imagePath)]);
   if (data.target) await linkTarget(uid, snap.id);
+}
+
+/**
+ * Redraws an existing thumbnail with the brand's current logo, keeping its photo, text
+ * and layout. No new photo is generated, so it costs no credit.
+ */
+export async function applyBrandLogo(uid: string, snap: DocumentSnapshot) {
+  const data = snap.data() as StoredThumbnail;
+  initializeFirebaseAdmin();
+  const brand = await brandFor(uid, data.brandId);
+  const logoPath: string | null = brand.get('thumbnailLogoPath') ?? null;
+  const current = normalizeDesign(data.design, data.title);
+  const design: ThumbnailDesign = {
+    ...current,
+    logo: applyLogoStyle(
+      { ...current.logo, text: current.logo.text || brand.get('brandName') || '' },
+      normalizeLogoStyle(brand.get('thumbnailLogo')) ?? (logoPath ? { mode: 'image', text: brand.get('brandName') ?? '', scale: 1 } : null),
+      Boolean(logoPath),
+    ),
+  };
+  const photo = data.photoPath ? (await readOwnObject(uid, data.photoPath))?.bytes : null;
+  if (!photo) throw new Error('The photo for this thumbnail is missing');
+  const logo = logoPath ? (await readOwnObject(uid, logoPath))?.bytes ?? null : null;
+  const png = await renderThumbnailPng(design, { photo, logo });
+  await saveEdit(uid, snap, design, png);
 }
 
 /** The brand's logo for every future thumbnail, kept outside any one thumbnail. */

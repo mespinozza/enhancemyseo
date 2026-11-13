@@ -20,6 +20,8 @@ export interface ThumbnailRecord {
   keyword: string | null;
   target: ThumbnailTarget | null;
   design: ThumbnailDesign;
+  /** The brand logo it was drawn with, to tell when the brand's logo has changed since. */
+  logoPath: string | null;
   /** Full-size public image. Null while the thumbnail is locked. */
   imageUrl: string | null;
   /** Same-origin preview, always available to the owner. */

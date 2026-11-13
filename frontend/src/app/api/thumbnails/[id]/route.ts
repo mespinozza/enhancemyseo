@@ -3,6 +3,7 @@ import { requireSignedIn } from '@/lib/results/api-auth';
 import { meterAs } from '@/lib/ai/meter';
 import { normalizeDesign } from '@/lib/thumbnail/design';
 import {
+  applyBrandLogo,
   deleteThumbnail,
   loadOwnThumbnail,
   regeneratePhoto,
@@ -40,7 +41,10 @@ export async function GET(request: NextRequest, { params }: Params) {
   return NextResponse.json({ thumbnail: await toRecord(ctx.snap, ctx.access) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-/** `{ target }` links or unlinks an article; `{ regenerate: true, direction? }` gets a new photo. */
+/**
+ * `{ target }` links or unlinks an article; `{ regenerate: true, direction? }` gets a new
+ * photo; `{ applyBrandLogo: true }` redraws it with the brand profile's current logo.
+ */
 export async function PATCH(request: NextRequest, { params }: Params) {
   const ctx = await context(request, params, true);
   if ('error' in ctx) return ctx.error;
@@ -48,9 +52,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     target?: ThumbnailTarget | null;
     regenerate?: boolean;
     direction?: string;
+    applyBrandLogo?: boolean;
   };
   try {
-    if (body.regenerate) {
+    if (body.applyBrandLogo) {
+      // Locked thumbnails keep a private image until the plan allows them.
+      if (!ctx.snap.get('locked')) await applyBrandLogo(ctx.uid, ctx.snap);
+    } else if (body.regenerate) {
       const charge = await reserveImage(ctx.uid, ctx.access.tier);
       if (!charge) return NextResponse.json({ error: IMAGE_LIMIT_MESSAGE, code: 'image_limit' }, { status: 429 });
       meterAs(ctx.uid);

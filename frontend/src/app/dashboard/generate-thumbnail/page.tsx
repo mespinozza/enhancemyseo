@@ -20,8 +20,9 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { brandProfileOperations, type BrandProfile } from '@/lib/firebase/firestore';
 import { thumbnailApi, useAuthedImage } from '@/lib/thumbnail/client';
 import { THUMBNAIL_TIERS, type ThumbnailRecord, type ThumbnailTarget } from '@/lib/thumbnail/types';
-import type { ThumbnailLayout } from '@/lib/thumbnail/design';
+import { sameLogoStyle, type BrandLogoStyle, type ThumbnailLayout } from '@/lib/thumbnail/design';
 import BuyCredits from '@/components/credits/BuyCredits';
+import BrandLogoSection from '@/components/brand/BrandLogoSection';
 import StylePicker from '@/components/thumbnail/StylePicker';
 import UsageMeter from '@/components/usage/UsageMeter';
 import { useCreditReturn } from '@/lib/credits/client';
@@ -186,6 +187,9 @@ export default function ThumbnailStudioPage() {
   }, [user]);
 
   const brand = brands.find((b) => b.id === brandId);
+  const brandLogoStyle: BrandLogoStyle | null =
+    brand?.thumbnailLogo ?? (brand?.thumbnailLogoPath ? { mode: 'image', text: brand.brandName ?? '', scale: 1 } : null);
+  const [applyingLogo, setApplyingLogo] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
     setLogoUrl(brand?.thumbnailLogoPath ? `/api/thumbnails/asset?path=${encodeURIComponent(brand.thumbnailLogoPath)}` : null);
@@ -409,6 +413,41 @@ export default function ThumbnailStudioPage() {
     else toast.success(ids.length === 1 ? 'New photo ready' : `${ids.length} new photos ready`);
   };
 
+  const outdatedLogo = brandLogoStyle
+    ? thumbnails.filter(
+        (t) =>
+          !t.locked &&
+          (!sameLogoStyle(t.design.logo, brandLogoStyle) || (brandLogoStyle.mode === 'image' && t.logoPath !== (brand?.thumbnailLogoPath ?? null)))
+      )
+    : [];
+
+  const applyLogo = async () => {
+    if (!user || !outdatedLogo.length) return;
+    const queue = outdatedLogo.map((t) => t.id);
+    let failed = 0;
+    setApplyingLogo({ done: 0, total: queue.length });
+    // A redraw is cheap (no new photo), so a few at once.
+    const worker = async () => {
+      for (let id = queue.shift(); id; id = queue.shift()) {
+        try {
+          const { thumbnail } = await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, `/api/thumbnails/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ applyBrandLogo: true }),
+          });
+          setThumbnails((current) => current.map((t) => (t.id === id ? thumbnail : t)));
+        } catch {
+          failed++;
+        } finally {
+          setApplyingLogo((current) => current && { ...current, done: current.done + 1 });
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    setApplyingLogo(null);
+    if (failed) toast.error(`${failed} thumbnail${failed === 1 ? '' : 's'} could not be updated`);
+    else toast.success('Thumbnails updated with your logo. Push them to Shopify again to update the live images.');
+  };
+
   const onSaved = (saved: ThumbnailRecord) => {
     setThumbnails((current) => current.map((t) => (t.id === saved.id ? saved : t)));
     setEditing(saved);
@@ -507,6 +546,44 @@ export default function ThumbnailStudioPage() {
                 placeholder="Or type any title"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
+              {brand?.id && (
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-gray-600">Logo</p>
+                  <BrandLogoSection
+                    key={`${brand.id}:${brand.thumbnailLogoPath ?? ''}:${brand.thumbnailLogo?.mode ?? ''}`}
+                    compact
+                    brandId={brand.id}
+                    brandName={brand.brandName}
+                    logoPath={brand.thumbnailLogoPath}
+                    logoStyle={brand.thumbnailLogo}
+                    onChange={({ path, style }) =>
+                      setBrands((current) =>
+                        current.map((b) =>
+                          b.id === brand.id ? { ...b, thumbnailLogoPath: path ?? undefined, thumbnailLogo: style ?? undefined } : b
+                        )
+                      )
+                    }
+                  />
+                  {outdatedLogo.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={applyLogo}
+                      disabled={Boolean(applyingLogo) || Boolean(making)}
+                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-200 hover:bg-blue-100 disabled:opacity-60"
+                    >
+                      {applyingLogo ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating {applyingLogo.done} of {applyingLogo.total}
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5" /> Apply to {outdatedLogo.length} existing thumbnail{outdatedLogo.length === 1 ? '' : 's'}
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
               <div>
                 <p className="mb-1.5 text-xs font-medium text-gray-600">Style</p>
                 <StylePicker
