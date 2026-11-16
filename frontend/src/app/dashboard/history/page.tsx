@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/firebase/auth-context';
-import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon, Pencil, Search } from 'lucide-react';
+import { FileText, Key, Download, ArrowLeft, ArrowRight, Send, Package, LayoutGrid, Copy, Check, X, Image as ImageIcon, Pencil, Search, List as ListIcon } from 'lucide-react';
 import { blogOperations, historyOperations, generatedProductOperations, brandProfileOperations, Blog, HistoryItem, GeneratedProduct, BrandProfile } from '@/lib/firebase/firestore';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -80,6 +80,14 @@ export default function HistoryPage() {
   // Pagination states for main page
   const [displayedBlogs, setDisplayedBlogs] = useState<Blog[]>([]);
   const [openBlogId, setOpenBlogId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  useEffect(() => {
+    if (localStorage.getItem('history:view') === 'list') setViewMode('list');
+  }, []);
+  const changeViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('history:view', mode);
+  };
   const openBlog = openBlogId ? displayedBlogs.find((b) => b.id === openBlogId) ?? blogs.find((b) => b.id === openBlogId) : undefined;
   const [isLoadingMoreBlogs, setIsLoadingMoreBlogs] = useState(false);
   const [hasMoreBlogs, setHasMoreBlogs] = useState(true);
@@ -857,11 +865,18 @@ ${blog.content || '<!-- No content available -->'}
         </div>
       )}
       
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
+      <div
+        className={
+          viewMode === 'list'
+            ? 'flex flex-col gap-2'
+            : 'grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]'
+        }
+      >
         {displayedBlogs.map((blog) => {
         const isHighlighted = searchParams.get('highlight') === blog.id;
         const isSelected = selectedBlogIds.includes(blog.id!);
         const showCheckbox = selectedBrandFilter !== 'all';
+        const isList = viewMode === 'list';
         
         return (
           <div
@@ -876,7 +891,9 @@ ${blog.content || '<!-- No content available -->'}
                 setOpenBlogId(blog.id!);
               }
             }}
-            className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-white text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+            className={`group relative flex cursor-pointer overflow-hidden border bg-white text-left transition-all duration-200 focus:outline-none ${
+              isList ? 'flex-row items-stretch rounded-lg hover:shadow-md' : 'flex-col rounded-xl hover:-translate-y-0.5 hover:shadow-lg'
+            } focus-visible:ring-2 focus-visible:ring-blue-500 ${
               isHighlighted
                 ? 'border-blue-500 shadow-lg ring-2 ring-blue-200'
                 : isSelected
@@ -885,7 +902,11 @@ ${blog.content || '<!-- No content available -->'}
             }`}
             style={{ contain: 'layout style' }}
           >
-            <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-gray-100 to-gray-50">
+            <div
+              className={`relative aspect-video overflow-hidden bg-gradient-to-br from-gray-100 to-gray-50 ${
+                isList ? 'w-32 shrink-0 sm:w-40' : ''
+              }`}
+            >
               {blog.seo?.featuredImage?.src ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -896,8 +917,8 @@ ${blog.content || '<!-- No content available -->'}
                 />
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-1 text-gray-300">
-                  <ImageIcon className="h-7 w-7" />
-                  <span className="text-[11px] font-medium text-gray-400">No thumbnail</span>
+                  <ImageIcon className={isList ? 'h-5 w-5' : 'h-7 w-7'} />
+                  {!isList && <span className="text-[11px] font-medium text-gray-400">No thumbnail</span>}
                 </div>
               )}
               {showCheckbox && (
@@ -920,7 +941,9 @@ ${blog.content || '<!-- No content available -->'}
                 </button>
               )}
               <span
-                className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize shadow-sm ${
+                className={`absolute rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize shadow-sm ${
+                  isList ? 'left-1.5 top-1.5 text-[10px]' : 'left-2 top-2'
+                } ${
                   blog.status === 'published' ? 'bg-green-500 text-white' : 'bg-white/90 text-gray-700'
                 }`}
               >
@@ -928,20 +951,34 @@ ${blog.content || '<!-- No content available -->'}
               </span>
             </div>
 
-            <div className="flex flex-1 flex-col p-3.5">
-              <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
-                <HighlightedText text={blog.title} query={searchQuery} />
-              </h3>
-              <p className="mt-1 line-clamp-1 text-xs text-gray-500">
-                {blog.keyword ? <HighlightedText text={blog.keyword} query={searchQuery} /> : 'No keyword'}
-              </p>
-              {(blog.contentType || blog.toneOfVoice !== undefined) && (
-                <p className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {blog.contentType && <ContentTypeBadge contentType={blog.contentType} />}
-                  {blog.toneOfVoice !== undefined && <ToneBadge tone={blog.toneOfVoice} />}
+            <div
+              className={`flex min-w-0 flex-1 ${
+                isList ? 'flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4' : 'flex-col p-3.5'
+              }`}
+            >
+              <div className={isList ? 'min-w-0 flex-1' : ''}>
+                <h3
+                  className={`font-semibold leading-snug text-gray-900 ${
+                    isList ? 'line-clamp-1 text-sm' : 'line-clamp-2 text-[15px]'
+                  }`}
+                >
+                  <HighlightedText text={blog.title} query={searchQuery} />
+                </h3>
+                <p className="mt-1 line-clamp-1 text-xs text-gray-500">
+                  {blog.keyword ? <HighlightedText text={blog.keyword} query={searchQuery} /> : 'No keyword'}
                 </p>
-              )}
-              <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+                {(blog.contentType || blog.toneOfVoice !== undefined) && (
+                  <p className={`flex flex-wrap items-center gap-1.5 ${isList ? 'mt-1.5' : 'mt-2'}`}>
+                    {blog.contentType && <ContentTypeBadge contentType={blog.contentType} />}
+                    {blog.toneOfVoice !== undefined && <ToneBadge tone={blog.toneOfVoice} />}
+                  </p>
+                )}
+              </div>
+              <div
+                className={`flex items-center justify-between gap-2 ${
+                  isList ? 'shrink-0 sm:justify-end sm:gap-4' : 'mt-auto pt-3'
+                }`}
+              >
                 <span className="text-xs text-gray-400">{blog.createdAt?.toDate?.()?.toLocaleDateString() || ''}</span>
                 <div className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
                   <button
@@ -1315,6 +1352,24 @@ ${blog.content || '<!-- No content available -->'}
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
             </select>
+
+            <div className="flex shrink-0 self-start rounded-full border border-gray-300 bg-white p-0.5 sm:self-auto" role="group" aria-label="View">
+              {([['grid', LayoutGrid, 'Grid view'], ['list', ListIcon, 'List view']] as const).map(([mode, Icon, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => changeViewMode(mode)}
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={viewMode === mode}
+                  className={`rounded-full p-1.5 transition-colors ${
+                    viewMode === mode ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
