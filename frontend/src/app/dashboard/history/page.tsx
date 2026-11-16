@@ -7,7 +7,9 @@ import { blogOperations, historyOperations, generatedProductOperations, brandPro
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import ArticlePreview, { HighlightedText } from '@/components/history/ArticlePreview';
+import { HighlightedText } from '@/components/history/ArticlePreview';
+import ArticleDetailModal from '@/components/history/ArticleDetailModal';
+import { THUMBNAIL_TIERS } from '@/lib/thumbnail/types';
 import { ToneBadge } from '@/components/TonePicker';
 import { ContentTypeBadge } from '@/components/ContentTypePicker';
 
@@ -77,6 +79,8 @@ export default function HistoryPage() {
   
   // Pagination states for main page
   const [displayedBlogs, setDisplayedBlogs] = useState<Blog[]>([]);
+  const [openBlogId, setOpenBlogId] = useState<string | null>(null);
+  const openBlog = openBlogId ? displayedBlogs.find((b) => b.id === openBlogId) ?? blogs.find((b) => b.id === openBlogId) : undefined;
   const [isLoadingMoreBlogs, setIsLoadingMoreBlogs] = useState(false);
   const [hasMoreBlogs, setHasMoreBlogs] = useState(true);
   const blogsPerPage = 9;
@@ -853,7 +857,7 @@ ${blog.content || '<!-- No content available -->'}
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
         {displayedBlogs.map((blog) => {
         const isHighlighted = searchParams.get('highlight') === blog.id;
         const isSelected = selectedBlogIds.includes(blog.id!);
@@ -863,86 +867,134 @@ ${blog.content || '<!-- No content available -->'}
           <div
             key={blog.id}
             ref={isHighlighted ? highlightedItemRef : undefined}
-            className={`bg-white rounded-lg border p-6 transition-all duration-300 overflow-hidden relative ${
-              isHighlighted 
-                ? 'border-blue-500 shadow-lg ring-2 ring-blue-200' 
+            role="button"
+            tabIndex={0}
+            onClick={() => setOpenBlogId(blog.id!)}
+            onKeyDown={(event) => {
+              if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                setOpenBlogId(blog.id!);
+              }
+            }}
+            className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-white text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+              isHighlighted
+                ? 'border-blue-500 shadow-lg ring-2 ring-blue-200'
                 : isSelected
                 ? 'border-green-500 ring-2 ring-green-200'
                 : 'border-gray-200 hover:border-blue-300'
             }`}
             style={{ contain: 'layout style' }}
           >
-            {/* Selection Checkbox - Only show when brand is selected */}
-            {showCheckbox && (
-              <button
-                onClick={() => handleSelectBlog(blog.id!)}
-                className="absolute top-3 right-3 z-10"
-              >
-                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-all ${
-                  isSelected
-                    ? 'bg-green-500 border-green-500'
-                    : 'bg-white border-gray-300 hover:border-gray-400'
-                }`}>
-                  {isSelected && <Check className="w-4 h-4 text-white" />}
+            <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-gray-100 to-gray-50">
+              {blog.seo?.featuredImage?.src ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={blog.seo.featuredImage.src}
+                  alt={blog.seo.featuredImage.alt || blog.title}
+                  loading="lazy"
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-1 text-gray-300">
+                  <ImageIcon className="h-7 w-7" />
+                  <span className="text-[11px] font-medium text-gray-400">No thumbnail</span>
                 </div>
-              </button>
-            )}
-            
-            <div className="flex items-center mb-4">
-              <FileText className="w-5 h-5 text-blue-600 mr-2" />
-              <h3 className={`text-lg font-semibold truncate ${showCheckbox ? 'pr-8' : ''}`}>
+              )}
+              {showCheckbox && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleSelectBlog(blog.id!);
+                  }}
+                  aria-label={isSelected ? 'Deselect article' : 'Select article'}
+                  className="absolute right-2 top-2 z-10"
+                >
+                  <div
+                    className={`flex h-6 w-6 items-center justify-center rounded border-2 shadow-sm transition-all ${
+                      isSelected ? 'border-green-500 bg-green-500' : 'border-white bg-white/90 hover:border-gray-300'
+                    }`}
+                  >
+                    {isSelected && <Check className="h-4 w-4 text-white" />}
+                  </div>
+                </button>
+              )}
+              <span
+                className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize shadow-sm ${
+                  blog.status === 'published' ? 'bg-green-500 text-white' : 'bg-white/90 text-gray-700'
+                }`}
+              >
+                {blog.status}
+              </span>
+            </div>
+
+            <div className="flex flex-1 flex-col p-3.5">
+              <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
                 <HighlightedText text={blog.title} query={searchQuery} />
               </h3>
-            </div>
-            <div className="mb-4">
-              <p className="text-sm text-gray-500">
-                Keyword: {blog.keyword ? <HighlightedText text={blog.keyword} query={searchQuery} /> : 'Not specified'}
-              </p>
-              <p className="text-sm text-gray-500">
-                Status: <span className="capitalize">{blog.status}</span>
+              <p className="mt-1 line-clamp-1 text-xs text-gray-500">
+                {blog.keyword ? <HighlightedText text={blog.keyword} query={searchQuery} /> : 'No keyword'}
               </p>
               {(blog.contentType || blog.toneOfVoice !== undefined) && (
-                <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <p className="mt-2 flex flex-wrap items-center gap-1.5">
                   {blog.contentType && <ContentTypeBadge contentType={blog.contentType} />}
                   {blog.toneOfVoice !== undefined && <ToneBadge tone={blog.toneOfVoice} />}
                 </p>
               )}
-              <p className="text-sm text-gray-500">
-                Generated: {blog.createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'}
-              </p>
+              <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+                <span className="text-xs text-gray-400">{blog.createdAt?.toDate?.()?.toLocaleDateString() || ''}</span>
+                <div className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadArticle(blog)}
+                    title="Download"
+                    className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600"
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyHTML(blog)}
+                    title="Copy HTML"
+                    className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+                  {blog.content && blog.id && (
+                    <Link
+                      href={`/dashboard/articles/${blog.id}/edit`}
+                      title="Edit article"
+                      className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Link>
+                  )}
+                </div>
+              </div>
             </div>
-            {blog.content && (
-              <ArticlePreview html={blog.content} query={searchQuery} />
-            )}
-            <div className="flex space-x-2">
-              <button
-                onClick={() => handleDownloadArticle(blog)}
-                className="flex-1 flex items-center justify-center px-3 py-2 text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-              >
-                <Download className="w-4 h-4 mr-1" />
-                Download
-              </button>
-              <button
-                onClick={() => handleCopyHTML(blog)}
-                className="flex-1 flex items-center justify-center px-3 py-2 text-sm text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
-              >
-                <Copy className="w-4 h-4 mr-1" />
-                Copy HTML
-              </button>
-            </div>
-            {blog.content && blog.id && (
-              <Link
-                href={`/dashboard/articles/${blog.id}/edit`}
-                className="mt-2 flex items-center justify-center px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 rounded-md transition-colors"
-              >
-                <Pencil className="w-4 h-4 mr-1.5" />
-                Edit article
-              </Link>
-            )}
           </div>
         );
       })}
       </div>
+
+      {openBlog && user && (
+        <ArticleDetailModal
+          user={user}
+          blog={openBlog}
+          brand={brandProfiles.find((b) => b.id === openBlog.brandId)}
+          canThumbnail={THUMBNAIL_TIERS.includes(subscription_status ?? '')}
+          query={searchQuery}
+          onClose={() => setOpenBlogId(null)}
+          onDownload={() => handleDownloadArticle(openBlog)}
+          onCopy={() => handleCopyHTML(openBlog)}
+          onBlogChange={(updated) => {
+            const swap = (list: Blog[]) => list.map((b) => (b.id === updated.id ? updated : b));
+            setBlogs(swap);
+            setDisplayedBlogs(swap);
+          }}
+          onBrandChange={(updated) => setBrandProfiles((current) => current.map((b) => (b.id === updated.id ? updated : b)))}
+        />
+      )}
       
       {/* Loading indicator for main page */}
       {isLoadingMoreBlogs && (
