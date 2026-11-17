@@ -108,7 +108,7 @@ async function deleteObject(path: string | undefined | null) {
 
 /* ------------------------------------------------------------------- photos ----- */
 
-export function photoPrompt(input: {
+interface PhotoPromptInput {
   title: string;
   keyword?: string | null;
   brandName?: string;
@@ -116,7 +116,11 @@ export function photoPrompt(input: {
   panelSide: 'left' | 'right';
   layout?: ThumbnailDesign['layout'];
   direction?: string;
-}): string {
+  /** People-free scene, for topics (saunas, showers, swimwear) the safety filter misreads. */
+  cautious?: boolean;
+}
+
+export function photoPrompt(input: PhotoPromptInput): string {
   const side = input.panelSide === 'right' ? 'left' : 'right';
   const composition =
     input.layout === 'bold-banner'
@@ -130,9 +134,11 @@ export function photoPrompt(input: {
     input.brandName || input.businessType
       ? `It is for ${[input.brandName, input.businessType].filter(Boolean).join(', a ')}.`
       : '',
-    'Show a believable real-world scene that illustrates the topic: real people, equipment or products being used in a real setting, natural light, shallow depth of field, crisp detail.',
+    input.cautious
+      ? 'Show the products, equipment and setting on their own with no people in the frame: clean, tasteful, family-friendly product and interior photography, natural light, crisp detail.'
+      : 'Show a believable real-world scene that illustrates the topic: real people, equipment or products being used in a real setting, natural light, shallow depth of field, crisp detail.',
     composition,
-    input.direction ? `Art direction: ${input.direction}.` : '',
+    input.direction && !input.cautious ? `Art direction: ${input.direction}.` : '',
     'No text, letters, numbers, logos, watermarks or signage anywhere in the image.',
   ]
     .filter(Boolean)
@@ -141,6 +147,8 @@ export function photoPrompt(input: {
 
 /** OpenAI retires image models; the env var swaps one in without a deploy of new code. */
 const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL?.trim() || 'gpt-image-2';
+
+export class ImageSafetyError extends Error {}
 
 export async function generatePhoto(prompt: string): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -160,13 +168,39 @@ export async function generatePhoto(prompt: string): Promise<Buffer> {
   });
   const payload = (await response.json().catch(() => ({}))) as {
     data?: { b64_json?: string }[];
-    error?: { message?: string };
+    error?: { message?: string; code?: string };
   };
   const b64 = payload.data?.[0]?.b64_json;
   if (!response.ok || !b64) {
-    throw new Error(payload.error?.message || `Image generation failed with status ${response.status}`);
+    const message = payload.error?.message || `Image generation failed with status ${response.status}`;
+    if (payload.error?.code === 'moderation_blocked' || /safety system/i.test(message)) {
+      throw new ImageSafetyError(message);
+    }
+    throw new Error(message);
   }
   return Buffer.from(b64, 'base64');
+}
+
+/**
+ * A photo for the article topic. Innocent topics (saunas, showers, swimwear) sometimes trip
+ * the image safety filter, so a rejection quietly retries with people-free prompts and the
+ * filter's wording never reaches the user.
+ */
+export async function generateTopicPhoto(input: PhotoPromptInput): Promise<Buffer> {
+  const attempts: PhotoPromptInput[] = [
+    input,
+    { ...input, cautious: true },
+    { ...input, cautious: true, title: input.keyword?.trim() || input.title, brandName: undefined },
+  ];
+  for (const attempt of attempts) {
+    try {
+      return await generatePhoto(photoPrompt(attempt));
+    } catch (error) {
+      if (!(error instanceof ImageSafetyError)) throw error;
+      console.warn('[thumbnail] photo blocked by safety filter, retrying:', input.title, error.message);
+    }
+  }
+  throw new Error('A photo could not be made for this topic. Try regenerating it with a different art direction in the Thumbnail studio.');
 }
 
 /* ------------------------------------------------------------------ records ----- */
@@ -265,17 +299,15 @@ export async function createThumbnail(input: {
     input.title,
   );
 
-  const photo = await generatePhoto(
-    photoPrompt({
-      title: input.title,
-      keyword: input.keyword,
-      brandName: brand.get('brandName'),
-      businessType: brand.get('businessType'),
-      panelSide: design.panelSide,
-      layout: design.layout,
-      direction: input.direction,
-    }),
-  );
+  const photo = await generateTopicPhoto({
+    title: input.title,
+    keyword: input.keyword,
+    brandName: brand.get('brandName'),
+    businessType: brand.get('businessType'),
+    panelSide: design.panelSide,
+    layout: design.layout,
+    direction: input.direction,
+  });
   const logo = logoPath ? (await readOwnObject(input.uid, logoPath))?.bytes ?? null : null;
   const png = await renderThumbnailPng(design, { photo, logo });
 
@@ -335,17 +367,15 @@ export async function regeneratePhoto(uid: string, snap: DocumentSnapshot, direc
   initializeFirebaseAdmin();
   const brand = await brandFor(uid, data.brandId);
   const design = normalizeDesign(data.design, data.title);
-  const photo = await generatePhoto(
-    photoPrompt({
-      title: design.title || data.title,
-      keyword: data.keyword,
-      brandName: brand.get('brandName'),
-      businessType: brand.get('businessType'),
-      panelSide: design.panelSide,
-      layout: design.layout,
-      direction,
-    }),
-  );
+  const photo = await generateTopicPhoto({
+    title: design.title || data.title,
+    keyword: data.keyword,
+    brandName: brand.get('brandName'),
+    businessType: brand.get('businessType'),
+    panelSide: design.panelSide,
+    layout: design.layout,
+    direction,
+  });
   const logoPath: string | null = brand.get('thumbnailLogoPath') ?? null;
   const logo = logoPath ? (await readOwnObject(uid, logoPath))?.bytes ?? null : null;
   const png = await renderThumbnailPng(design, { photo, logo });
