@@ -3,7 +3,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { TokenUser as User } from '@/lib/thumbnail/client';
 import toast from 'react-hot-toast';
-import { BadgeCheck, ChevronDown, Download, ImagePlus, Loader2, RefreshCw, Save, Shuffle, Upload, X } from 'lucide-react';
+import { BadgeCheck, ChevronDown, Download, ImagePlus, Loader2, RefreshCw, Save, Send, Shuffle, Upload, X } from 'lucide-react';
 import {
   THUMBNAIL_HEIGHT,
   THUMBNAIL_LAYOUTS,
@@ -184,7 +184,13 @@ export default function ThumbnailEditor({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [design, setDesign] = useState<ThumbnailDesign>(thumbnail.design);
-  const [photo, setPhoto] = useState<HTMLImageElement | null>(null);
+  const [photos, setPhotos] = useState(() =>
+    thumbnail.photos?.length ? thumbnail.photos : thumbnail.photoUrl ? [{ id: thumbnail.photoId ?? 'current', url: thumbnail.photoUrl }] : [],
+  );
+  const [photoChoice, setPhotoChoice] = useState<string | null>(thumbnail.photoId ?? photos[photos.length - 1]?.id ?? null);
+  const [savedPhoto, setSavedPhoto] = useState(photoChoice);
+  const [photoImages, setPhotoImages] = useState<Record<string, HTMLImageElement>>({});
+  const photo = (photoChoice && photoImages[photoChoice]) || null;
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   const [fontReady, setFontReady] = useState(false);
   const [link, setLink] = useState(targetValue(thumbnail.target));
@@ -205,16 +211,29 @@ export default function ThumbnailEditor({
     ensureThumbnailFont().then(() => setFontReady(true));
   }, []);
 
+  const loadingPhotos = useRef(new Set<string>());
   useEffect(() => {
-    if (!thumbnail.photoUrl) return;
-    let cancelled = false;
-    loadAuthedImage(user, thumbnail.photoUrl)
-      .then((image) => !cancelled && setPhoto(image))
-      .catch(() => toast.error('Could not load the photo'));
-    return () => {
-      cancelled = true;
-    };
-  }, [user, thumbnail.photoUrl]);
+    for (const { id, url } of photos) {
+      if (loadingPhotos.current.has(id)) continue;
+      loadingPhotos.current.add(id);
+      loadAuthedImage(user, url)
+        .then((image) => setPhotoImages((current) => ({ ...current, [id]: image })))
+        .catch(() => {
+          loadingPhotos.current.delete(id);
+          if (id === photoChoice) toast.error('Could not load the photo');
+        });
+    }
+  }, [user, photos, photoChoice]);
+
+  const pickPhoto = (id: string) => {
+    if (id === photoChoice) return;
+    setPhotoChoice(id);
+    setDirty(true);
+  };
+
+  const photoForm = (form: FormData) => {
+    if (photoChoice && photoChoice !== savedPhoto) form.append('photo', photoChoice);
+  };
 
   useEffect(() => {
     if (!logoUrl) return setLogo(null);
@@ -258,7 +277,9 @@ export default function ThumbnailEditor({
         const form = new FormData();
         form.append('image', await pngBlob(), 'thumbnail.png');
         form.append('design', JSON.stringify(design));
+        photoForm(form);
         saved = (await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, `/api/thumbnails/${thumbnail.id}`, { method: 'PUT', body: form })).thumbnail;
+        setSavedPhoto(saved.photoId);
       }
       if (link !== targetValue(thumbnail.target)) {
         const target = links.find((option) => option.value === link)?.target ?? null;
@@ -270,8 +291,22 @@ export default function ThumbnailEditor({
         ).thumbnail;
       }
       setDirty(false);
+      if (!saved.target) {
+        onSaved(saved);
+        toast.success('Saved');
+        return;
+      }
+      // Keep the Shopify article in step with what was just saved.
+      const { results } = await thumbnailApi<{ results: { ok: boolean; skipped?: boolean; message: string }[] }>(user, '/api/thumbnails/push', {
+        method: 'POST',
+        body: JSON.stringify({ ids: [thumbnail.id], updateOnly: true }),
+      });
+      const result = results[0];
+      saved = (await thumbnailApi<{ thumbnail: ThumbnailRecord }>(user, `/api/thumbnails/${thumbnail.id}`)).thumbnail;
       onSaved(saved);
-      toast.success(saved.target ? 'Saved and set as the article image' : 'Saved');
+      if (!result?.ok) toast.error(`Saved, but Shopify wasn't updated: ${result?.message || 'unknown error'}`);
+      else if (result.skipped) toast.success('Saved and set as the article image');
+      else toast.success('Saved and updated in Shopify');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Save failed');
     } finally {
@@ -286,6 +321,7 @@ export default function ThumbnailEditor({
         const form = new FormData();
         form.append('image', await pngBlob(), 'thumbnail.png');
         form.append('design', JSON.stringify(design));
+        photoForm(form);
         await thumbnailApi(user, `/api/thumbnails/${thumbnail.id}`, { method: 'PUT', body: form });
         setDirty(false);
       }
@@ -293,7 +329,14 @@ export default function ThumbnailEditor({
         method: 'PATCH',
         body: JSON.stringify({ regenerate: true, direction }),
       });
-      if (fresh.photoUrl) setPhoto(await loadAuthedImage(user, fresh.photoUrl));
+      if (fresh.photoId && fresh.photoUrl) {
+        const image = await loadAuthedImage(user, fresh.photoUrl);
+        loadingPhotos.current.add(fresh.photoId);
+        setPhotoImages((current) => ({ ...current, [fresh.photoId!]: image }));
+        setPhotoChoice(fresh.photoId);
+        setSavedPhoto(fresh.photoId);
+      }
+      if (fresh.photos.length) setPhotos(fresh.photos);
       onSaved(fresh);
       toast.success('New photo ready');
     } catch (error) {
@@ -370,7 +413,7 @@ export default function ThumbnailEditor({
         </div>
 
         <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_22rem] lg:overflow-hidden">
-          <div className="flex items-start justify-center bg-gray-100 p-4 sm:p-6 lg:items-center lg:overflow-y-auto">
+          <div className="flex flex-col items-stretch justify-start gap-3 bg-gray-100 p-4 sm:p-6 lg:justify-center lg:overflow-y-auto">
             <div className="relative w-full">
               <canvas
                 ref={canvasRef}
@@ -430,6 +473,54 @@ export default function ThumbnailEditor({
                 </div>
               )}
             </div>
+
+            {photos.length > 0 && (
+              <div>
+                <div className="mb-1.5 flex items-baseline justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Photos</span>
+                  <span className="text-[11px] text-gray-400">Switch any time; the last 8 are kept</span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {photos.map((option, index) => {
+                    const image = photoImages[option.id];
+                    const active = option.id === photoChoice;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => pickPhoto(option.id)}
+                        disabled={busy !== null || !image}
+                        aria-pressed={active}
+                        title={index === 0 ? 'Original photo' : `Photo ${index + 1}`}
+                        className={`relative aspect-[3/2] h-16 flex-shrink-0 overflow-hidden rounded-md bg-gray-200 transition sm:h-20 ${
+                          active ? 'ring-2 ring-blue-600 ring-offset-2 ring-offset-gray-100' : 'opacity-80 ring-1 ring-black/10 hover:opacity-100'
+                        }`}
+                      >
+                        {image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={image.src} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <Loader2 className="m-auto h-4 w-4 animate-spin text-gray-400" />
+                        )}
+                        <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-px text-[10px] font-medium text-white">
+                          {index === 0 ? 'Original' : `#${index + 1}`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={newPhoto}
+                    disabled={busy !== null}
+                    title="Make a new photo for this thumbnail"
+                    className="flex aspect-[3/2] h-16 flex-shrink-0 flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-gray-300 text-[11px] font-medium text-gray-500 transition hover:border-blue-400 hover:text-blue-600 disabled:opacity-50 sm:h-20"
+                  >
+                    {busy === 'photo' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    New photo
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-5 border-t border-gray-100 p-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
@@ -670,11 +761,12 @@ export default function ThumbnailEditor({
           <button
             type="button"
             onClick={save}
-            disabled={busy !== null || (!dirty && link === targetValue(thumbnail.target))}
+            disabled={busy !== null || (!dirty && link === targetValue(thumbnail.target) && (!link || thumbnail.status === 'pushed'))}
+            title={link ? 'Saves the image and updates the article in Shopify if it is there' : undefined}
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save
+            {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : link ? <Send className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            {link ? 'Save & push' : 'Save'}
           </button>
         </div>
       </div>

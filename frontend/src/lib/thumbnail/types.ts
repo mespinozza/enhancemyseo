@@ -28,6 +28,10 @@ export interface ThumbnailRecord {
   previewUrl: string;
   /** Same-origin photo for the editor canvas. Null while locked. */
   photoUrl: string | null;
+  /** Which of `photos` is in use. */
+  photoId: string | null;
+  /** Photos made for it, oldest first, to switch between in the editor. Empty while locked. */
+  photos: { id: string; url: string }[];
   status: ThumbnailStatus;
   /** Made by the tutorial for an account without the plan for thumbnails. */
   locked: boolean;

@@ -213,6 +213,8 @@ interface StoredThumbnail {
   target: ThumbnailTarget | null;
   design: ThumbnailDesign;
   photoPath: string | null;
+  /** Every photo made for it, oldest first, so the editor can switch back. Includes photoPath. */
+  photoPaths?: string[];
   logoPath: string | null;
   imagePath: string;
   imageUrl: string | null;
@@ -226,6 +228,14 @@ interface StoredThumbnail {
 
 const iso = (value: unknown) =>
   value instanceof Timestamp ? value.toDate().toISOString() : null;
+
+/** Photos kept per thumbnail; older ones are deleted as new ones are made. */
+const MAX_PHOTOS = 8;
+
+const photoHistory = (data: StoredThumbnail): string[] =>
+  data.photoPaths?.length ? data.photoPaths : data.photoPath ? [data.photoPath] : [];
+
+const photoId = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 /** Locked thumbnails unlock themselves once the account is on a paid plan. */
 export async function toRecord(snap: DocumentSnapshot, access: ThumbnailAccess): Promise<ThumbnailRecord> {
@@ -248,6 +258,8 @@ export async function toRecord(snap: DocumentSnapshot, access: ThumbnailAccess):
     imageUrl: locked ? null : imageUrl,
     previewUrl: `${asset(data.imagePath)}${locked ? '&preview=1' : ''}&v=${data.updatedAt?.toMillis?.() ?? 0}`,
     photoUrl: locked ? null : asset(data.photoPath),
+    photoId: data.photoPath ? photoId(data.photoPath) : null,
+    photos: locked ? [] : photoHistory(data).map((path) => ({ id: photoId(path), url: asset(path)! })),
     status: data.status,
     locked,
     shopifyAdminUrl: data.shopifyAdminUrl ?? null,
@@ -327,6 +339,7 @@ export async function createThumbnail(input: {
     target: input.target ?? null,
     design,
     photoPath,
+    photoPaths: [photoPath],
     logoPath,
     imagePath,
     imageUrl,
@@ -341,12 +354,15 @@ export async function createThumbnail(input: {
 }
 
 /** Stores an image drawn in the editor, with the design that produced it. */
-export async function saveEdit(uid: string, snap: DocumentSnapshot, design: ThumbnailDesign, png: Buffer) {
+export async function saveEdit(uid: string, snap: DocumentSnapshot, design: ThumbnailDesign, png: Buffer, photo?: string | null) {
   const data = snap.data() as StoredThumbnail;
+  // The editor may have switched to an earlier photo; only ones made for it are accepted.
+  const chosenPhoto = photo ? photoHistory(data).find((path) => photoId(path) === photo) : undefined;
   const imagePath = `${ownPrefix(uid)}${snap.id}/thumbnail-${Date.now()}.png`;
   const imageUrl = await saveObject(imagePath, png, 'image/png', true);
   const brand = await brandFor(uid, data.brandId).catch(() => null);
   await snap.ref.update({
+    ...(chosenPhoto && { photoPath: chosenPhoto }),
     design,
     logoPath: brand?.get('thumbnailLogoPath') ?? null,
     title: design.title || data.title,
@@ -384,8 +400,18 @@ export async function regeneratePhoto(uid: string, snap: DocumentSnapshot, direc
   const imagePath = `${folder}/thumbnail-${Date.now()}.png`;
   await saveObject(photoPath, photo, 'image/jpeg', false);
   const imageUrl = await saveObject(imagePath, png, 'image/png', true);
-  await snap.ref.update({ photoPath, imagePath, imageUrl, logoPath, updatedAt: Timestamp.now() });
-  await Promise.all([deleteObject(data.photoPath), deleteObject(data.imagePath)]);
+  const history = [...photoHistory(data), photoPath];
+  const dropped = history.slice(0, Math.max(0, history.length - MAX_PHOTOS));
+  await snap.ref.update({
+    photoPath,
+    photoPaths: history.slice(-MAX_PHOTOS),
+    imagePath,
+    imageUrl,
+    logoPath,
+    status: data.status === 'pushed' ? 'linked' : data.status,
+    updatedAt: Timestamp.now(),
+  });
+  await Promise.all([...dropped.map(deleteObject), deleteObject(data.imagePath)]);
   if (data.target) await linkTarget(uid, snap.id);
 }
 
@@ -518,6 +544,8 @@ export interface PushOutcome {
   ok: boolean;
   message: string;
   shopifyAdminUrl?: string;
+  /** Update-only push of an article that isn't in Shopify: nothing was sent. */
+  skipped?: boolean;
 }
 
 /**
@@ -527,7 +555,14 @@ export interface PushOutcome {
 export async function pushThumbnail(
   uid: string,
   snap: DocumentSnapshot,
-  options: { idToken: string; baseUrl: string; status: 'draft' | 'published'; shopifyBlogId?: string },
+  options: {
+    idToken: string;
+    baseUrl: string;
+    status: 'draft' | 'published';
+    shopifyBlogId?: string;
+    /** Only refresh the image of an article already in Shopify; never create one. */
+    updateOnly?: boolean;
+  },
 ): Promise<PushOutcome> {
   const data = snap.data() as StoredThumbnail;
   const fail = async (message: string): Promise<PushOutcome> => {
@@ -539,24 +574,26 @@ export async function pushThumbnail(
 
   const db = getFirestore();
   const image = { src: data.imageUrl, alt: data.title };
-  const { shopDomain, accessToken } = await resolveShopifyCredentials(uid, { brandId: data.brandId });
-  const adminUrl = (articleId: string | number) => `https://${shopDomain}/admin/articles/${articleId}`;
-
-  const done = async (articleId: string | number, message: string): Promise<PushOutcome> => {
-    const shopifyAdminUrl = adminUrl(articleId);
-    await snap.ref.update({ status: 'pushed', error: null, shopifyAdminUrl, pushedAt: Timestamp.now(), updatedAt: Timestamp.now() });
-    return { id: snap.id, ok: true, message, shopifyAdminUrl };
-  };
+  const blogRef = data.target.kind === 'blog' ? db.collection('blogs').doc(data.target.blogId) : null;
+  const blog = blogRef ? await blogRef.get() : null;
+  if (blog && (!blog.exists || blog.get('userId') !== uid)) return fail('The linked article no longer exists');
+  if (options.updateOnly && blog && !(blog.get('shopifyArticleId') && blog.get('shopifyBlogId'))) {
+    return { id: snap.id, ok: true, skipped: true, message: 'Saved. The article isn’t in Shopify yet.' };
+  }
 
   try {
+    const { shopDomain, accessToken } = await resolveShopifyCredentials(uid, { brandId: data.brandId });
+    const done = async (articleId: string | number, message: string): Promise<PushOutcome> => {
+      const shopifyAdminUrl = `https://${shopDomain}/admin/articles/${articleId}`;
+      await snap.ref.update({ status: 'pushed', error: null, shopifyAdminUrl, pushedAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      return { id: snap.id, ok: true, message, shopifyAdminUrl };
+    };
+
     if (data.target.kind === 'shopify') {
       await setShopifyImage(shopDomain, accessToken, data.target.shopifyBlogId, data.target.articleId, image);
       return done(data.target.articleId, 'Image updated in Shopify');
     }
-
-    const blogRef = db.collection('blogs').doc(data.target.blogId);
-    const blog = await blogRef.get();
-    if (!blog.exists || blog.get('userId') !== uid) return fail('The linked article no longer exists');
+    if (!blog || !blogRef) return fail('The linked article no longer exists');
 
     const knownId = blog.get('shopifyArticleId');
     const knownBlog = blog.get('shopifyBlogId');
@@ -612,6 +649,6 @@ export async function pushThumbnail(
 export async function deleteThumbnail(uid: string, snap: DocumentSnapshot) {
   const data = snap.data() as StoredThumbnail;
   await setTarget(uid, snap, null).catch(() => undefined);
-  await Promise.all([deleteObject(data.photoPath), deleteObject(data.imagePath)]);
+  await Promise.all([...new Set([...photoHistory(data), data.photoPath])].map(deleteObject).concat(deleteObject(data.imagePath)));
   await snap.ref.delete();
 }

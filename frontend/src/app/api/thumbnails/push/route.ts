@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
     ids?: unknown;
     status?: 'draft' | 'published';
     shopifyBlogId?: string;
+    updateOnly?: boolean;
   };
   const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string').slice(0, MAX_PER_REQUEST) : [];
   if (!ids.length) return NextResponse.json({ error: 'Pick at least one thumbnail' }, { status: 400 });
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
         baseUrl: internalBaseUrl(),
         status: body.status === 'published' ? 'published' : 'draft',
         shopifyBlogId: typeof body.shopifyBlogId === 'string' ? body.shopifyBlogId : undefined,
+        updateOnly: body.updateOnly === true,
       }),
     );
   }

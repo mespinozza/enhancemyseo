@@ -106,7 +106,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'The image must be a PNG' }, { status: 400 });
     }
     const design = normalizeDesign(JSON.parse(designRaw), ctx.snap.get('title'));
-    await saveEdit(ctx.uid, ctx.snap, design, bytes);
+    const photo = form.get('photo');
+    await saveEdit(ctx.uid, ctx.snap, design, bytes, typeof photo === 'string' ? photo : null);
     const fresh = await loadOwnThumbnail(ctx.uid, ctx.snap.id);
     return NextResponse.json({ thumbnail: await toRecord(fresh!, ctx.access) });
   } catch (error) {
