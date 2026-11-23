@@ -473,13 +473,14 @@ export default function ThumbnailStudioPage() {
           <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Thumbnail studio</h1>
           <p className="mt-1 text-sm text-gray-500">Featured images for your articles: a photo, your brand colour and the title, ready for Shopify.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-stretch gap-3">
           <UsageMeter kind="thumbnails" onTopUp={() => setOutOfPhotos(true)} />
           {brands.length > 0 && (
             <select
               value={brandId}
               onChange={(event) => setBrandId(event.target.value)}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+              aria-label="Brand"
+              className="min-w-[12rem] rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
               {brands.map((b) => (
                 <option key={b.id} value={b.id}>
