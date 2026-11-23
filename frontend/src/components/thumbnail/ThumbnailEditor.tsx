@@ -400,7 +400,7 @@ export default function ThumbnailEditor({
         aria-modal="true"
         aria-label="Edit thumbnail"
         onClick={(event) => event.stopPropagation()}
-        className="flex max-h-full w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="flex max-h-full w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl lg:h-full"
       >
         <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-3">
           <div className="min-w-0">
@@ -412,9 +412,14 @@ export default function ThumbnailEditor({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_22rem] lg:overflow-hidden">
-          <div className="flex flex-col items-stretch justify-start gap-3 bg-gray-100 p-4 sm:p-6 lg:justify-center lg:overflow-y-auto">
-            <div className="relative w-full">
+        <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+          <div className="flex flex-col items-stretch justify-start gap-3 bg-gray-100 p-4 sm:p-6 lg:min-h-0 lg:overflow-hidden">
+            {/* On large screens the preview fills the space left after the photo strip, keeping its aspect ratio. */}
+            <div className="flex w-full items-center justify-center lg:min-h-0 lg:flex-1 lg:[container-type:size]">
+            <div
+              className="relative w-full lg:w-[min(100cqw,calc(100cqh*var(--thumb-ratio)))]"
+              style={{ '--thumb-ratio': THUMBNAIL_WIDTH / THUMBNAIL_HEIGHT } as React.CSSProperties}
+            >
               <canvas
                 ref={canvasRef}
                 width={THUMBNAIL_WIDTH}
@@ -473,14 +478,15 @@ export default function ThumbnailEditor({
                 </div>
               )}
             </div>
+            </div>
 
             {photos.length > 0 && (
-              <div>
+              <div className="flex-shrink-0">
                 <div className="mb-1.5 flex items-baseline justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Photos</span>
                   <span className="text-[11px] text-gray-400">Switch any time; the last 8 are kept</span>
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-1">
+                <div className="flex flex-wrap gap-2">
                   {photos.map((option, index) => {
                     const image = photoImages[option.id];
                     const active = option.id === photoChoice;
