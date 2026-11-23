@@ -121,13 +121,13 @@ interface PhotoPromptInput {
 }
 
 export function photoPrompt(input: PhotoPromptInput): string {
+  // One photo has to survive every layout (and a later switch between them), so the prompt
+  // never mentions panels or reserved space: that is what makes the model paint blank bands.
   const side = input.panelSide === 'right' ? 'left' : 'right';
-  const composition =
-    input.layout === 'bold-banner'
-      ? `Keep the main subject in the upper ${side} of the frame; the lower ${input.panelSide} area will carry a headline over a dark fade.`
-      : input.layout === 'center-stage'
-        ? 'Spread the scene across the full width with interest near the left and right edges; the centre will be covered by a text card.'
-        : `Keep the main subject in the ${side} 55% of the frame; the other side will be covered by a text panel.`;
+  const composition = [
+    `Place the main subject slightly towards the ${side} of the frame, fully visible and not cut off.`,
+    'The scene must fill the whole frame and continue naturally to every edge: no blank, empty, faded, solid-colour or blurred-out areas, no borders, vignettes or gradients.',
+  ].join(' ');
   return [
     `Photorealistic editorial photograph for a blog article titled "${input.title}".`,
     input.keyword ? `Topic: ${input.keyword}.` : '',

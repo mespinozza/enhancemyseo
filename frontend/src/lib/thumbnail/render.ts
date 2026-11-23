@@ -55,13 +55,88 @@ function polygon(ctx: CanvasRenderingContext2D, edge: Point[], farX: number) {
   ctx.closePath();
 }
 
+const SAMPLE_W = 96;
+const SAMPLE_H = 64;
+const spans = new WeakMap<object, { left: number; right: number }>();
+
+/**
+ * Fraction of the photo's width that holds the scene. Image models sometimes leave a flat
+ * or faded band where they expect a text panel; layouts that show the whole photo would
+ * expose it, so the band is trimmed before cropping.
+ */
+function sceneSpan(ctx: CanvasRenderingContext2D, image: ThumbnailImage): { left: number; right: number } {
+  const cached = spans.get(image);
+  if (cached) return cached;
+  let span = { left: 0, right: 1 };
+  ctx.save();
+  try {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, SAMPLE_W, SAMPLE_H);
+    ctx.drawImage(image, 0, 0, SAMPLE_W, SAMPLE_H);
+    span = flatEdges(ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H).data);
+  } catch {
+    // A cross-origin photo can't be read back; draw it whole.
+  } finally {
+    ctx.clearRect(0, 0, SAMPLE_W, SAMPLE_H);
+    ctx.restore();
+  }
+  spans.set(image, span);
+  return span;
+}
+
+function flatEdges(data: Uint8ClampedArray): { left: number; right: number } {
+  const luma = (x: number, y: number) => {
+    const i = (y * SAMPLE_W + x) * 4;
+    return data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+  };
+  // A column is flat when it barely changes top to bottom and from its neighbour, which a
+  // painted band does but a blurred background (still shifting in tone) does not.
+  const flat: boolean[] = [];
+  const details: number[] = [];
+  for (let x = 0; x < SAMPLE_W; x++) {
+    let sum = 0;
+    let sumSq = 0;
+    let detail = 0;
+    for (let y = 0; y < SAMPLE_H; y++) {
+      const l = luma(x, y);
+      sum += l;
+      sumSq += l * l;
+      if (x > 0) detail += Math.abs(l - luma(x - 1, y));
+      if (y > 0) detail += Math.abs(l - luma(x, y - 1));
+    }
+    const mean = sum / SAMPLE_H;
+    const spread = Math.sqrt(Math.max(0, sumSq / SAMPLE_H - mean * mean));
+    flat.push(spread < 7 && detail / SAMPLE_H < 2.5);
+    details.push(detail / SAMPLE_H);
+  }
+  const scene = details.filter((_, x) => !flat[x]).sort((a, b) => a - b);
+  const typical = scene[Math.floor(scene.length / 2)] ?? 0;
+  const limit = Math.floor(SAMPLE_W * 0.45);
+  // A sliver of flat edge is just a plain wall; only a real band is worth cropping.
+  const minimum = SAMPLE_W * 0.06;
+  const trim = (column: (i: number) => number) => {
+    let n = 0;
+    while (n < limit && flat[column(n)]) n++;
+    if (n < minimum) return 0;
+    // Then through the fade into the band, where the scene is still washed out.
+    while (n < limit && details[column(n)] < typical * 0.6) n++;
+    return n + 1;
+  };
+  const left = trim((i) => i);
+  const right = trim((i) => SAMPLE_W - 1 - i);
+  return { left: left / SAMPLE_W, right: 1 - right / SAMPLE_W };
+}
+
 function drawCover(ctx: CanvasRenderingContext2D, image: ThumbnailImage, x: number, y: number, w: number, h: number, design: ThumbnailDesign) {
-  const scale = Math.max(w / image.width, h / image.height) * design.photoZoom;
-  const dw = image.width * scale;
+  const span = spans.get(image) ?? { left: 0, right: 1 };
+  const sx = image.width * span.left;
+  const sw = image.width * (span.right - span.left);
+  const scale = Math.max(w / sw, h / image.height) * design.photoZoom;
+  const dw = sw * scale;
   const dh = image.height * scale;
   const dx = x + (w - dw) * design.photoX;
   const dy = y + (h - dh) * design.photoY;
-  ctx.drawImage(image, dx, dy, dw, dh);
+  ctx.drawImage(image, sx, 0, sw, image.height, dx, dy, dw, dh);
 }
 
 function lighten(hex: string, amount: number): string {
@@ -422,6 +497,8 @@ const LAYOUTS: Record<ThumbnailDesign['layout'], (ctx: CanvasRenderingContext2D,
 };
 
 export function drawThumbnail(ctx: CanvasRenderingContext2D, design: ThumbnailDesign, images: ThumbnailImages = {}) {
+  // Reads pixels back through this canvas, so it runs before anything is drawn.
+  if (images.photo) sceneSpan(ctx, images.photo);
   ctx.save();
   ctx.clearRect(0, 0, W, H);
   (LAYOUTS[design.layout] ?? drawPartsPlus)(ctx, design, images);
