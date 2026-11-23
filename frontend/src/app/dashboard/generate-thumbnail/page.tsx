@@ -77,62 +77,70 @@ function ThumbnailCard({
   const src = thumbnail.imageUrl ?? authed;
   return (
     <div
-      className={`group overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+      className={`group flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition hover:shadow-md ${
         selected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-gray-200'
       }`}
     >
-      <button type="button" onClick={onOpen} className="relative block aspect-video w-full bg-gray-100">
-        {src ? (
-          // eslint-disable-next-line @next/next/no-img-element -- Storage URLs and blob URLs, not Next image hosts
-          <img src={src} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <span className="absolute inset-0 animate-pulse bg-gray-100" />
-        )}
-        <span className="absolute inset-0 flex items-center justify-center bg-gray-900/0 opacity-0 transition group-hover:bg-gray-900/30 group-hover:opacity-100">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow">
-            <Pencil className="h-3.5 w-3.5" /> Edit
+      <div className="relative aspect-video bg-gray-100">
+        <button type="button" onClick={onOpen} aria-label="Edit thumbnail" className="absolute inset-0 block">
+          {src ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Storage URLs and blob URLs, not Next image hosts
+            <img src={src} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="absolute inset-0 animate-pulse bg-gray-100" />
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-gray-900/0 opacity-0 transition group-hover:bg-gray-900/30 group-hover:opacity-100">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow">
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </span>
           </span>
-        </span>
-        {busy && (
-          <span className="absolute inset-0 flex items-center justify-center bg-white/60">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-          </span>
-        )}
-      </button>
-      <div className="flex items-start gap-2.5 p-3">
+          {busy && (
+            <span className="absolute inset-0 flex items-center justify-center bg-white/60">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            </span>
+          )}
+        </button>
         <button
           type="button"
           onClick={onToggle}
           aria-label={selected ? 'Deselect' : 'Select'}
-          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border transition ${
-            selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'
+          className={`absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded border shadow-sm transition ${
+            selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-white bg-white/90 hover:border-blue-500'
           }`}
         >
           {selected && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
         </button>
-        <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm font-medium leading-snug text-gray-900">{thumbnail.design.title || thumbnail.title}</p>
-          <p className="mt-1 truncate text-xs text-gray-500">{linkLabel ?? 'Not linked to an article'}</p>
-          {thumbnail.error && <p className="mt-1 line-clamp-2 text-xs text-red-600">{thumbnail.error}</p>}
-        </div>
-        <div className="flex flex-shrink-0 flex-col items-end gap-1">
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${STATUS_STYLES[thumbnail.status]}`}>
-            {STATUS_LABELS[thumbnail.status]}
+        <span className={`absolute right-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-medium shadow-sm ring-1 ring-inset ${STATUS_STYLES[thumbnail.status]}`}>
+          {STATUS_LABELS[thumbnail.status]}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col px-3 pb-2 pt-2.5">
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-gray-900">{thumbnail.design.title || thumbnail.title}</p>
+        {thumbnail.error && <p className="mt-1 line-clamp-2 text-xs text-red-600">{thumbnail.error}</p>}
+        <div className="mt-auto flex items-center gap-2 pt-2 text-[11px] text-gray-500">
+          <span className="min-w-0 flex-1 truncate" title={linkLabel ?? undefined}>
+            {linkLabel}
           </span>
           {thumbnail.shopifyAdminUrl && (
-            <a href={thumbnail.shopifyAdminUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 hover:text-blue-600">
-              Open <ExternalLink className="h-3 w-3" />
+            <a
+              href={thumbnail.shopifyAdminUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open in Shopify"
+              className="inline-flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-0.5 hover:bg-gray-100 hover:text-blue-600"
+            >
+              Shopify <ExternalLink className="h-3 w-3" />
             </a>
           )}
           {thumbnail.locked ? (
-            <Lock className="h-3.5 w-3.5 text-amber-500" />
+            <Lock className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
           ) : (
             <button
               type="button"
               onClick={onRegenerate}
               disabled={busy}
               title="New photo, keeping the text and layout"
-              className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 hover:text-blue-600 disabled:opacity-50"
+              className="inline-flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-0.5 hover:bg-gray-100 hover:text-blue-600 disabled:opacity-50"
             >
               <RefreshCw className="h-3 w-3" /> New photo
             </button>
@@ -489,10 +497,70 @@ export default function ThumbnailStudioPage() {
           <p className="mt-1 text-sm text-gray-500">Thumbnails use its colour, name and logo.</p>
         </div>
       ) : (
-        <div className="mt-6 grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <section className="flex max-h-[calc(100vh-10rem)] flex-col overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-sm lg:sticky lg:top-6">
+        <>
+        <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="font-semibold text-gray-900">Look for new thumbnails</h2>
+            <p className="text-xs text-gray-500">Every one can still be edited after it&apos;s made.</p>
+          </div>
+          <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-gray-600">Style</p>
+              <StylePicker
+                value={layout}
+                onChange={setLayout}
+                columns={4}
+                title={customTitle || sources.find((source) => picked.has(source.value))?.title}
+                color={brand?.brandColor}
+                brand={brand?.brandName}
+                disabled={Boolean(making)}
+              />
+            </div>
+            {brand?.id && (
+              <div className="lg:border-l lg:border-gray-100 lg:pl-4">
+                <p className="mb-1.5 text-xs font-medium text-gray-600">Logo</p>
+                <BrandLogoSection
+                  key={`${brand.id}:${brand.thumbnailLogoPath ?? ''}:${brand.thumbnailLogo?.mode ?? ''}`}
+                  compact
+                  brandId={brand.id}
+                  brandName={brand.brandName}
+                  logoPath={brand.thumbnailLogoPath}
+                  logoStyle={brand.thumbnailLogo}
+                  onChange={({ path, style }) =>
+                    setBrands((current) =>
+                      current.map((b) =>
+                        b.id === brand.id ? { ...b, thumbnailLogoPath: path ?? undefined, thumbnailLogo: style ?? undefined } : b
+                      )
+                    )
+                  }
+                />
+                {outdatedLogo.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={applyLogo}
+                    disabled={Boolean(applyingLogo) || Boolean(making)}
+                    className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-200 hover:bg-blue-100 disabled:opacity-60"
+                  >
+                    {applyingLogo ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating {applyingLogo.done} of {applyingLogo.total}
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5" /> Apply to {outdatedLogo.length} existing thumbnail{outdatedLogo.length === 1 ? '' : 's'}
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <section className="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:max-h-[52rem] lg:self-start">
             <div className="border-b border-gray-100 p-4">
-              <h2 className="font-semibold text-gray-900">Make thumbnails</h2>
+              <h2 className="font-semibold text-gray-900">Pick articles</h2>
               <div className="mt-3 grid grid-cols-2 rounded-lg bg-gray-100 p-0.5">
                 {(['app', 'shopify'] as const).map((value) => (
                   <button
@@ -516,7 +584,7 @@ export default function ThumbnailStudioPage() {
               </div>
             </div>
 
-            <ul className="min-h-[10rem] flex-1 divide-y divide-gray-50 overflow-y-auto">
+            <ul className="max-h-[22rem] min-h-[10rem] flex-1 divide-y divide-gray-50 overflow-y-auto lg:max-h-none">
               {tab === 'shopify' && shopifyState === 'loading' && (
                 <li className="flex justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
@@ -540,61 +608,20 @@ export default function ThumbnailStudioPage() {
             </ul>
 
             <div className="space-y-3 border-t border-gray-100 p-4">
+              {picked.size > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-gray-700">{picked.size} picked</span>
+                  <button type="button" onClick={() => setPicked(new Set())} className="font-medium text-gray-500 hover:text-blue-600">
+                    Clear
+                  </button>
+                </div>
+              )}
               <input
                 value={customTitle}
                 onChange={(event) => setCustomTitle(event.target.value)}
                 placeholder="Or type any title"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
-              {brand?.id && (
-                <div>
-                  <p className="mb-1.5 text-xs font-medium text-gray-600">Logo</p>
-                  <BrandLogoSection
-                    key={`${brand.id}:${brand.thumbnailLogoPath ?? ''}:${brand.thumbnailLogo?.mode ?? ''}`}
-                    compact
-                    brandId={brand.id}
-                    brandName={brand.brandName}
-                    logoPath={brand.thumbnailLogoPath}
-                    logoStyle={brand.thumbnailLogo}
-                    onChange={({ path, style }) =>
-                      setBrands((current) =>
-                        current.map((b) =>
-                          b.id === brand.id ? { ...b, thumbnailLogoPath: path ?? undefined, thumbnailLogo: style ?? undefined } : b
-                        )
-                      )
-                    }
-                  />
-                  {outdatedLogo.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={applyLogo}
-                      disabled={Boolean(applyingLogo) || Boolean(making)}
-                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-200 hover:bg-blue-100 disabled:opacity-60"
-                    >
-                      {applyingLogo ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating {applyingLogo.done} of {applyingLogo.total}
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="h-3.5 w-3.5" /> Apply to {outdatedLogo.length} existing thumbnail{outdatedLogo.length === 1 ? '' : 's'}
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
-              <div>
-                <p className="mb-1.5 text-xs font-medium text-gray-600">Style</p>
-                <StylePicker
-                  value={layout}
-                  onChange={setLayout}
-                  title={customTitle || sources.find((source) => picked.has(source.value))?.title}
-                  color={brand?.brandColor}
-                  brand={brand?.brandName}
-                  disabled={Boolean(making)}
-                />
-              </div>
               {making ? (
                 <div>
                   <div className="flex items-center justify-between text-xs text-gray-600">
@@ -693,7 +720,7 @@ export default function ThumbnailStudioPage() {
             </div>
 
             {loading ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className="aspect-[4/3] animate-pulse rounded-xl bg-gray-100" />
                 ))}
@@ -705,7 +732,7 @@ export default function ThumbnailStudioPage() {
                 <p className="mt-1 text-sm text-gray-500">Pick articles on the left and we&apos;ll make one for each.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4 p-0.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4 p-0.5">
                 {thumbnails.map((thumbnail) => (
                   <ThumbnailCard
                     key={thumbnail.id}
@@ -722,6 +749,7 @@ export default function ThumbnailStudioPage() {
             )}
           </section>
         </div>
+        </>
       )}
 
       {editing && (
